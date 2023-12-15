@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34322.80
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "daemon", "daemon.csproj", "{6FC3912F-8493-45F6-905A-82021BAE5380}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Debug|x64.ActiveCfg = Debug|x64
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Debug|x64.Build.0 = Debug|x64
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Release|x64.ActiveCfg = Release|x64
+		{6FC3912F-8493-45F6-905A-82021BAE5380}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9AFD22AF-2745-493E-A816-0856C77A24ED}
+	EndGlobalSection
+EndGlobal
