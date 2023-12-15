@@ -22,7 +22,7 @@ namespace daemon
 
         public static void StartWsServer()
         {
-            Log.Information($"Starting websocket server on {Daemon.Config.DaemonIP}:{Daemon.Config.DaemonPort}");
+            Log.Information("Starting websocket server on {IP}:{Port}", Daemon.Config.DaemonIP, Daemon.Config.DaemonPort);
             Wss = new WebSocketServer(Daemon.Config.DaemonIP, Daemon.Config.DaemonPort);   // May need to set up SSL later
             // Set up the WebRTC handler
             Wss.AddWebSocketService<WebRTCWebSocketPeer>("/rtc", (peer) => peer.CreatePeerConnection = WebRTC.CreatePeerConnection);
@@ -53,7 +53,7 @@ namespace daemon
         protected override void OnMessage(MessageEventArgs e)
         {
             var msg = e.Data;
-            Serilog.Log.Debug($"Got client message from websocket: {msg}");
+            Serilog.Log.Debug("Got client message from websocket: {WSMessage}", msg);
         }
     }
 }

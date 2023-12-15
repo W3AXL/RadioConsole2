@@ -149,7 +149,7 @@ namespace netcore_cli
 
         internal static int ReadConfig(FileInfo configFile)
         {
-            Log.Debug($"Reading config file {configFile}");
+            Log.Debug("Reading config file {ConfigFilePath}", configFile);
             // Read file
             string toml = File.ReadAllText(configFile.FullName);
             // Parse TOML
@@ -158,19 +158,19 @@ namespace netcore_cli
             var info = (TomlTable)config["info"];
             Config.DaemonName = (string)info["name"];
             Config.DaemonDesc = (string)info["desc"];
-            Log.Debug($"    Name: {Config.DaemonName}");
-            Log.Debug($"    Desc: {Config.DaemonDesc}");
+            Log.Debug("         Name: {DaemonName}", Config.DaemonName);
+            Log.Debug("         Desc: {DaemonDesc}", Config.DaemonDesc);
             // Daemon Network Config
             var net = (TomlTable)config["network"];
             Config.DaemonIP = IPAddress.Parse((string)net["ip"]);
             Config.DaemonPort = (int)(long)net["port"];
-            Log.Debug($"    Daemon address: {Config.DaemonIP}:{Config.DaemonPort}");
+            Log.Debug("      Address: {IP}:{Port}", Config.DaemonIP, Config.DaemonPort);
             // Audio config
             var audio = (TomlTable)config["audio"];
             Config.TxAudioDevice = (string)audio["txDevice"];
             Config.RxAudioDevice = (string)audio["rxDevice"];
-            Log.Debug($"    TX audio device (speaker): {Config.TxAudioDevice}");
-            Log.Debug($"    RX audio device (mic):     {Config.RxAudioDevice}");
+            Log.Debug("    TX device: {TxDevice}", Config.TxAudioDevice);
+            Log.Debug("    RX device: {RxDevice}", Config.RxAudioDevice);
             // Control Config
             var radioCfg = (TomlTable)config["radio"];
             string controlType = (string)radioCfg["type"];
@@ -180,7 +180,7 @@ namespace netcore_cli
                 var noneConfig = (TomlTable)config["none"];
                 string zoneName = (string)noneConfig["zone"];
                 string chanName = (string)noneConfig["chan"];
-                Log.Debug($"    Non-controlled radio");
+                Log.Debug("      Control: Non-controlled radio");
                 radio = new Radio(RadioType.ListenOnly, zoneName, chanName);
             }
             else if (controlType == "sb9600")
@@ -190,7 +190,7 @@ namespace netcore_cli
                 var sb9600config = (TomlTable)config["sb9600"];
                 SB9600.HeadType head = (SB9600.HeadType)Enum.Parse(typeof(SB9600.HeadType), (string)sb9600config["head"]);
                 string port = (string)sb9600config["port"];
-                Log.Debug($"    {head}-head SB9600 radio on port {port}");
+                Log.Debug("      Control: {HeadType}-head SB9600 radio on port {SerialPort}", head, port);
                 // Create SB9600 radio object
                 radio = new Radio(RadioType.SB9600, head, port, rxOnly);
                 radio.StatusCallback = DaemonWebsocket.SendRadioStatus; 
@@ -201,7 +201,7 @@ namespace netcore_cli
             }
             else
             {
-                Log.Error($"Unknown radio control type specified: {controlType}");
+                Log.Error("Unknown radio control type specified: {InvalidControlType}", controlType);
                 return 1;
             }
             return 0;
@@ -226,7 +226,7 @@ namespace netcore_cli
                 Log.Information("Available audio input devices:");
                 for (int i = 0; i < sdlInputs.Count; i++)
                 {
-                    Log.Information($"    {i}: {sdlInputs[i]}");
+                    Log.Information("    {Index}: {Name}", i, sdlInputs[i]);
                 }
             }
 
@@ -239,7 +239,7 @@ namespace netcore_cli
                 Log.Information("Available audio output devices");
                 for (int i=0; i < sdlOutputs.Count; i++)
                 {
-                    Log.Information($"    {i}: {sdlOutputs[i]}");
+                    Log.Information("    {Index}: {Name}", i, sdlOutputs[i]);
                 }
             }
 

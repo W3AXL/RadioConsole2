@@ -12,5 +12,10 @@ namespace daemon
         {
             return BitConverter.ToString(bytes).Replace("-", " ");
         }
+
+        public static string Hex(byte singleByte)
+        {
+            return BitConverter.ToString([singleByte]).Replace("-", " ");
+        }
     }
 }

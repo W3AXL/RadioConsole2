@@ -14,6 +14,9 @@ using Org.BouncyCastle.Utilities;
 using WebSocketSharp;
 using Org.BouncyCastle.Crypto.Digests;
 using netcore_cli;
+using System.ComponentModel.DataAnnotations;
+using System.Data.SqlTypes;
+using System.Reflection.Emit;
 
 namespace daemon
 {
@@ -80,16 +83,11 @@ namespace daemon
             public static readonly Dictionary<string, byte> Buttons = new Dictionary<string, byte>()
             {
                 { "ptt", 0x01 },
-                { "mode_down", 0x50 },
-                { "mode_up", 0x51 },
-                { "vol_down", 0x52 },
-                { "vol_up", 0x53 },
-                { "btn_top_1", 0x63 },
-                { "btn_top_2", 0x64 },
-                { "btn_top_3", 0x65 },
-                { "btn_top_4", 0x66 },
-                { "btn_top_5", 0x67 },
-                { "btn_top_6", 0x68 },
+                { "vip_1", 0x06 },
+                { "vip_2", 0x07 },
+                { "radio_sel", 0x10 },
+                { "rssi", 0x11 },
+                { "spkr_routing", 0x12 },
                 { "btn_kp_1", 0x31 },
                 { "btn_kp_2", 0x32 },
                 { "btn_kp_3", 0x33 },
@@ -102,9 +100,19 @@ namespace daemon
                 { "btn_kp_*", 0x3A },
                 { "btn_kp_0", 0x30 },
                 { "btn_kp_#", 0x3B },
-                { "btn_home", 0x61 },
+                { "btn_mode_down", 0x50 },
+                { "btn_mode_up", 0x51 },
+                { "btn_vol_down", 0x52 },
+                { "btn_vol_up", 0x53 },
                 { "btn_sel", 0x60 },
+                { "btn_home", 0x61 },
                 { "btn_dim", 0x62 },
+                { "btn_top_1", 0x63 },
+                { "btn_top_2", 0x64 },
+                { "btn_top_3", 0x65 },
+                { "btn_top_4", 0x66 },
+                { "btn_top_5", 0x67 },
+                { "btn_top_6", 0x68 },
             };
 
             public static readonly Dictionary<string, byte> Indicators = new Dictionary<string, byte>()
@@ -188,8 +196,8 @@ namespace daemon
         // Reference to Radio object for updating parameters
         public RadioStatus radioStatus { get; set; }
 
-        private string displayText1 { get; set; }
-        private string displayText2 { get; set; }
+        private string displayText1 { get; set; } = "";
+        private string displayText2 { get; set; } = "";
         private List<TextLookup> ZoneLookups { get; set; }
         private List<TextLookup> ChanLookups { get; set; }
         
@@ -220,7 +228,7 @@ namespace daemon
             0x19, 0x80, 0xb4, 0x2d, 0xdc, 0x45, 0x71, 0xe8, 0x0c, 0x95, 0xa1, 0x38, 0xc9, 0x50, 0x64, 0xfd
         };
 
-        private enum SB9600Addresses
+        private enum SB9600Addresses : byte
         {
             BROADCAST   = 0x00,
             RADIO       = 0x01,
@@ -251,11 +259,13 @@ namespace daemon
             VEHICLE_ADP = 0x1B
         }
 
-        private enum SB9600Opcodes
+        private enum SB9600Opcodes : byte
         {
+            // Broadcasts
             EPREQ  = 0x06,  // Expanded protocol request (enter SBEP)
             SETBUT = 0x0A,  // Set button
             RADRDY = 0x15,  // Radio Ready
+            OPTSTS = 0x16,  // Option Status Value
             RADKEY = 0x19,  // Radio Key
             RXAUD  = 0x1A,  // RX audio routing
             TXAUD  = 0x1B,  // TX audio routing
@@ -266,7 +276,11 @@ namespace daemon
             PRUPST = 0x3B,  // Power-up Self-Test Result
             DISPLY = 0x3C,  // Display
             BUTCTL = 0x57,  // Button control
-            LUMCTL = 0x58   // Illumination Control
+            LUMCTL = 0x58,  // Illumination Control
+            CNFREQ = 0x59,  // Configuration Request
+            // Requests
+            REQ_OPTSTS = 0x96,  // Option Status Value Request
+            REQ_CNFREQ = 0xD9,  // Configuration Request Request (lol)
         }
 
         private class SB9600Msg
@@ -277,6 +291,9 @@ namespace daemon
 
             public SB9600Msg()
             {
+                Address = 0x00;
+                Data = new byte[2] { 0x00, 0x00 };
+                Opcode = 0x00;
             }
 
             public SB9600Msg(byte _address, byte[] _data, byte _opcode)
@@ -304,10 +321,11 @@ namespace daemon
             /// <returns></returns>
             public bool Decode(byte[] data)
             {
+                Log.Verbose("Decoding SB9600 message {Sb9600Msg}", data);
                 // Verify data length
                 if (data.Length > 5)
                 {
-                    Log.Error($"Tried to parse SB9600 message longer than 5! ({data.Length})");
+                    Log.Error("Tried to parse SB9600 message longer than 5! ({Length})", data.Length);
                     return false;
                 }
 
@@ -320,7 +338,7 @@ namespace daemon
                 // Verify CRC
                 if (data[4] != CalcCrc())
                 {
-                    Log.Error($"Invalid CRC received. Expected {CalcCrc()}, got {data[4]}");
+                    Log.Error("Invalid CRC received. Expected {CalculatedCRC}, got {ReceivedCRC}", CalcCrc(), data[4]);
                     return false;
                 }
 
@@ -344,14 +362,14 @@ namespace daemon
             }
         }
 
-        private enum SBEPModules
+        private enum SBEPModules : byte
         {
             BROADCAST = 0x00,
             RADIO = 0x01,
             PANEL = 0x05,
         }
 
-        private enum SBEPOpcodes
+        private enum SBEPOpcodes : byte
         {
             RESERVED = 0x00,
             DISPLAY = 0x01,
@@ -360,6 +378,7 @@ namespace daemon
             ACK = 0x05,
             NACK = 0x06,
             EXTENDED = 0x0F,
+            INDICATOR = 0x21,
         }
 
         private class SBEPMsg
@@ -369,6 +388,7 @@ namespace daemon
 
             private static byte CalcCrc(byte[] data)
             {
+                Log.Verbose("Calculating SBEP CRC for data array {data}", data);
                 byte crc = 0x00;
                 foreach (byte b in data)
                 {
@@ -380,11 +400,10 @@ namespace daemon
 
             public int Decode(byte[] data)
             {
-                // Starting length
-                int length = 0;
+                Log.Verbose("Decoding SBEP message {SbepMsg}", data);
 
                 // Data array start index
-                int dataidx = 1;
+                int dataIdx = 1;
 
                 // Get msn and lsn of first byte
                 byte msn = (byte)(data[0] >> 4);
@@ -395,8 +414,7 @@ namespace daemon
                 if (msn == 0x0F)
                 {
                     opcode = data[1];
-                    length += 1;
-                    dataidx += 1;
+                    dataIdx += 1;
                 }
                 else
                 {
@@ -404,39 +422,53 @@ namespace daemon
                 }
 
                 // Get length next
+                int length = 0;
                 if (lsn == 0x0F)
                 {
+                    byte[] lenBytes;
                     if (opcode >= 0x0F)
                     {
                         // we start at index 2 if we have a preceeding extended opcode byte
-                        length += BitConverter.ToInt16(data, 2);
+                        lenBytes = data[2..4];
                     }
                     else
                     {
                         // start at index 1 if there's no extended opcode byte
-                        length += BitConverter.ToInt16(data, 1);
+                        lenBytes = data[1..3];
                     }
-                    dataidx += 2;
+                    Log.Verbose("Got extended SBEP size bytes {SizeBytes}", lenBytes);
+                    if (BitConverter.IsLittleEndian)
+                    {
+                        Array.Reverse(lenBytes);
+                    }
+                    length = BitConverter.ToInt16(lenBytes);
+                    Log.Verbose("Got extended SBEP size {Size}", length);
+                    dataIdx += 2;
                 }
                 else
                 {
-                    length += lsn;
+                    length = lsn;
+                    Log.Verbose("Got SBEP size {LSN} = {Size}", Util.Hex(lsn), length);
                 }
 
+                // Extract data
+                byte[] msgData = data[dataIdx..(dataIdx + length - 1)];
+                Log.Verbose("Got SBEP message data {SbepMsgData}", msgData);
+                byte recvCrc = data[dataIdx + length - 1];
+
                 // Perform CRC check now
-                byte recvCrc = data[length - 1];                // the crc should be the last byte (i.e. at position length - 1)
-                byte calcCrc = CalcCrc(data[0..(length-2)]);    // we caculate CRC on all bytes except the CRC so it's length - 2
+                byte calcCrc = CalcCrc(data[..(length + dataIdx - 1)]);
                 if (recvCrc != calcCrc)
                 {
-                    Log.Error($"SBEP CRC check failed! Got {recvCrc} but expected {calcCrc}");
+                    Log.Error("SBEP CRC check failed! Got {ReceivedCRC} but expected {CalculatedCRC}", Util.Hex(recvCrc), Util.Hex(calcCrc));
                     return 0;
                 }
 
                 // Set variables
                 Opcode = opcode;
-                Data = data[dataidx..(length - 2)];
+                Data = data[dataIdx..(length - 2)];
 
-                return length;
+                return length + dataIdx;
             }
 
             /// <summary>
@@ -549,7 +581,7 @@ namespace daemon
             {
                 throw new Exception("Specified serial port does not exist!");
             }
-            Log.Debug($"Starting SB9600 service on serial port {Port.PortName}");
+            Log.Debug("Starting SB9600 service on serial port {SerialPortName}", Port.PortName);
             ts = new CancellationTokenSource();
             ct = ts.Token;
             Task.Factory.StartNew(serialLoop, ct);
@@ -558,7 +590,7 @@ namespace daemon
 
         public void Stop()
         {
-            Log.Debug($"Stopping SB9600 service on serial port {Port.PortName}");
+            Log.Debug("Stopping SB9600 service on serial port {SerialPortName}", Port.PortName);
             if (ts != null)
             {
                 Log.Verbose("Cancelling service token");
@@ -612,24 +644,28 @@ namespace daemon
             {
                 // flush the buffers
                 Port.DiscardInBuffer();
-                Port.DiscardOutBuffer();
                 // Send the msg
                 Port.Write(data, 0, data.Length);
+                Port.DiscardOutBuffer();
                 attempts--;
+                // Wait for RX bytes to come back
+                while (Port.BytesToRead < data.Length) { Thread.Sleep(1); }
                 // Verify sent
                 byte[] rx = new byte[data.Length];
                 Port.Read(rx, 0, rx.Length);
-                if (rx != data)
+                if (!rx.SequenceEqual(data))
                 {
                     sent = false;
-                    Log.Error($"Failed to verify SB9600 message TX. Sent {Util.Hex(data)}, Recieved {Util.Hex(rx)}. ({attempts} attempts left)");
+                    Log.Error("Failed to verify SB9600 message TX. Sent {SentBytes}, Recieved {ReceivedBytes}. ({Attempts} attempts left)", data, rx, attempts);
                 }
                 else
                 {
+                    Log.Debug("Sent message {SentMessage} successfully!", data);
                     sent = true;
                 }
             }
             // return success or failure
+            setBusy(false);
             return sent;
         }
 
@@ -641,15 +677,17 @@ namespace daemon
                 throw new ArgumentException($"SB9600 message must be 5 bytes long. Got {msgBytes.Length} bytes");
             }
 
-            Log.Debug($"Got SB9600 message {msgBytes}");
+            Log.Debug("Got SB9600 message {SB9600Message}", msgBytes);
 
             // Decode message
             SB9600Msg msg = new SB9600Msg();
             if (msg.Decode(msgBytes) == false)
             {
-                Log.Error($"Failed to decode SB9600 message {msgBytes}");
+                Log.Error("Failed to decode SB9600 message {SB9600Message}", msgBytes);
                 return false;
             }
+
+            Log.Verbose("Verified CRC successfully");
 
             // Proccess
             switch (msg.Address)
@@ -677,16 +715,16 @@ namespace daemon
                                 inSbep = true;
                                 if (baudrate != 0x02)
                                 {
-                                    Log.Error($"Got command to switch to unsupported SBEP baudrate {baudrate}");
+                                    Log.Error("Got command to switch to unsupported SBEP baudrate {CommandedBaudrate}", baudrate);
                                 }
                                 else
                                 {
                                     inSbep = true;
-                                    Log.Debug($"Entering SBEP at 9600 baud");
+                                    Log.Debug("Entering SBEP at 9600 baud");
                                 }
                             } else
                             {
-                                Log.Warning($"Got EPREQ command for unknon protocol {protocol}");
+                                Log.Warning("Got EPREQ command for unknon protocol {EPREQProtocol}", protocol);
                             }
                             break;
                         ///
@@ -732,7 +770,7 @@ namespace daemon
                                     }
                                     break;
                                 default:
-                                    Log.Warning($"Unhandled SETBUT button register {msg.Data[0]}");
+                                    Log.Warning("Unhandled SETBUT button register {ButtonRegister}", Util.Hex(msg.Data[0]));
                                     break;
                             }
                             break;
@@ -744,11 +782,11 @@ namespace daemon
                             // If any bits are 1, those indicate errors
                             if (msg.Data[0] != 0x00)
                             {
-                                Log.Error($"Detected PRUPST errors from group {group}, address {address}: {msg.Data[0]}");
+                                Log.Error("Detected PRUPST errors from group {Group}, address {Address}: {Flags:X2}", group, address, msg.Data[0]);
                             }
                             else
                             {
-                                Log.Information($"Got normal PRUPST from group {group}, address {address}");
+                                Log.Information("Got normal PRUPST from group {Group}, address {Address}", group, address);
                             }
                             break;
                         ///
@@ -759,7 +797,10 @@ namespace daemon
                         /// Handle any unknown codes with a warning
                         ///
                         default:
-                            Log.Warning($"Unhandled SB9600 broadcast opcode {msg.Opcode}");
+                            if (Enum.IsDefined(typeof(SB9600Opcodes), msg.Opcode))
+                                Log.Warning("Unhandled SB9600 broadcast opcode {Opcode:X2} ({Name})", msg.Opcode, Enum.GetName(typeof(SB9600Opcodes), msg.Opcode));
+                            else
+                                Log.Warning("Unhandled SB9600 broadcast opcode {Opcode:X2}", msg.Opcode);
                             break;
                     }
                     break;
@@ -773,7 +814,7 @@ namespace daemon
                         /// Radio Ready Opcode
                         ///
                         case (byte)SB9600Opcodes.RADRDY:
-                            Log.Debug($"Got RADRDY opcode. Data: {msg.Data}");
+                            Log.Debug("Got RADRDY opcode. Data: {RadRdyData:X4}", msg.Data);
                             break;
                         ///
                         /// Radio Key
@@ -802,7 +843,7 @@ namespace daemon
                         /// RX Audio Routing
                         ///
                         case (byte)SB9600Opcodes.RXAUD:
-                            Log.Debug($"Got new audio routing: {msg.Data}");
+                            Log.Debug("Got new audio routing: {RXAUDData}", msg.Data);
                             break;
                         ///
                         /// Audio Muting
@@ -841,14 +882,14 @@ namespace daemon
                             // Throw a warning on any unknown states
                             else
                             {
-                                Log.Warning($"Got unknown SQLDET status {msg.Data[1]}");
+                                Log.Warning("Got unknown SQLDET status {SqlDetStatus:X2}", msg.Data[1]);
                             }
                             break;
                         ///
                         /// Active Mode Update Message
                         /// 
                         case (byte)SB9600Opcodes.ACTMDU:
-                            Log.Information($"Got ACTMDU for mode number {msg.Data[1]} with options {msg.Data[0]}");
+                            Log.Information("Got ACTMDU for mode number {Mode:X2} with options {Options:X2}", msg.Data[1], msg.Data[0]);
                             break;
                         ///
                         /// PL Detect
@@ -874,7 +915,7 @@ namespace daemon
                         /// Display
                         /// 
                         case (byte)SB9600Opcodes.DISPLY:
-                            Log.Debug($"Got DISPLY update for field {msg.Data[0]}, data: {msg.Data[1]}");
+                            Log.Debug("Got DISPLY update for field {Field:X2}, data: {Data:X2}", msg.Data[0], msg.Data[1]);
                             break;
                         ///
                         /// Unknown opcode that pops up on XTLs for some reason
@@ -885,7 +926,10 @@ namespace daemon
                         /// Throw warning for any unhandled opcodes
                         ///
                         default:
-                            Log.Warning($"Unhandled SB9600 radio opcode {msg.Opcode}");
+                            if (Enum.IsDefined(typeof(SB9600Opcodes), msg.Opcode))
+                                Log.Warning("Unhandled SB9600 radio opcode {Opcode:X2} ({Name})", msg.Opcode, Enum.GetName(typeof(SB9600Opcodes), msg.Opcode));
+                            else
+                                Log.Warning("Unhandled SB9600 radio opcode {Opcode:X2}", msg.Opcode);
                             break;
                     }
                     break;
@@ -902,16 +946,20 @@ namespace daemon
                             // Lookup the button
                             string buttonName = ControlHeads.GetButton(Head, msg.Data[0]);
                             // Ignore knobs for now
-                            if (buttonName.Contains("knob")) { }
+                            if (buttonName == null)
+                            {
+                                Log.Warning("Unhandled button code {ButtonCode:X2} for control head {ControlHead}!", msg.Data[0], Head);
+                            }
+                            else if (buttonName.Contains("knob")) { }
                             else
                             {
                                 if (msg.Data[1] == 0x01)
                                 {
-                                    Log.Information($"Button {buttonName} pressed");
+                                    Log.Information("Button {Button} pressed", buttonName);
                                 }
                                 else
                                 {
-                                    Log.Information($"Button {buttonName} released");
+                                    Log.Information("Button {Button} released", buttonName);
                                 }
                             }
                             break;
@@ -924,12 +972,18 @@ namespace daemon
                         /// Deafult handler for unknown opcodes
                         ///
                         default:
-                            Log.Warning($"Unhandled SB9600 front panel opcode {msg.Opcode}");
+                            if (Enum.IsDefined(typeof(SB9600Opcodes), msg.Opcode))
+                                Log.Warning("Unhandled SB9600 front panel opcode {Opcode:X2} ({Name})", msg.Opcode, Enum.GetName(typeof(SB9600Opcodes), msg.Opcode));
+                            else
+                                Log.Warning("Unhandled SB9600 front panel opcode {Opcode:X2}", msg.Opcode);
                             break;
                     }
                     break;
                 default:
-                    Log.Warning($"Unhandled SB9600 address: {msg.Address}");
+                    if (Enum.IsDefined(typeof(SB9600Addresses), msg.Address))
+                        Log.Warning("Unhandled SB9600 address {Address:X2} ({Name})", msg.Address, Enum.GetName(typeof(SB9600Addresses), msg.Address));
+                    else
+                        Log.Warning("Unhandled SB9600 address {Address:X2}", msg.Address);
                     break;
             }
 
@@ -938,9 +992,9 @@ namespace daemon
 
         private int processSBEP(byte[] msgBytes)
         {
-            Log.Debug($"Processing SBEP message {msgBytes}");
+            Log.Debug("Processing SBEP message {MsgBytes}", msgBytes);
 
-            int totalBytes = 0;
+            int extraBytes = 0;
             byte[] origMsg = msgBytes;
 
             // Ignore the 0x50 ACK if there is one
@@ -948,8 +1002,8 @@ namespace daemon
             {
                 // Get rid of the byte
                 msgBytes = msgBytes[1..];
-                totalBytes += 1;
-                Log.Debug($"Ignoring SBEP 0x50 ACK");
+                extraBytes += 1;
+                Log.Verbose("Ignoring leading SBEP 0x50 ACK");
             }
 
             // Try to decode from the msg buffer
@@ -968,14 +1022,14 @@ namespace daemon
                     case (byte)SBEPOpcodes.DISPLAY:
                         Log.Debug("Got SBEP display update");
                         // Get display update params
-                        byte row = msg.Data[0];
-                        byte col = msg.Data[1];
+                        byte row = (byte)(msg.Data[0] & 0b01111111);    // we strip the MSB since it just indicates cursor hide/show
+                        byte col = (byte)(msg.Data[1] & 0b01111111);
                         byte chars = msg.Data[2];
                         byte srow = msg.Data[3];
                         byte scol = msg.Data[4];
                         // Extract display characters
                         string text = Encoding.ASCII.GetString(msg.Data, 5, chars);
-                        Log.Verbose($"Got text string ({chars}) from SBEP: {text}");
+                        Log.Verbose("Got text string ({StringLen}) from SBEP: {String}", chars, text);
                         // Update head parameters depending on head type
                         switch (Head)
                         {
@@ -984,9 +1038,9 @@ namespace daemon
                             /// so we extract both zone & channel text lookups from one display line
                             ///
                             case HeadType.W9:
-                                Log.Verbose($"Got W9 display update for row/col {row}/{col}");
-                                string newDisplay = displayText1.Substring(0, scol) + text + displayText1.Substring(scol);
-                                Log.Debug($"Got new display text: {newDisplay}");
+                                Log.Verbose("Got W9 display update for row/col {StartingRow}/{StartingCol}", srow, scol);
+                                string newDisplay = displayText1[..scol] + text + displayText1[Math.Min((scol + chars),displayText1.Length)..];
+                                Log.Debug("Got new display text: {NewDisplayText}", newDisplay);
                                 if (newDisplay != displayText1)
                                 {
                                     // Update our display text
@@ -994,32 +1048,36 @@ namespace daemon
                                     // By default we use the full display as the radio's channel text
                                     radioStatus.ChannelName = displayText1;
                                     // Lookup zone text match, if any
-                                    if (ZoneLookups.Count > 0)
+                                    if (ZoneLookups != null)
                                     {
                                         foreach (TextLookup lookup in ZoneLookups)
                                         {
                                             if (displayText1.Contains(lookup.Match))
                                             {
                                                 radioStatus.ZoneName = lookup.Replacement;
-                                                Log.Debug($"Found zone text {radioStatus.ZoneName} from {lookup.Match} in display text {displayText1}");
+                                                Log.Debug("Found zone text {ZoneName} from {Match} in display text {Text}", radioStatus.ZoneName, lookup.Match, displayText1);
                                                 // Replace the channel text with the display text minus the matched characters
                                                 radioStatus.ChannelName = displayText1.Replace(lookup.Match, "");
                                             }
                                         }
                                     }
                                     // Lookup channel text match, if any
-                                    if (ChanLookups.Count > 0)
+                                    if (ChanLookups != null)
                                     {
                                         foreach (TextLookup lookup in ChanLookups)
                                         {
                                             if (radioStatus.ChannelName.Contains(lookup.Match))
                                             {
                                                 radioStatus.ChannelName = lookup.Replacement;
-                                                Log.Debug($"Found channel text {radioStatus.ChannelName} from {lookup.Match} in original text {radioStatus.ChannelName}");
+                                                Log.Debug("Found channel text {ChannelName} from {Match} in original text {Text}", radioStatus.ChannelName, lookup.Match, displayText1);
                                             }
                                         }
                                     }
                                     // Flag that we've got a new status
+                                    if (radioStatus.ChannelName != "")
+                                        Log.Information("Got new channel name: {ChanText}", radioStatus.ChannelName);
+                                    if (radioStatus.ZoneName != "")
+                                        Log.Information("Got new zone name: {ZoneText}", radioStatus.ZoneName);
                                     newStatus = true;
                                 }
                                 break;
@@ -1032,12 +1090,12 @@ namespace daemon
                                 if (srow == 0)
                                 {
                                     // Replace the specified indexes based on starting column value
-                                    displayText1 = displayText1.Substring(0, scol) + text + displayText1.Substring(scol);
+                                    displayText1 = displayText1[..scol] + text + displayText1[(scol + chars)..];
                                     // Verify that the new text is not an ignored string
                                     if (ControlHeads.M3.IgnoredStrings.IndexOf(displayText1) == -1)
                                     {
                                         radioStatus.ZoneName = displayText1;
-                                        Log.Debug($"Got new zone text for radio: {radioStatus.ZoneName}");
+                                        Log.Debug("Got new zone text for radio: {ZoneName}", radioStatus.ZoneName);
                                         // Perform lookup
                                         if (ZoneLookups.Count > 0)
                                         {
@@ -1046,7 +1104,7 @@ namespace daemon
                                                 if (radioStatus.ZoneName.Contains(lookup.Match))
                                                 {
                                                     radioStatus.ZoneName = lookup.Replacement;
-                                                    Log.Debug($"Found zone text {radioStatus.ZoneName} from {lookup.Match} in original text {displayText1}");
+                                                    Log.Debug("Found zone text {ZoneName} from {Match} in original text {Text}", radioStatus.ZoneName, lookup.Match, displayText1);
                                                 }
                                             }
                                         }
@@ -1058,12 +1116,12 @@ namespace daemon
                                 else if (srow == 1)
                                 {
                                     // Replace updated characters
-                                    displayText2 = displayText2.Substring(0, scol) + text + displayText2.Substring(scol);
+                                    displayText2 = displayText2[..scol] + text + displayText2[(scol + chars)..];
                                     // Verify that it's not an ignored string
                                     if (ControlHeads.M3.IgnoredStrings.IndexOf(displayText2) == -1)
                                     {
                                         radioStatus.ChannelName = displayText2;
-                                        Log.Debug($"Got new channel text for radio: {radioStatus.ChannelName}");
+                                        Log.Debug("Got new channel text for radio: {ChannelName}", radioStatus.ChannelName);
                                         // Perform lookup
                                         if (ChanLookups.Count > 0)
                                         {
@@ -1072,7 +1130,7 @@ namespace daemon
                                                 if (radioStatus.ChannelName.Contains(lookup.Match))
                                                 {
                                                     radioStatus.ChannelName = lookup.Replacement;
-                                                    Log.Debug($"Found channel text {radioStatus.ChannelName} from {lookup.Match} in original text {displayText2}");
+                                                    Log.Debug("Found channel text {ChannelName} from {Match} in original text {Text}", radioStatus.ChannelName, lookup.Match, displayText2);
                                                 }
                                             }
                                         }
@@ -1093,13 +1151,23 @@ namespace daemon
                     /// Default warning for unhandled SBEP codes
                     ///
                     default:
-                        Log.Warning($"Got unhandled SBEP opcode {msg.Opcode}");
+                        if (Enum.IsDefined(typeof(SBEPOpcodes), msg.Opcode))
+                            Log.Warning("Got unhandled SBEP opcode {Opcode:X2} ({Name})", msg.Opcode, Enum.GetName(typeof(SBEPOpcodes), msg.Opcode));
+                        else
+                            Log.Warning("Got unhandled SBEP opcode {Opcode:X2}", msg.Opcode);
                         break;
                 }
             }
 
+            // Check for a trailing 0x50 ack and discard it
+            if (msgBytes[extraBytes + msgLength - 1] == 0x50)
+            {
+                extraBytes += 1;
+                Log.Verbose("Ignoring trailing SBEP 0x50 ACK");
+            }
+
             // Return the total number of bytes we read
-            return totalBytes + msgLength;
+            return extraBytes + msgLength;
         }
 
         private void processData(byte[] data)
@@ -1119,7 +1187,7 @@ namespace daemon
                 if (data.Length > processed)
                 {
                     data = data[processed..];
-                    Log.Debug($"Processing remaining SB9600 data: {data}");
+                    Log.Debug("Processing remaining SB9600 data: {RemainingData}", data);
                     processData(data);
                 }
             }
@@ -1178,17 +1246,16 @@ namespace daemon
             Log.Debug("SB9600 service running");
             while (!token.IsCancellationRequested)
             {
-                // Wait for BUSY to clear
-                while (getBusy() && !token.IsCancellationRequested) { }
-
+                // Get the current state of BUSY
+                bool BUSY = getBusy();
                 // Receive first
                 // Check if we're actively receiving
-                if (getBusy() && waiting) { }
+                if (BUSY && waiting) { }
                 // Check if we just started receicing
-                else if (getBusy() && !waiting)
+                else if (BUSY && !waiting)
                     waiting = true;
                 // Message is done, so process it
-                else if (waiting && !getBusy())
+                else if (waiting && !BUSY)
                 {
                     waiting = false;
                     // Read message
@@ -1196,14 +1263,11 @@ namespace daemon
                     Port.Read(rxMsg, 0, Port.BytesToRead);
                     // Process
                     processData(rxMsg);
-                    // Clear buffers
-                    Port.DiscardInBuffer();
-                    Port.DiscardOutBuffer();
                 }
 
                 // Transmit next
                 // Send a message from the queue if we're not waiting on RX and not busy
-                if (!waiting && !getBusy())
+                if (!waiting && !BUSY)
                 {
                     // Try and get a message and send it
                     QueueMessage msg = null;
@@ -1236,6 +1300,9 @@ namespace daemon
                         }
                     }
                 }
+
+                // Give the CPU a break
+                Thread.Sleep(1);
             }
         }
     }

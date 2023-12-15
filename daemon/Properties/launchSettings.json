@@ -1,0 +1,24 @@
+{
+  "profiles": {
+    "verbose noreset": {
+      "commandName": "Project",
+      "commandLineArgs": "-d -v -nr -c .\\config.toml",
+      "workingDirectory": "H:\\Documents\\GitHub\\RadioConsole2\\daemon"
+    },
+    "verbose": {
+      "commandName": "Project",
+      "commandLineArgs": "-d -v -c .\\config.toml",
+      "workingDirectory": "H:\\Documents\\GitHub\\RadioConsole2\\daemon"
+    },
+    "debug": {
+      "commandName": "Project",
+      "commandLineArgs": "-d -c .\\config.toml",
+      "workingDirectory": "H:\\Documents\\GitHub\\RadioConsole2\\daemon"
+    },
+    "info only": {
+      "commandName": "Project",
+      "commandLineArgs": "-c .\\config.toml",
+      "workingDirectory": "H:\\Documents\\GitHub\\RadioConsole2\\daemon"
+    }
+  }
+}

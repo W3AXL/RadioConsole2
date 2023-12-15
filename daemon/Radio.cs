@@ -181,6 +181,7 @@ namespace daemon
             // Start runtimes depending on control type
             if (Type == RadioType.SB9600)
             {
+                IntSB9600.radioStatus = Status;
                 IntSB9600.Start(noreset);
             }
         }
