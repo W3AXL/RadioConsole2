@@ -9,10 +9,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Concentus" Version="1.1.7" />
     <PackageReference Include="newtonsoft.json" Version="13.0.3" />
     <PackageReference Include="Serilog" Version="3.1.2-dev-02097" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-    <PackageReference Include="SIPSorcery" Version="6.1.0-pre" />
+    <PackageReference Include="SIPSorcery" Version="6.1.1-pre" />
     <PackageReference Include="SIPSorcery.WebSocketSharp" Version="0.0.1" />
     <PackageReference Include="SIPSorceryMedia" Version="4.0.67-pre" />
     <PackageReference Include="SIPSorceryMedia.FFmpeg" Version="1.2.1" />

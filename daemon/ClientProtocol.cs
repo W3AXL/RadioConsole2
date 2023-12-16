@@ -13,12 +13,15 @@ using SIPSorceryMedia.Abstractions;
 using WebSocketSharp;
 using netcore_cli;
 using Newtonsoft.Json;
+using MathNet.Numerics.Statistics;
 
 namespace daemon
 {
     internal class DaemonWebsocket
     {
         public static WebSocketServer Wss {  get; set; }
+
+        public static Radio radio { get; set; }
 
         public static void StartWsServer()
         {
@@ -37,9 +40,12 @@ namespace daemon
             Wss.Stop();
         }
 
-        public static void SendRadioStatus(RadioStatus status)
+        public static void SendRadioStatus()
         {
-            SendClientMessage(status.Encode());
+            string statusJson = radio.Status.Encode();
+            Log.Debug("Sending radio status via websocket");
+            Log.Verbose(statusJson);
+            SendClientMessage("{\"status\": " + statusJson + " }");
         }
 
         public static void SendClientMessage(string msg)
@@ -53,7 +59,16 @@ namespace daemon
         protected override void OnMessage(MessageEventArgs e)
         {
             var msg = e.Data;
-            Serilog.Log.Debug("Got client message from websocket: {WSMessage}", msg);
+            Serilog.Log.Verbose("Got client message from websocket: {WSMessage}", msg);
+            dynamic jsonObj = JsonConvert.DeserializeObject(msg);
+            // Handle commands
+            if (jsonObj.ContainsKey("radio"))
+            {
+                if (jsonObj.radio.command == "query")
+                {
+                    DaemonWebsocket.SendRadioStatus();
+                }
+            }
         }
     }
 }

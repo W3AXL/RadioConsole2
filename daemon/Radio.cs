@@ -92,6 +92,8 @@ namespace daemon
         public ScanState ScanState { get; set; } = ScanState.NotScanning;
         public List<Softkey> Softkeys { get; set; } = new List<Softkey>();
         public bool Monitor { get; set; } = false;
+        public bool Error { get; set; } = false;
+        public string ErrorMsg { get; set; } = "";
 
         /// <summary>
         /// Encode the RadioStatus object into a JSON string for sending to the client
@@ -100,7 +102,7 @@ namespace daemon
         public string Encode()
         {
             // convert the status object to a string
-            return JsonConvert.SerializeObject(this);
+            return JsonConvert.SerializeObject(this, new Newtonsoft.Json.Converters.StringEnumConverter());
         }
     }
 
@@ -123,7 +125,7 @@ namespace daemon
         public List<TextLookup> ZoneLookups { get; set; }
         public List<TextLookup> ChanLookups { get; set; }
 
-        public delegate void Callback(RadioStatus status);
+        public delegate void Callback();
         public Callback StatusCallback { get; set; }
 
         /// <summary>
@@ -133,12 +135,14 @@ namespace daemon
         /// <param name="rxOnly"></param>
         /// <param name="zoneName"></param>
         /// <param name="channelName"></param>
-        public Radio(RadioType type, string zoneName, string channelName)
+        public Radio(string name, string desc, RadioType type, string zoneName, string channelName)
         {
             Type = type;
             RxOnly = true;
             // Create status and assign static names
             Status = new RadioStatus();
+            Status.Name = name;
+            Status.Description = desc;
             Status.ZoneName = zoneName;
             Status.ChannelName = channelName;
         }
@@ -152,7 +156,7 @@ namespace daemon
         /// <param name="rxOnly"></param>
         /// <param name="zoneLookups"></param>
         /// <param name="chanLookups"></param>
-        public Radio(RadioType type, SB9600.HeadType head, string comPort, bool rxOnly, List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null)
+        public Radio(string name, string desc, RadioType type, SB9600.HeadType head, string comPort, bool rxOnly, List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null)
         {
             // Get basic info
             Type = type;
@@ -165,6 +169,8 @@ namespace daemon
             IntSB9600.StatusCallback = RadioStatusCallback;
             // Create status
             Status = new RadioStatus();
+            Status.Name = name;
+            Status.Description = desc;
         }
 
         /// <summary>
@@ -173,11 +179,9 @@ namespace daemon
         /// <returns></returns>
         public void Start(bool noreset)
         {
-            // Create a new status object if it's currently null
-            if (Status == null)
-            {
-                Status = new RadioStatus();
-            }
+            // Update the radio status to connecting
+            Status.State = RadioState.Connecting;
+            RadioStatusCallback();
             // Start runtimes depending on control type
             if (Type == RadioType.SB9600)
             {
@@ -202,7 +206,8 @@ namespace daemon
         /// </summary>
         private void RadioStatusCallback()
         {
-            StatusCallback(Status);
+            Log.Debug("Got radio status callback from interface");
+            StatusCallback();
         }
     }
 }

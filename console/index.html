@@ -1,0 +1,395 @@
+<html>
+    <head>
+        <title>Python Radio Console</title>
+
+        <!-- Topcoat CSS -->
+        <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
+
+        <!-- CSS.gg Icons -->
+        <link href='https://css.gg/css' rel='stylesheet'>
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="css/custom.css">
+
+        <!-- JQuery -->
+        <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
+
+        <!-- DayJS -->
+        <script type="text/javascript" src="dayjs.min.js"></script>
+        <script type="text/javascript" src="https://unpkg.com/dayjs@1.8.21/plugin/utc.js"></script>
+        <script>dayjs.extend(window.dayjs_plugin_utc)</script>
+
+        <!-- js-cookie -->
+        <script type="text/javascript" src="js.cookie.min.js"></script>
+
+        <!-- audio resampler -->
+        <script type="text/javascript" src="wave-resampler.js"></script>
+    </head>
+    <body>
+        <!-- Top Nav Bar -->
+        <div id="navbar">
+
+            <!-- Menu Dropdown -->
+            <div class="navbar-item">
+                <div id="button-mainmenu" class="btn" onclick="toggleMainMenu()">
+                    <ion-icon name="menu-sharp"></ion-icon>
+                </div>
+            </div>
+
+            <!-- Logo and Title -->
+            <div id="navbar-logo" class="navbar-item">RadioConsole</div>
+
+            <!-- Version -->
+            <div id="navbar-version" class="navbar-item">VERSION</div>
+
+            <!-- Separator -->
+            <!--<div id="navbar-separator" class="navbar-item"> - </div>-->
+
+            <!-- Server Status -->
+            <!--<div id="navbar-status" class="navbar-item">Disconnected</div>-->
+
+            <!-- Clock -->
+            <div id="navbar-clock">
+                <div id="clock"></div>
+            </div>
+
+            <!-- Extension Connect/Disconnect Button -->
+            <div id="navbar-ext" class="navbar-item disconnected" title="Connect to extension" onclick="extensionConnect()">
+                <div class="btn"><ion-icon name="magnet-sharp"></ion-icon></div>
+            </div>
+
+            <!-- Connect/Disconnect All Button -->
+            <div id="navbar-connect" class="navbar-item disconnected" title="Connect All Radios" onclick="connectAllButton()">
+                <div class="btn"><ion-icon name="power-sharp"></ion-icon></div>
+            </div>
+
+            <!-- Volume Slider -->
+            <div id="navbar-volume" class="navbar-item">
+                <ion-icon name="volume-medium-sharp"></ion-icon>
+                <input type="range" class="topcoat-range" id="console-volume" value="75" oninput="volumeSlider()" disabled>
+            </div>
+
+            <!-- Mic & Speaker Volume Meters (deprecated in version 2) -->
+            <!--<div id="navbar-meters" class="navbar-item">
+                <div class="meter-container">
+                    <ion-icon name="mic-sharp"></ion-icon>
+                    <meter id="meter-mic" min="0" max="0.4" high="0.3"></meter>
+                </div>
+                <div class="meter-container">
+                    <ion-icon name="volume-off-sharp"></ion-icon>
+                    <meter id="meter-spkr" min="0" max="0.4" high="0.3"></meter>
+                </div>
+            </div>-->
+
+            <!-- Clear Float -->
+            <br class="navbar-clear" />
+        </div>
+
+        <!-- Main Body -->
+        <div id="body">
+            <!-- Sidebar Menu -->
+            <div class="sidebar sidebar-closed" id="sidebar-mainmenu">
+                <ul>
+                    <li>
+                        <a href="#" onclick="showConfigPopup('#client-config-popup');toggleMainMenu();">
+                            <span class="sidebar-icon"><ion-icon name="settings-sharp"></ion-icon></span>
+                            <span class="sidebar-item">Client Config</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" onclick="showConfigPopup('#extension-config-popup');toggleMainMenu();">
+                            <span class="sidebar-icon"><ion-icon name="settings-sharp"></ion-icon></span>
+                            <span class="sidebar-item">Extension Config</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#">
+                            <span class="sidebar-icon"><ion-icon name="information-circle-sharp"></ion-icon></span>
+                            <span class="sidebar-item">About</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Main Layout for Radio Entries -->
+            <div id="main-layout">
+
+                <!-- Placeholder radio card for development  -->
+                <template id="card-template">
+                    <div class="radio-card disconnected">
+                        <div class="card">
+                            <div class="selected-tab"></div>
+                            <!-- Header -->
+                            <div class="header">
+                                <h2>Placeholder Name</h2>
+                                <div class="icon-stack">
+                                    <!-- Scan Icon -->
+                                    <div class="scan-icons">
+                                        <ion-icon name="moto-scan" class="scan-icon"></ion-icon>
+                                        <ion-icon name="moto-scan-dot" class="scan-pri-icon"></ion-icon>
+                                    </div>
+                                    <!-- DTMF Dropdown -->
+                                    <a href="#" onclick="showDTMFMenu(event, this)" class="enabled"><ion-icon name="keypad-sharp" id="icon-dtmf"></ion-icon></a>
+                                        <div class="dtmf-dropdown closed">
+                                            <table class="dtmf-table" onclick="dtmfPressed(event, this)">
+                                                <tr><td>1</td><td>2</td><td>3</td><td>A</td><td><ion-icon name="call-sharp"></ion-icon></td></tr>
+                                                <tr><td>4</td><td>5</td><td>6</td><td>B</td><td><ion-icon name="trash-sharp"></td></tr>
+                                                <tr><td>7</td><td>8</td><td>9</td><td>C</td></tr>
+                                                <tr><td>*</td><td>0</td><td>#</td><td>D</td></tr>
+                                            </table>>
+                                        </div>
+                                        <div class="dtmf-dialpad closed">
+                                            <span class="dtmf-digits"></span>
+                                        </div>
+                                    <!-- Pan Dropdown -->
+                                    <a href="#" onclick="showPanMenu(event, this)" class="enabled"><ion-icon name="headset-sharp" id="icon-panning"></ion-icon></a>
+                                        <div class="panning-dropdown closed">
+                                            <!-- Slider -->
+                                            <input type="range" class="topcoat-range radio-pan" min="-1" max="1" value="0" step="0.1" onclick="stopClick(event, this)" oninput="changePan(event, this)" ondblclick="centerPan(event, this)">
+                                        </div>
+                                    <!-- Mute Button -->
+                                    <a href="#" onclick="muteButton(event, this)" class="enabled"><ion-icon name="volume-high-sharp" id="icon-mute"></ion-icon></a>
+                                    <!-- Connection Icon -->
+                                    <a href="#" onclick="connectButton(event, this)" title="Disconnected"><ion-icon name="connection-sharp" class="icon-connect disconnected"></ion-icon></a>
+                                </div>
+                            </div>
+                            <!-- Content -->
+                            <div class="content">
+                                <div id="zone-text">Zone Text</div>
+                                <div id="channel-text">Channel Text</div>
+                                <!-- RX Audio Bar -->
+                                <div class="audio-bar">
+                                    <div class="audio-eq">
+                                        <ion-icon name="volume-off-sharp"></ion-icon>
+                                        <div class="eq-frame">
+                                            <div class="eq-bar" id="rx-bar"></div>
+                                        </div>
+                                    </div>
+                                    <div class="audio-eq">
+                                        <ion-icon name="mic-sharp"></ion-icon>
+                                        <div class="eq-frame">
+                                            <div class="eq-bar" id="tx-bar"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+            </div>
+
+            <!-- Placeholder text before connection to server -->
+            <div id="text-placeholder" style="display: none;">
+                <h2>Please connect to a server to begin.</h2>
+            </div>
+
+            <!-- Main Body Dimming Div -->
+            <div id="body-dimmer" style="display: none;" onclick="closePopup()"></div>
+        </div>
+
+        <!-- Control Footer -->
+        <div id="controlbar">
+
+            <!-- Radio Controls -->
+            <div id="radio-controls">
+
+                <!-- Softkey Bar -->
+                <div class="btn-bar">
+                    <!-- Left Arrow -->
+                    <div id="leftarrow" class="btn disabled" onclick="button_left()" class="disabled">
+                        <span class="btn-text"><ion-icon name="caret-back-sharp"></ion-icon></span>
+                    </div>
+                    <!-- Softkey 1 -->
+                    <div id="softkey1" class="btn softkey disabled" onmousedown="pressSoftkey(1)" onmouseup="releaseSoftkey(1)">
+                        <span class="btn-text"></span>
+                    </div>
+                    <!-- Softkey 2 -->
+                    <div id="softkey2" class="btn softkey disabled" onmousedown="pressSoftkey(2)" onmouseup="releaseSoftkey(2)">
+                        <span class="btn-text"></span>
+                    </div>
+                    <!-- Softkey 3 -->
+                    <div id="softkey3" class="btn softkey disabled" onmousedown="pressSoftkey(3)" onmouseup="releaseSoftkey(3)">
+                        <span class="btn-text"></span>
+                    </div>
+                    <!-- Softkey 4 -->
+                    <div id="softkey4" class="btn softkey disabled" onmousedown="pressSoftkey(4)" onmouseup="releaseSoftkey(4)">
+                        <span class="btn-text"></span>
+                    </div>
+                    <!-- Softkey 5 -->
+                    <div id="softkey5" class="btn softkey disabled" onmousedown="pressSoftkey(5)" onmouseup="releaseSoftkey(5)">
+                        <span class="btn-text"></span>
+                    </div>
+                    <!-- Softkey 6 -->
+                    <div id="softkey6" class="btn softkey disabled" onmousedown="pressSoftkey(6)" onmouseup="releaseSoftkey(6)">
+                        <span class="btn-text"></span>
+                    </div>
+                    <!-- Right Arrow -->
+                    <div id="rightarrow" class="btn disabled" onclick="button_right()">
+                        <span class="btn-text"><ion-icon name="caret-forward-sharp"></ion-icon></span>
+                    </div>
+                </div>
+
+                <!-- Channel Up/Down Buttons -->
+                <div class="btn-bar" id="chan-btns">
+                    <div id="chan-up" class="btn disabled" onclick="changeChannel(false)">
+                        <span class="btn-text"><ion-icon name="caret-up-sharp"></ion-icon></span>
+                    </div>
+                    <div id="chan-down" class="btn disabled" onclick="changeChannel(true)">
+                        <span class="btn-text"><ion-icon name="caret-down-sharp"></ion-icon></span>
+                    </div>
+                </div>
+
+                <!-- PTT Button -->
+                <div class="btn-bar" id="ptt-btn">
+                    <div id="ptt" class="btn disabled" onmousedown="startPtt(true)" onmouseup="stopPtt()">
+                        <span class="btn-text"><ion-icon name="flash-sharp"></ion-icon></span>
+                    </div>
+                </div>
+
+            </div>
+            
+        </div>
+
+        <!-- Client Config Popup -->
+        <div id="client-config-popup" class="popup" style="display: none;">
+            <div class="popup-header">
+                <h2>Client Config</h2>
+                <div class="popup-buttons">
+                    <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
+                </div>
+            </div>
+            <div class="popup-content">
+                <table class="popup-table">
+                    <!-- Time Format -->
+                    <tr>
+                        <td width="60%">
+                            <h3>Time Format</h3>
+                        </td>
+                        <td width="40%">
+                            <select id="client-timeformat">
+                                <option value="Local">Local</option>
+                                <option value="UTC">UTC</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- RX AGC Toggle -->
+                    <tr>
+                        <td>
+                            <h3>RX Audio AGC</h3>
+                        </td>
+                        <td>
+                            <label class="topcoat-checkbox">
+                                <input type="checkbox" id="client-rxagc">
+                                <div class="topcoat-checkbox__checkmark"></div>
+                            </label>
+                        </td>
+                    </tr>
+                    <!-- Unselected Radio Volume -->
+                    <tr>
+                        <td>
+                            <h3>Unselected Radio Volume</h3>
+                        </td>
+                        <td>
+                            <select id="unselected-vol">
+                                <option value=0 selected="selected">0 dB</option>
+                                <option value=-3>-3 dB</option>
+                                <option value=-9>-9 dB</option>
+                                <option value=-15>-15 dB</option>
+                                <option value=-100>Muted</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- Tone Volume Offset -->
+                    <tr>
+                        <td>
+                            <h3>Console Tone Volume</h3>
+                        </td>
+                        <td>
+                            <select id="tone-vol">
+                                <option value=0 selected="selected">0 dB</option>
+                                <option value=-3>-3 dB</option>
+                                <option value=-9>-9 dB</option>
+                                <option value=-15>-15 dB</option>
+                                <option value=-100>Muted</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- Save Config Button -->
+                    <tr>
+                        <td></td>
+                        <td>
+                            <button class="topcoat-button--cta" onclick="saveClientConfig()">Save</button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Extension Config Popup -->
+        <div id="extension-config-popup" class="popup" style="display: none;">
+            <div class="popup-header">
+                <h2>Extension Config</h2>
+                <div class="popup-buttons">
+                    <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
+                </div>
+            </div>
+            <div class="popup-content">
+                <table class="popup-table">
+                    <!-- Extension Address -->
+                    <tr>
+                        <td>
+                            <h3>Etension Address</h3>
+                        </td>
+                        <td>
+                            <input type="text" id="extension-address" class="topcoat-text-input" placeholder="localhost" value="">
+                        </td>
+                    </tr>
+                    <!-- Extension Port -->
+                    <tr>
+                        <td>
+                            <h3>Etension Port</h3>
+                        </td>
+                        <td>
+                            <input type="text" id="extension-port" class="topcoat-text-input" placeholder="10800" value="">
+                        </td>
+                    </tr>
+                    <!-- Connect Button -->
+                    <tr>
+                        <td style="text-align: right;">
+                            <button class="topcoat-button--cta" id="connect-extension" onclick="extensionConnect()">Connect</button>
+                        </td>
+                        <td>
+                            <span id="extension-status" class="disconnected">Disconnected</span>
+                        </td>
+                    </tr>
+                    <!-- Save Config Button -->
+                    <tr>
+                        <td></td>
+                        <td>
+                            <button class="topcoat-button--cta" onclick="saveExtensionConfig()">Save</button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <template id="alert-dialog-template">
+            <div class="alert-dialog" title="Alert Title">
+                Alert text
+            </div>
+        </template>
+
+        <!-- Sound Files -->
+        <audio src="sound/ptt.wav" id="sound-ptt" autostart="false" autostart="0" class="ui-audio"></audio>
+        <audio src="sound/ptt_end.wav" id="sound-ptt-end" autostart="false" autostart="0" class="ui-audio"></audio>
+        <audio src="sound/click.wav" id="sound-click" autostart="false" autostart="0" class="ui-audio"></audio>
+
+        <!-- Icon Script -->
+        <script type="module" src="ionicons/ionicons.esm.js"></script>
+        <script nomodule src="ionicons/ionicons.js"></script>
+        <!-- Runtime Script -->
+        <script type="text/javascript" src="client.js"></script>
+    </body>
+    
+</html>

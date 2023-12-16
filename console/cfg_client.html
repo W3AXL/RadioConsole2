@@ -1,0 +1,161 @@
+<html>
+    <head>
+        <!-- Topcoat CSS -->
+        <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
+
+        <!-- CSS.gg Icons -->
+        <link href='https://css.gg/css' rel='stylesheet'>
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="css/custom.css">
+    </head>
+    <body>
+        <!-- Client Config Popup -->
+        <div id="client-config-popup" class="popup"><!-- Client Config Popup -->
+            <div id="client-config-popup" class="popup" style="display: none;">
+                <div class="popup-header">
+                    <h2>Client Config</h2>
+                    <div class="popup-buttons">
+                        <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
+                    </div>
+                </div>
+                <div class="popup-content">
+                    <table class="popup-table">
+                        <!-- Time Format -->
+                        <tr>
+                            <td width="60%">
+                                <h3>Time Format</h3>
+                            </td>
+                            <td width="40%">
+                                <select id="client-timeformat">
+                                    <option value="Local">Local</option>
+                                    <option value="UTC">UTC</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <!-- RX AGC Toggle -->
+                        <tr>
+                            <td>
+                                <h3>RX Audio AGC</h3>
+                            </td>
+                            <td>
+                                <label class="topcoat-checkbox">
+                                    <input type="checkbox" id="client-rxagc">
+                                    <div class="topcoat-checkbox__checkmark"></div>
+                                </label>
+                            </td>
+                        </tr>
+                        <!-- Unselected Radio Volume -->
+                        <tr>
+                            <td>
+                                <h3>Unselected Radio Volume</h3>
+                            </td>
+                            <td>
+                                <select id="unselected-vol">
+                                    <option value=0 selected="selected">0 dB</option>
+                                    <option value=-3>-3 dB</option>
+                                    <option value=-9>-9 dB</option>
+                                    <option value=-15>-15 dB</option>
+                                    <option value=-100>Muted</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <!-- Tone Volume Offset -->
+                        <tr>
+                            <td>
+                                <h3>Console Tone Volume</h3>
+                            </td>
+                            <td>
+                                <select id="tone-vol">
+                                    <option value=0 selected="selected">0 dB</option>
+                                    <option value=-3>-3 dB</option>
+                                    <option value=-9>-9 dB</option>
+                                    <option value=-15>-15 dB</option>
+                                    <option value=-100>Muted</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <!-- Save Config Button -->
+                        <tr>
+                            <td></td>
+                            <td>
+                                <button class="topcoat-button--cta" onclick="saveClientConfig()">Save</button>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <div class="popup-header">
+                <h2>Client Config</h2>
+                <div class="popup-buttons">
+                    <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
+                </div>
+            </div>
+            <div class="popup-content">
+                <table class="popup-table">
+                    <!-- Time Format -->
+                    <tr>
+                        <td width="60%">
+                            <h3>Time Format</h3>
+                        </td>
+                        <td width="40%">
+                            <select id="client-timeformat">
+                                <option value="Local">Local</option>
+                                <option value="UTC">UTC</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- RX AGC Toggle -->
+                    <tr>
+                        <td>
+                            <h3>RX Audio AGC</h3>
+                        </td>
+                        <td>
+                            <label class="topcoat-checkbox">
+                                <input type="checkbox" id="client-rxagc">
+                                <div class="topcoat-checkbox__checkmark"></div>
+                            </label>
+                        </td>
+                    </tr>
+                    <!-- Unselected Radio Volume -->
+                    <tr>
+                        <td>
+                            <h3>Unselected Radio Volume</h3>
+                        </td>
+                        <td>
+                            <select id="unselected-vol">
+                                <option value=0 selected="selected">0 dB</option>
+                                <option value=-3>-3 dB</option>
+                                <option value=-9>-9 dB</option>
+                                <option value=-15>-15 dB</option>
+                                <option value=-100>Muted</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- Tone Volume Offset -->
+                    <tr>
+                        <td>
+                            <h3>Console Tone Volume</h3>
+                        </td>
+                        <td>
+                            <select id="tone-vol">
+                                <option value=0 selected="selected">0 dB</option>
+                                <option value=-3>-3 dB</option>
+                                <option value=-9>-9 dB</option>
+                                <option value=-15>-15 dB</option>
+                                <option value=-100>Muted</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- Save Config Button -->
+                    <tr>
+                        <td></td>
+                        <td>
+                            <button class="topcoat-button--cta" onclick="saveClientConfig()">Save</button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </body>
+</html>

@@ -1,0 +1,1139 @@
+/********************************
+    Base Element Styling
+********************************/
+
+:root {
+    --color-bg-dark: #111;
+    --color-bg-mid: #2A2A2A;
+    --color-bg-mid2: #353535;
+    --color-bg-light: #555;
+
+    --color-accent-dark: rgb(30, 40, 45);
+    --color-accent-mid: rgb(45, 60, 67);
+    --color-accent-light: rgb(62, 84, 94);
+    --color-accent-light2: rgb(101, 135, 152);
+
+    --color-alert-mid: rgb(100, 60, 25);
+    --color-alert-light: rgb(160, 100, 40);
+    --color-alert-light2: rgb(196, 119, 42);
+
+    --color-alert-red-mid: rgb(133, 0, 33);
+    --color-alert-red-light: rgb(200, 0, 50);
+
+    --color-alert-green-mid: rgb(0, 133, 50);
+    --color-alert-green-light: rgb(0, 200, 75);
+    --color-alert-green-light-half: rgba(0, 200, 75, 0.5);
+
+    --color-alert-blue-mid: rgb(0, 50, 133);
+    --color-alert-blue-light: rgb(0, 75, 200);
+
+    --color-txt-light: #DDD;
+    --color-txt-mid: #AAA;
+    --color-txt-dark: #777;
+
+    --color-lcd-light: #5AC;
+
+    /* Buttons */
+    --color-btn-normal: #525252;
+    --color-btn-dark: #1A1A1A;
+    --color-btn-pressed: #3D3D3D;
+
+    /* Dynamic Card Colors */
+    --color-card-darkred: #291C1C;
+    --color-card-midred: #523838;
+    --color-card-lightred: #B87D7D;
+    --color-card-darkamber: #292015;
+    --color-card-midamber: #52402B;
+    --color-card-lightamber: #B88E60;
+    --color-card-darkgreen: #1C291E;
+    --color-card-midgreen: #38523B;
+    --color-card-lightgreen: #7DB885;
+    --color-card-darkblue: #1C2529;
+    --color-card-midblue: #384b52;
+    --color-card-lightblue: #7DA8B8;
+    --color-card-darkpurple: #1F1C29;
+    --color-card-midpurple: #3F3852;
+    --color-card-lightpurple: #8D7DB8;
+    
+}
+
+@font-face {
+    font-family: "Iosevka Bold";
+    src: url("../font/iosevka-bold.ttf");
+}
+
+@font-face {
+    font-family: "Iosevka Extended Bold";
+    src: url("../font/iosevka-extendedbold.ttf");
+}
+
+@font-face {
+    font-family: "B612";
+    src: url("../font/B612-Regular.ttf")
+}
+
+html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    background-color: var(--color-bg-dark)
+}
+
+/* Disable ion icon tooltips */
+ion-icon {
+    pointer-events :none;
+    fill: currentColor;
+    stroke: currentColor;
+}
+
+/********************************
+    Navbar Styling
+********************************/
+
+#navbar {
+    width: 100%;
+    height: 48px;
+    background-color: var(--color-bg-mid);
+}
+
+#navbar .btn {
+    display: inline-flex;
+    height: 32px;
+    color: var(--color-txt-mid);
+    background-color: var(--color-bg-mid);
+    font-family: "Iosevka Extended Bold";
+    font-size: 24px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    user-select: none;
+    margin-top: 8px;
+}
+
+#navbar .btn.pressed,
+#navbar .btn:active:hover {
+    color: var(--color-txt-light);
+    background-color: var(--color-btn-pressed);
+}
+
+#navbar .btn.disabled {
+    opacity: 0.5;
+}
+
+#navbar .btn:hover:not(.disabled),
+#leftarrow:hover:not(.disabled),
+#rightarrow:hover:not(.disabled) {
+    box-shadow: inset 0 0 100px 100px rgba(255,255,255,0.05);
+}
+
+#navbar button {
+    height: 32px;
+    width: 32px;
+    padding: 3px;
+    margin-top: 7px;
+    --ggs: 0.8;
+}
+
+#navbar button ion-icon {
+    font-size: 24px;
+}
+
+#navbar button:focus {
+    border: none;
+    box-shadow: none;
+}
+
+#navbar .button-active {
+    color: #c6c8c8;
+    text-shadow: 0 -1px rgb(0 0 0 / 69%);
+    background-color: #3f4041;
+    border: 1px solid #333434;
+    box-shadow: inset 0 1px rgb(0 0 0 / 5%);
+}
+
+#navbar-logo {
+    padding: 4px;
+    margin-left: 8px;
+    margin-top: 4px;
+    color: var(--color-txt-light);
+    font-size: 24px;
+}
+
+#navbar-version {
+    color: var(--color-txt-mid);
+    font-size: 12px;
+    margin-top: 20px;
+}
+
+#navbar-separator {
+    color: var(--color-txt-mid);
+    font-size: 12px;
+    margin-top: 20px;
+}
+
+#navbar-status {
+    color: var(--color-alert-red-mid);
+    font-size: 12px;
+    margin-top: 20px;
+}
+
+#navbar-status.connected {
+    color: var(--color-alert-green-mid);
+}
+
+#navbar-status.pending {
+    color: var(--color-alert-light2);
+}
+
+/* Navbar Volume Meters */
+
+#navbar-meters {
+    float: right;
+    width: 128px;
+    height: 75%;
+    margin-top: 7px;
+}
+
+#navbar-meters .meter-container {
+    height: 50%;
+    width: 100%;
+    display: flex;
+    align-content: center;
+    justify-content: center;
+}
+
+#navbar-meters .meter-container ion-icon {
+    height: 100%;
+}
+
+#navbar-meters meter {
+    width: 75%;
+    height: 75%;
+    margin-top: 2px;
+    margin-left: 2px;
+}
+
+#navbar-meters meter::-webkit-meter-bar {
+    background-color: var(--color-bg-mid2);
+}
+
+#navbar-meters meter::-webkit-meter-optimum-value {
+    background-color: var(--color-alert-green-mid);
+}
+
+#navbar-meters meter::-webkit-meter-suboptimum-value {
+    background-color: var(--color-alert-mid);
+}
+
+#navbar-meters meter::-webkit-meter-even-less-good-value {
+    background-color: var(--color-alert-red-mid);
+}
+
+/* Navbar Volume Slider */
+
+#navbar-volume {
+    float: right;
+    width: 192px;
+    display: flex;
+    align-content: center;
+    justify-content: center;
+    padding-left: 0;
+}
+
+#navbar-volume ion-icon {
+    height: 100%;
+    font-size: 24px;
+    margin-right: 8px;
+}
+
+#navbar-volume .topcoat-range {
+    height: 10px;
+    margin-top: 19px;
+    border-radius: 4px;
+}
+
+#navbar-volume .topcoat-range::-webkit-slider-thumb {
+    height: 24px;
+    width: 12px;
+    border-radius: 4px;
+}
+
+#navbar-connect,
+#navbar-ext {
+    float: right;
+    padding-left: 0;
+    padding-right: 16px;
+}
+
+#navbar-connect.connected .btn,
+#navbar-ext.connected .btn {
+    color: var(--color-alert-green-mid);
+}
+
+#navbar-connect.disconnected .btn,
+#navbar-ext.disconnected .btn {
+    color: var(--color-alert-red-mid);
+}
+
+#navbar-clock {
+    margin-right: 8px;
+    margin-top: 8px;
+    height: 32px;
+    width: 192px;
+    border-radius: 4px;
+    background-color: #000;
+    float:right;
+}
+
+#clock {
+    font-family: "Iosevka Extended Bold";
+    color: var(--color-lcd-light);
+    font-size: 24px;
+    margin-left: 8px;
+    margin-top: 2px;
+}
+
+.navbar-item {
+    float:left;
+    height: 100%;
+    padding-left: 8px;
+    color: var(--color-txt-light);
+}
+
+.navbar-clear {
+    clear:both;
+}
+
+/********************************
+    Main Body Styling
+********************************/
+
+#body {
+    position: absolute;
+    width: 100%;
+    height: calc(100% - (48px + 64px));
+}
+
+#text-placeholder {
+    position: fixed;
+    top: 256px;
+    width: 100%;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+}
+
+#text-placeholder h2 {
+    color: var(--color-txt-mid);
+    padding: 0;
+    margin: 0;
+}
+
+/********************************
+    Side Menu Styling
+********************************/
+
+.sidebar {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    width: 256px;
+    transition: all 0.25s ease;
+    background-color: var(--color-accent-mid);
+    z-index: 3;
+}
+
+.sidebar-closed {
+    left: -256px;
+}
+
+.sidebar-item {
+    margin-left: 12px;
+}
+
+.sidebar ul {
+    padding: 0;
+    margin: 0;
+}
+
+.sidebar ul li {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.sidebar ul li a {
+    display: inline-flex;
+    align-items: center;
+    width: 224px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-accent-light);
+    color: var(--color-txt-light);
+    font-size: 20px;
+    position: relative;
+    text-decoration: none;
+    --ggs: 0.8;
+}
+
+.sidebar ul li a:hover,
+.sidebar ul li a.active {
+    background-color: var(--color-accent-dark);
+}
+
+.sidebar ul li a:hover:before,
+.sidebar ul li a.active:before {
+    display: block;
+}
+
+#main-layout {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 4px;
+}
+
+/********************************
+    Radio Card Styling
+********************************/
+
+.radio-card {
+    display: inline-block;
+    position: relative;
+    margin-left: 8px;
+    margin-top: 8px;
+    width: 294px;
+    height: 124px;
+    font-family: "B612";
+    /* Clip Path for Angles */
+    clip-path: polygon(0 0, 100% 0, 100% 83%, 93% 100%, 0 100%);
+    background-color: rgba(0,0,0,0);
+    user-select: none;
+}
+
+.radio-card .card {
+    width: 290px;
+    height: 120px;
+    position: absolute;
+}
+
+/* Selected Tab */
+
+.radio-card .selected-tab {
+    background-color: #111;
+    width: 20px;
+    height: 20px;
+    position: absolute;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    opacity: 0;
+    z-index: 1;
+    top: 2px;
+    left: 2px;
+}
+
+.radio-card.selected .selected-tab {
+    background-color: var(--color-alert-light2);
+    opacity: 1;
+}
+
+.radio-card.receiving {
+    -webkit-animation: rxBorderBlink 1s ease-out infinite;
+    animation: rxBorderBlink 1s ease-out infinite;
+}
+
+.radio-card.transmitting {
+    -webkit-animation: txBorderBlink 0.5s ease infinite;
+    animation: txBorderBlink 0.5s ease infinite;
+}
+
+.radio-card.disconnected .content{
+    opacity: 50%;
+}
+
+.radio-card .header {
+    width: 290px;
+    height: 30px;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    padding: 4px;
+    box-sizing: border-box;
+    display: inline-flex;
+    font-size: 18px;
+}
+
+/* Dynamic Header Colors */
+.radio-card.red .header {
+    background-color: var(--color-card-midred);
+}
+.radio-card.amber .header {
+    background-color: var(--color-card-midamber);
+}
+.radio-card.green .header {
+    background-color: var(--color-card-midgreen);
+}
+.radio-card.blue .header {
+    background-color: var(--color-card-midblue);
+}
+.radio-card.purple .header {
+    background-color: var(--color-card-midpurple);
+}
+
+/* Hover highlight */
+.radio-card:hover:not(.disconnected) .header,
+.radio-card:hover:not(.disconnected) .content {
+    box-shadow: inset 0 0 100px 100px rgba(255,255,255,0.03);
+}
+
+/* Disconnected Fade */
+.radio-card.disconnected {
+    opacity: 0.75;
+}
+
+/* Dynamic Header Text Color */
+.radio-card.red .header h2 {
+    color: var(--color-card-lightred);
+}
+.radio-card.amber .header h2 {
+    color: var(--color-card-lightamber);
+}
+.radio-card.green .header h2 {
+    color: var(--color-card-lightgreen);
+}
+.radio-card.blue .header h2 {
+    color: var(--color-card-lightblue);
+}
+.radio-card.purple .header h2 {
+    color: var(--color-card-lightpurple);
+}
+
+.radio-card.selected .header h2 {
+    color: var(--color-txt-light);
+}
+
+.radio-card .header h2 {
+    padding: 0;
+    margin: 0;
+    font-weight: normal;
+    display: inline;
+    margin-top: 4px;
+    margin-left: 16px;
+    font-size: 13px;
+}
+
+.radio-card .icon-stack {
+    height: 100%;
+    margin-left: auto;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+}
+
+.radio-card .icon-stack a,
+.radio-card .icon-stack .scan-icons {
+    width: 24px;
+    display: inline-flex;
+}
+
+.icon-stack ion-icon {
+    color: var(--color-txt-light);
+}
+
+.icon-stack #icon-alert {
+    color: var(--color-accent-dark);
+}
+
+.icon-stack #icon-mute.muted {
+    color: var(--color-alert-red-light);
+}
+
+.icon-stack .icon-connect.disconnected {
+    color: var(--color-alert-red-light);
+}
+
+.icon-stack .icon-connect.connecting {
+    color: var(--color-alert-light);
+}
+
+.icon-stack .icon-connect.connected {
+    color: var(--color-alert-green-mid);
+}
+
+.icon-stack ion-icon.alerting {
+    -webkit-animation: iconAlertRed 0.7s ease infinite;
+    animation: iconAlertRed 0.7s ease infinite;
+}
+
+.icon-stack .scan-icons ion-icon {
+    position: absolute;
+    bottom: 5px;
+}
+
+/* No Scan State */
+.icon-stack .scan-icons .scan-icon,
+.icon-stack .scan-icons .scan-pri-icon {
+    opacity: 0;
+}
+
+/* Scanning State */
+.icon-stack .scan-icons.scanning .scan-icon {
+    opacity: 1;
+}
+
+/* Priority Scan */
+.icon-stack .scan-icons.priority .scan-pri-icon {
+    opacity: 1;
+}
+
+/* Priority 2 Scan */
+.icon-stack .scan-icons.priority2 .scan-pri-icon {
+    animation: iconFlash 1s infinite;
+    -webkit-animation: iconFlash 1s infinite;
+}
+.icon-stack .scan-icons.priority2 .scan-icon {
+    opacity: 1;
+}
+
+/* Pan Dropdown */
+
+.panning-dropdown {
+    position: absolute;
+    padding-top: 4px;
+    width: 96px;
+    height: 24px;
+    margin-top: 58px;
+    margin-left: 8px;
+    text-align: center;
+    border-radius: 2px;
+    transition: all 0.25s ease;
+    opacity: 1;
+    z-index: 1;
+}
+
+.panning-dropdown .topcoat-range {
+    width: 75%;
+    height: 6px;
+    margin-top: 8px;
+    border-radius: 2px;
+}
+
+.panning-dropdown .topcoat-range::-webkit-slider-thumb {
+    height: 16px;
+    width: 8px;
+    border-radius: 2px;
+}
+
+.panning-dropdown #left-spkr-button.disabled ion-icon,
+.panning-dropdown #right-spkr-button.disabled ion-icon {
+    color: var(--color-accent-mid);
+}
+
+/* DTMF Dropdown */
+
+.dtmf-dropdown {
+    position: absolute;
+    width: 100px;
+    height: 86px;
+    margin-top: 118px;
+    margin-left: 24px;
+    text-align: center;
+    border-radius: 2px;
+    transition: all 0.25s ease;
+    opacity: 1;
+    z-index: 1;
+    -webkit-user-select: none; /* Safari */
+    -ms-user-select: none; /* IE 10 and IE 11 */
+    user-select: none; /* Standard syntax */
+    clip-path: polygon(0 0, 100% 0, 100% 77%, 80% 100%, 0 100%);
+}
+
+.dtmf-dialpad {
+    position: absolute;
+    height: 24px;
+    width: 90px;
+    right: 100px;
+    top: 30px;
+    font-size: 16px;
+    font-family: "Iosevka Bold";
+    color: var(--color-txt-light);
+    background-color: rgba(32,32,32,0.5);
+    border: 1px solid rgba(128,128,128,0.5);
+    z-index: 10;
+}
+
+.dtmf-dialpad span {
+    display: block;
+    width: 86px;
+    text-align: right;
+    padding-top: 4px;
+    padding-right: 4px;
+}
+
+.dtmf-table {
+    margin-top: -2px;
+    font-size: 13px;
+    font-family: "Iosevka Bold";
+    color: var(--color-txt-light);
+    width: 100px;
+    height: 80px;
+}
+
+.dtmf-table td, .dtmf-table th, .dtmf-table tr {
+    margin: 0;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    text-align: center;
+}
+
+.dtmf-table td:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+
+.dtmf-table td:active {
+    background-color: rgba(0,0,0,0.2);
+}
+
+/* Common dropdown styling */
+
+.radio-card.red .panning-dropdown,
+.radio-card.red .dtmf-dropdown {
+    background-color: var(--color-card-midred);
+}
+.radio-card.amber .panning-dropdown,
+.radio-card.amber .dtmf-dropdown {
+    background-color: var(--color-card-midamber);
+}
+.radio-card.green .panning-dropdown,
+.radio-card.green .dtmf-dropdown {
+    background-color: var(--color-card-midgreen);
+}
+.radio-card.blue .panning-dropdown,
+.radio-card.blue .dtmf-dropdown {
+    background-color: var(--color-card-midblue);
+}
+.radio-card.purple .panning-dropdown,
+.radio-card.purple .dtmf-dropdown {
+    background-color: var(--color-card-midpurple);
+}
+
+.panning-dropdown.closed,
+.dtmf-dropdown.closed,
+.dtmf-dialpad.closed {
+    opacity: 0;
+    display: none;
+}
+
+/* Main Card Content */
+
+.radio-card a {
+    text-decoration: none;
+    color: var(--color-accent-light2);
+}
+
+.radio-card .content {
+    position: absolute;
+    width: 290px;
+    height: 90px;
+    top: 32px;
+    left: 2px;
+    box-sizing: border-box;
+    padding-top: 4px;
+    padding-left: 8px;
+    clip-path: polygon(0 0, 100% 0, 100% 77%, 93% 100%, 0 100%);
+}
+
+/* Dynamic Content Color */
+.radio-card.red .content {
+    background-color: var(--color-card-darkred);
+}
+.radio-card.amber .content {
+    background-color: var(--color-card-darkamber);
+}
+.radio-card.green .content {
+    background-color: var(--color-card-darkgreen);
+}
+.radio-card.blue .content {
+    background-color: var(--color-card-darkblue);
+}
+.radio-card.purple .content {
+    background-color: var(--color-card-darkpurple);
+}
+
+.radio-card #zone-text {
+    font-family: "Iosevka Bold";
+    font-size: 22px;
+}
+
+/* Dynamic Zone Text Color */
+.radio-card.red #zone-text {
+    color: var(--color-card-lightred);
+}
+.radio-card.amber #zone-text {
+    color: var(--color-card-lightamber);
+}
+.radio-card.green #zone-text {
+    color: var(--color-card-lightgreen);
+}
+.radio-card.blue #zone-text {
+    color: var(--color-card-lightblue);
+}
+.radio-card.purple #zone-text {
+    color: var(--color-card-lightpurple);
+}
+
+.radio-card #channel-text {
+    font-family: "Iosevka Bold";
+    font-size: 28px;
+    color: var(--color-txt-light);
+    margin-top: -4px;
+}
+
+.radio-card.selected #channel-text {
+    color: #FFF;
+}
+
+
+/* Bottom EQ Bars */
+
+.radio-card .audio-bar {
+    height: 12px;
+    margin-top: 4px;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.radio-card .audio-bar .audio-eq {
+    display: flex;
+    align-items: center;
+    margin-right: 8px;
+}
+
+.radio-card .audio-bar .eq-frame {
+    display: inline-flex;
+    margin-left: 4px;
+    height: 4px;
+    width: 100px;
+    background-color: var(--color-bg-dark);
+}
+
+.radio-card .audio-bar .eq-frame .eq-bar {
+    width: 0;
+    height: 100%;
+    background-color: var(--color-alert-green-light);
+}
+
+/* Dynamic Icon Color */
+.radio-card.red .audio-bar {
+    color: var(--color-card-midred);
+}
+.radio-card.amber .audio-bar {
+    color: var(--color-card-midamber);
+}
+.radio-card.green .audio-bar {
+    color: var(--color-card-midgreen);
+}
+.radio-card.blue .audio-bar {
+    color: var(--color-card-midblue);
+}
+.radio-card.purple .audio-bar {
+    color: var(--color-card-midpurple);
+}
+
+/********************************
+    Bottom Control Bar Styling
+********************************/
+
+#controlbar {
+    position: absolute;
+    bottom: 0;
+    height: 60px;
+    width: 100%;
+    background-color: var(--color-bg-mid);
+    display: flex;
+}
+
+#radio-controls {
+    margin-left: auto;
+    margin-right: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#radio-controls .btn-bar {
+    font-size: 0;
+    display: flex;
+}
+
+#radio-controls .btn {
+    display: inline-flex;
+    height: 36px;
+    color: var(--color-txt-mid);
+    background-color: var(--color-btn-normal);
+    font-family: "Iosevka Extended Bold";
+    font-size: 18px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    user-select: none;
+}
+
+#radio-controls .softkey {
+    width: 80px;
+}
+
+#radio-controls #leftarrow,
+#radio-controls #rightarrow {
+    width: 40px;
+}
+
+#radio-controls .btn.pressed,
+#radio-controls .btn:active:hover {
+    color: var(--color-txt-light);
+    background-color: var(--color-btn-pressed);
+}
+
+#radio-controls .btn.disabled {
+    opacity: 0.5;
+}
+
+#radio-controls .btn:hover:not(.disabled),
+#leftarrow:hover:not(.disabled),
+#rightarrow:hover:not(.disabled) {
+    box-shadow: inset 0 0 100px 100px rgba(255,255,255,0.05);
+}
+
+#leftarrow {
+    clip-path: polygon(25% 0, 100% 0, 100% 100%, 0 100%, 0 25%);
+    margin-right: -1px;
+}
+
+#rightarrow {
+    clip-path: polygon(0 0, 100% 0, 100% 75%, 75% 100%, 0 100%);
+}
+
+#chan-btns {
+    margin-left: 40px;
+}
+
+#chan-up {
+    clip-path: polygon(15% 0, 100% 0, 100% 100%, 0 100%, 0 30%);
+    width: 80px;
+}
+
+#chan-down {
+    clip-path: polygon(0 0, 100% 0, 100% 70%, 85% 100%, 0 100%);
+    width: 80px;
+}
+
+#ptt-btn {
+    margin-left: 40px;
+}
+
+#ptt {
+    background-color: var(--color-card-midred) !important;
+    color: var(--color-card-lightred);
+    clip-path: polygon(15% 0, 100% 0, 100% 70%, 85% 100%, 0 100%, 0 30%);
+    width: 80px;
+}
+
+#ptt.pressed,
+#ptt:active:hover {
+    background-color: var(--color-card-darkred) !important;
+    color: var(--color-txt-light);
+}
+
+/********************************
+    Popup Window Styling
+********************************/
+
+#body-dimmer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 4;
+    background-color: black;
+    opacity: 30%;
+}
+
+.popup {
+    position: fixed;
+    width: 480px;
+    top: -16px;
+    left: 0;
+    right: 0;
+    margin: 5% auto;
+    z-index: 5;
+    border-radius: 6px;
+}
+
+.popup-header {
+    height: 32px;
+    width: 100%;
+    background-color: var(--color-accent-mid);
+    border-radius: 6px 6px 0 0;
+    color: var(--color-txt-light);
+    padding: 4px;
+    box-sizing: border-box;
+    display: inline-flex;
+}
+
+.popup-header h2 {
+    padding: 0;
+    margin: 0;
+    font-weight: normal;
+    display: inline;
+    margin-left: 4px;
+    font-size: 20px;
+}
+
+.popup-header a {
+    text-decoration: none;
+    color: var(--color-txt-mid);
+    font-size: 23px;
+}
+
+.popup-buttons {
+    height: 100%;
+    margin-left: auto;
+    margin-right: 4px;
+}
+
+.popup-buttons-bottom {
+    width: 100%;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 16px;
+}
+
+.popup-content {
+    padding: 16px;
+    box-sizing: border-box;
+    background-color: var(--color-bg-mid);
+    border-radius: 0 0 6px 6px;
+}
+
+.popup-table {
+    width: 100%;
+}
+
+.popup-table td {
+    padding: 4px 8px;
+}
+
+.popup-table input {
+    line-height: 1.5rem;
+}
+
+.popup-table button {
+    line-height: 2rem;
+}
+
+.popup-table input[type='text'] {
+    width: 100%;
+}
+
+.popup-table input.invalid {
+    border: 1px solid #ec514e;
+}
+
+.popup-content h3 {
+    margin: 0;
+    padding: 0;
+    color: var(--color-txt-light);
+    font-weight: normal;
+    text-align: right;
+}
+
+.popup-content .connected {
+    color: var(--color-alert-green-light);
+}
+
+.popup-content .disconnected {
+    color: var(--color-alert-red-light);
+}
+
+/********************************
+    Animations
+********************************/
+
+/* Animation for radio card RX state */
+@-webkit-keyframes rxBorderBlink {
+    from, to {
+        background-color: var(--color-alert-green-light-half);
+    }
+    50% {
+        background-color: var(--color-alert-green-light);
+    }
+}
+@keyframes rxBorderBlink {
+    from, to {
+        background-color: var(--color-alert-green-light-half);
+    }
+    50% {
+        background-color: var(--color-alert-green-light);
+    }
+}
+
+/* Animation for radio card TX state */
+@-webkit-keyframes txBorderBlink {
+    from, to {
+        background-color: var(--color-alert-red-mid);
+    }
+    75% {
+        background-color: var(--color-alert-red-light);
+    }
+}
+@keyframes txBorderBlink {
+    from, to {
+        background-color: var(--color-alert-red-mid);
+    }
+    75% {
+        background-color: var(--color-alert-red-light);
+    }
+}
+
+/* Animation for icon flashing red */
+@-webkit-keyframes iconAlertRed {
+    from, to {
+        color: var(--color-accent-dark);
+    }
+    50% {
+        color: var(--color-alert-red-light);
+    }
+}
+@keyframes iconAlertRed {
+    from, to {
+        color: var(--color-accent-dark);
+    }
+    50% {
+        color: var(--color-alert-red-light);
+    }
+}
+
+/* Animation for flashing icon */
+@-webkit-keyframes iconFlash {
+    from, to {
+        opacity: 0;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+@keyframes iconFlash {
+    from, to {
+        opacity: 0;
+    }
+    50% {
+        opacity: 1;
+    }
+}

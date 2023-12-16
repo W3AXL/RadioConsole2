@@ -1,0 +1,17 @@
+{
+    "RadioList": [
+        {
+            "name": "Motorola XTL",
+            "address": "1.2.3.4",
+            "port": 9501,
+            "color": "blue",
+            "pan": -1
+        },
+        {
+            "name": "Motorola XPR",
+            "address": "5.6.7.8",
+            "port": 9502,
+            "color": "purple"
+        }
+    ]
+}

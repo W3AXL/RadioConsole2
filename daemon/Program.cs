@@ -171,6 +171,22 @@ namespace netcore_cli
             Config.RxAudioDevice = (string)audio["rxDevice"];
             Log.Debug("    TX device: {TxDevice}", Config.TxAudioDevice);
             Log.Debug("    RX device: {RxDevice}", Config.RxAudioDevice);
+            // Lookups
+            List<TextLookup> zoneLookups = new List<TextLookup>();
+            List<TextLookup> chanLookups = new List<TextLookup>();
+            var lookupCfg = (TomlTable)config["lookups"];
+            var cfgZoneLookups = (TomlArray)lookupCfg["zoneLookup"];
+            var cfgChanLookups = (TomlArray)lookupCfg["chanLookup"];
+            foreach ( TomlArray lookup in cfgZoneLookups )
+            {
+                zoneLookups.Add(new TextLookup((string)lookup[0], (string)lookup[1]));
+            }
+            foreach ( TomlArray lookup in cfgChanLookups )
+            {
+                chanLookups.Add(new TextLookup((string)lookup[0], (string)lookup[1]));
+            }
+            Log.Debug("Loaded zone text lookups: {ZoneLookups}", zoneLookups);
+            Log.Debug("Loaded channel text lookups: {ChannelLookups}", chanLookups);
             // Control Config
             var radioCfg = (TomlTable)config["radio"];
             string controlType = (string)radioCfg["type"];
@@ -181,7 +197,9 @@ namespace netcore_cli
                 string zoneName = (string)noneConfig["zone"];
                 string chanName = (string)noneConfig["chan"];
                 Log.Debug("      Control: Non-controlled radio");
-                radio = new Radio(RadioType.ListenOnly, zoneName, chanName);
+                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.ListenOnly, zoneName, chanName);
+                // Update websocket radio object
+                DaemonWebsocket.radio = radio;
             }
             else if (controlType == "sb9600")
             {
@@ -192,8 +210,10 @@ namespace netcore_cli
                 string port = (string)sb9600config["port"];
                 Log.Debug("      Control: {HeadType}-head SB9600 radio on port {SerialPort}", head, port);
                 // Create SB9600 radio object
-                radio = new Radio(RadioType.SB9600, head, port, rxOnly);
-                radio.StatusCallback = DaemonWebsocket.SendRadioStatus; 
+                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups);
+                radio.StatusCallback = DaemonWebsocket.SendRadioStatus;
+                // Update websocket radio object
+                DaemonWebsocket.radio = radio;
             }
             else if (controlType == "cm108")
             {

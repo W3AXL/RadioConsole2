@@ -814,6 +814,12 @@ namespace daemon
                         /// Radio Ready Opcode
                         ///
                         case (byte)SB9600Opcodes.RADRDY:
+                            // If we're not already in an idle state, we are now
+                            if (radioStatus.State != RadioState.Idle)
+                            {
+                                radioStatus.State = RadioState.Idle;
+                                newStatus = true;
+                            }
                             Log.Debug("Got RADRDY opcode. Data: {RadRdyData:X4}", msg.Data);
                             break;
                         ///

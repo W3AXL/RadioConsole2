@@ -8,7 +8,9 @@ Used to query the daemon about the radio status. Normally only used at startup o
 
 ```json
 {
-    "status?"
+    "radio": {
+        "command": "query"
+    }
 }
 ```
 
@@ -45,7 +47,7 @@ These are sent from the client to the daemon
 
 ```json
 {
-    "radioControl": {
+    "radio": {
         "command": "startTx",
         "options": null
     }
@@ -67,7 +69,7 @@ These are used to control various audio functions
 
 ```json
 {
-    "audioControl": {
+    "audio": {
         "command": "mute",
     }
 }
