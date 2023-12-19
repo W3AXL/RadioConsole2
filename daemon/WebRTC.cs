@@ -19,16 +19,19 @@ namespace daemon
     {
         private static SDL2AudioSource RxSource = null;
         private static AudioEncoder RxEncoder = null;
-        private static MediaStreamTrack RxTrack = null;
+        
         private static SDL2AudioEndPoint TxEndpoint = null;
         private static AudioEncoder TxEncoder = null;
-        
+
+        private static MediaStreamTrack RtcTrack = null;
+
         private static RTCPeerConnection pc = null;
 
-        public static string Codec { get; set; } = "PCMU";
+        public static string Codec { get; set; } = "G722";
 
         public static Task<RTCPeerConnection> CreatePeerConnection()
         {
+            Log.Debug("New client connected to RTC endpoint, creating peer connection");
             // Create RTC configuration and peer connection
             RTCConfiguration config = new RTCConfiguration
             {
@@ -42,7 +45,6 @@ namespace daemon
             // RX audio setup
             RxEncoder = new AudioEncoder();
             RxSource = new SDL2AudioSource(Daemon.Config.RxAudioDevice, RxEncoder);
-            RxTrack = new MediaStreamTrack(RxEncoder.SupportedFormats);
             Log.Debug("RX audio using input {RxInput}", Daemon.Config.RxAudioDevice);
 
             // TX audio setup
@@ -53,19 +55,25 @@ namespace daemon
             Log.Debug("Created SDL2 audio sources/sinks and encoder");
 
             // Add the RX track to the peer connection
-            pc.addTrack(RxTrack);
-            Log.Debug("Added RX audio track to peer connection");
+            if (!TxEncoder.SupportedFormats.Any(f => f.FormatName == Codec))
+            {
+                Log.Error("Specified format {SpecFormat} not supported by audio encoder!", Codec);
+                throw new ArgumentException("Invalid codec specified!");
+            }
+            RtcTrack = new MediaStreamTrack(TxEncoder.SupportedFormats.Find(f => f.FormatName == Codec), MediaStreamStatusEnum.SendRecv);
+            pc.addTrack(RtcTrack);
+            Log.Debug("Added send/recv audio track to peer connection");
 
             // Map callbacks
             RxSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) => {
-                Log.Verbose("Got {numSamples} encoded samples from RX audio source", sample.Length);
+                //Log.Verbose("Got {numSamples} encoded samples from RX audio source", sample.Length);
                 pc.SendAudio(durationRtpUnits, sample);
             };
 
             pc.OnAudioFormatsNegotiated += (formats) =>
             {
 
-                Log.Verbose("Available audio formats:");
+                Log.Verbose("Client supported formats:");
                 foreach (var format in formats)
                 {
                     Log.Verbose("{FormatName}", format.FormatName);
@@ -93,7 +101,7 @@ namespace daemon
             {
                 if (media == SDPMediaTypesEnum.audio)
                 {
-                    //Log.Verbose("Got RTP audio from console ({length}-byte payload)", rtpPkt.Payload.Length);
+                    //Log.Verbose("Got RTP audio from {Endpoint} - ({length}-byte payload)", rep.ToString(), rtpPkt.Payload.Length);
                     TxEndpoint.GotAudioRtp(
                         rep, 
                         rtpPkt.Header.SyncSource, 
