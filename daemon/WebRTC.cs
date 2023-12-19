@@ -2,6 +2,7 @@
 using SIPSorcery.Net;
 using SIPSorcery.Media;
 using SIPSorceryMedia.SDL2;
+using SIPSorceryMedia.FFmpeg;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,18 +11,19 @@ using System.Threading.Tasks;
 using SIPSorceryMedia.Abstractions;
 using netcore_cli;
 using MathNet.Numerics.Statistics;
+using System.Net;
 
 namespace daemon
 {
     internal class WebRTC
     {
-        private static SDL2AudioSource audioSource = null;
-        private static SDL2AudioEndPoint audioEndPoint = null;
+        private static SDL2AudioSource RxSource = null;
+        private static AudioEncoder RxEncoder = null;
+        private static MediaStreamTrack RxTrack = null;
+        private static SDL2AudioEndPoint TxEndpoint = null;
+        private static AudioEncoder TxEncoder = null;
+        
         private static RTCPeerConnection pc = null;
-
-        private static AudioEncoder audioEncoder = null;
-        private static OpusAudioEncoder opusEncoder = null;
-        private static MediaStreamTrack audioTrack = null;
 
         public static string Codec { get; set; } = "PCMU";
 
@@ -37,30 +39,29 @@ namespace daemon
             SDL2Helper.InitSDL();
             Log.Debug("SDL2 init done");
 
-            // Create the audio encoder and source
-            if (Codec == "opus")
-            {
-                opusEncoder = new OpusAudioEncoder();
-                audioSource = new SDL2AudioSource(Daemon.Config.RxAudioDevice, opusEncoder);
-                audioEndPoint = new SDL2AudioEndPoint(Daemon.Config.TxAudioDevice, opusEncoder);
-                audioTrack = new MediaStreamTrack(opusEncoder.SupportedFormats);
-            }
-            else
-            {
-                audioEncoder = new AudioEncoder();
-                audioSource = new SDL2AudioSource(Daemon.Config.RxAudioDevice, audioEncoder);
-                audioEndPoint = new SDL2AudioEndPoint(Daemon.Config.TxAudioDevice, audioEncoder);
-                audioTrack = new MediaStreamTrack(audioEncoder.SupportedFormats);
-            }
+            // RX audio setup
+            RxEncoder = new AudioEncoder();
+            RxSource = new SDL2AudioSource(Daemon.Config.RxAudioDevice, RxEncoder);
+            RxTrack = new MediaStreamTrack(RxEncoder.SupportedFormats);
+            Log.Debug("RX audio using input {RxInput}", Daemon.Config.RxAudioDevice);
+
+            // TX audio setup
+            TxEncoder = new AudioEncoder();
+            TxEndpoint = new SDL2AudioEndPoint(Daemon.Config.TxAudioDevice, TxEncoder);
+            Log.Debug("TX audio using output {TxOutput}", Daemon.Config.TxAudioDevice);
             
             Log.Debug("Created SDL2 audio sources/sinks and encoder");
 
-            // Add the track to the peer connection
-            pc.addTrack(audioTrack);
-            Log.Debug("Added audio track to peer connection");
+            // Add the RX track to the peer connection
+            pc.addTrack(RxTrack);
+            Log.Debug("Added RX audio track to peer connection");
 
             // Map callbacks
-            audioSource.OnAudioSourceEncodedSample += pc.SendAudio;
+            RxSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) => {
+                Log.Verbose("Got {numSamples} encoded samples from RX audio source", sample.Length);
+                pc.SendAudio(durationRtpUnits, sample);
+            };
+
             pc.OnAudioFormatsNegotiated += (formats) =>
             {
 
@@ -69,8 +70,8 @@ namespace daemon
                 {
                     Log.Verbose("{FormatName}", format.FormatName);
                 }
-                // We prefer G722 for now
-                audioSource.SetAudioSourceFormat(formats.Find(f => f.FormatName == Codec));
+                RxSource.SetAudioSourceFormat(formats.Find(f => f.FormatName == Codec));
+                TxEndpoint.SetAudioSinkFormat(formats.Find(f => f.FormatName == Codec));
                 Log.Debug("Negotiated audio format {AudioFormat}", formats.Find(f => f.FormatName == Codec).FormatName);
             };
 
@@ -86,6 +87,24 @@ namespace daemon
                 //Log.Verbose(msg.ToString());
             };
             pc.oniceconnectionstatechange += (state) => Log.Verbose("ICE connection state change to {ICEState}.", state);
+
+            // RTP callback
+            pc.OnRtpPacketReceived += (IPEndPoint rep, SDPMediaTypesEnum media, RTPPacket rtpPkt) =>
+            {
+                if (media == SDPMediaTypesEnum.audio)
+                {
+                    //Log.Verbose("Got RTP audio from console ({length}-byte payload)", rtpPkt.Payload.Length);
+                    TxEndpoint.GotAudioRtp(
+                        rep, 
+                        rtpPkt.Header.SyncSource, 
+                        rtpPkt.Header.SequenceNumber, 
+                        rtpPkt.Header.Timestamp, 
+                        rtpPkt.Header.PayloadType, 
+                        rtpPkt.Header.MarkerBit == 1,
+                        rtpPkt.Payload
+                    );
+                }
+            };
 
             return Task.FromResult(pc);
         }
@@ -116,18 +135,24 @@ namespace daemon
             }
         }
 
+        public static void Stop(string reason)
+        {
+            Log.Warning("Stopping WebRTC with reason {Reason}", reason);
+            pc.Close(reason);
+        }
+
         private static async Task StartAudio()
         {
-            await audioSource.StartAudio();
-            await audioEndPoint.StartAudioSink();
+            await RxSource.StartAudio();
+            await TxEndpoint.StartAudioSink();
             Log.Debug("Audio started");
         }
 
         private static async Task CloseAudio()
         {
             // Close audio
-            await audioSource.CloseAudio();
-            await audioEndPoint.CloseAudioSink();
+            await RxSource.CloseAudio();
+            await TxEndpoint.CloseAudioSink();
             // De-init SDL2
             SDL2Helper.QuitSDL();
             Log.Debug("SDL2 audio closed");

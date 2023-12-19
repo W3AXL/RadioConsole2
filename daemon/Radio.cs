@@ -209,5 +209,45 @@ namespace daemon
             Log.Debug("Got radio status callback from interface");
             StatusCallback();
         }
+
+        /// <summary>
+        /// Sets transmit state of the connected radio
+        /// </summary>
+        /// <param name="tx">true to transmit, false to stop</param>
+        /// <returns>true on success</returns>
+        public bool SetTransmit(bool tx)
+        {
+            if (RxOnly)
+            {
+                return false;
+            }
+            else
+            {
+                if (Type == RadioType.SB9600)
+                {
+                    IntSB9600.SetTransmit(tx);
+                    return true;
+                }
+                else
+                {
+                    Log.Error("SetTransmit not defined for interface type {IntType}", Type);
+                    return false;
+                }
+            }
+        }
+
+        public bool ChangeChannel(bool down)
+        {
+            if (Type == RadioType.SB9600)
+            {
+                IntSB9600.ChangeChannel(down);
+                return true;
+            }
+            else
+            {
+                Log.Error("ChangeChannel not defined for interface type {IntType}", Type);
+                return false;
+            }
+        }
     }
 }

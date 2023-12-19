@@ -17,6 +17,7 @@ using netcore_cli;
 using System.ComponentModel.DataAnnotations;
 using System.Data.SqlTypes;
 using System.Reflection.Emit;
+using Org.BouncyCastle.Math.EC.Rfc7748;
 
 namespace daemon
 {
@@ -463,6 +464,7 @@ namespace daemon
                     Log.Error("SBEP CRC check failed! Got {ReceivedCRC} but expected {CalculatedCRC}", Util.Hex(recvCrc), Util.Hex(calcCrc));
                     return 0;
                 }
+                Log.Verbose("SBEP CRC check passed");
 
                 // Set variables
                 Opcode = opcode;
@@ -577,10 +579,15 @@ namespace daemon
         {
             noReset = noreset;
             // Check if serial port exists first
-            if (!SerialPort.GetPortNames().Contains(Port.PortName))
+            Log.Verbose("Available serial ports:");
+            foreach( var name in SerialPort.GetPortNames())
+            {
+                Log.Verbose(name);
+            }
+            /*if (!SerialPort.GetPortNames().Contains(Port.PortName))
             {
                 throw new Exception("Specified serial port does not exist!");
-            }
+            }*/
             Log.Debug("Starting SB9600 service on serial port {SerialPortName}", Port.PortName);
             ts = new CancellationTokenSource();
             ct = ts.Token;
@@ -665,6 +672,8 @@ namespace daemon
                 }
             }
             // return success or failure
+            Port.DiscardInBuffer();
+            Port.DiscardOutBuffer();
             setBusy(false);
             return sent;
         }
@@ -720,7 +729,7 @@ namespace daemon
                                 else
                                 {
                                     inSbep = true;
-                                    Log.Debug("Entering SBEP at 9600 baud");
+                                    Log.Verbose("Entering SBEP at 9600 baud");
                                 }
                             } else
                             {
@@ -1028,13 +1037,23 @@ namespace daemon
                     case (byte)SBEPOpcodes.DISPLAY:
                         Log.Debug("Got SBEP display update");
                         // Get display update params
-                        byte row = (byte)(msg.Data[0] & 0b01111111);    // we strip the MSB since it just indicates cursor hide/show
-                        byte col = (byte)(msg.Data[1] & 0b01111111);
+                        byte crow = (byte)(msg.Data[0] & 0b01111111);    // we strip the MSB since it just indicates cursor hide/show
+                        byte ccol = (byte)(msg.Data[1] & 0b01111111);
                         byte chars = msg.Data[2];
                         byte srow = msg.Data[3];
                         byte scol = msg.Data[4];
+                        Log.Verbose("Got {Head} display update ({chars} chars) for row/col {StartingRow}/{StartingCol}", Head, chars, srow, scol);
                         // Extract display characters
-                        string text = Encoding.ASCII.GetString(msg.Data, 5, chars);
+                        string text;
+                        // We do this because GetString goes out of range on single-character strings
+                        if (chars == 1)
+                        {
+                            text = Encoding.ASCII.GetString(new[]{msg.Data[5]});
+                        }
+                        else
+                        {
+                            text = Encoding.ASCII.GetString(msg.Data, 5, chars);
+                        }
                         Log.Verbose("Got text string ({StringLen}) from SBEP: {String}", chars, text);
                         // Update head parameters depending on head type
                         switch (Head)
@@ -1044,7 +1063,6 @@ namespace daemon
                             /// so we extract both zone & channel text lookups from one display line
                             ///
                             case HeadType.W9:
-                                Log.Verbose("Got W9 display update for row/col {StartingRow}/{StartingCol}", srow, scol);
                                 string newDisplay = displayText1[..scol] + text + displayText1[Math.Min((scol + chars),displayText1.Length)..];
                                 Log.Debug("Got new display text: {NewDisplayText}", newDisplay);
                                 if (newDisplay != displayText1)
@@ -1184,7 +1202,7 @@ namespace daemon
                 // Decode SBEP message
                 int processed = processSBEP(data);
                 inSbep = false;
-                Log.Debug("Exiting SBEP");
+                Log.Verbose("Exiting SBEP");
                 if (processed == 0)
                 {
                     Log.Error("Failed to process SBEP message!");
@@ -1193,7 +1211,7 @@ namespace daemon
                 if (data.Length > processed)
                 {
                     data = data[processed..];
-                    Log.Debug("Processing remaining SB9600 data: {RemainingData}", data);
+                    Log.Verbose("Processing remaining SB9600 data: {RemainingData}", data);
                     processData(data);
                 }
             }
@@ -1252,64 +1270,150 @@ namespace daemon
             Log.Debug("SB9600 service running");
             while (!token.IsCancellationRequested)
             {
-                // Get the current state of BUSY
-                bool BUSY = getBusy();
-                // Receive first
-                // Check if we're actively receiving
-                if (BUSY && waiting) { }
-                // Check if we just started receicing
-                else if (BUSY && !waiting)
-                    waiting = true;
-                // Message is done, so process it
-                else if (waiting && !BUSY)
+                try
                 {
-                    waiting = false;
-                    // Read message
-                    byte[] rxMsg = new byte[Port.BytesToRead];
-                    Port.Read(rxMsg, 0, Port.BytesToRead);
-                    // Process
-                    processData(rxMsg);
-                }
-
-                // Transmit next
-                // Send a message from the queue if we're not waiting on RX and not busy
-                if (!waiting && !BUSY)
-                {
-                    // Try and get a message and send it
-                    QueueMessage msg = null;
-                    if (msgQueue.TryDequeue(out msg))
+                    // Get the current state of BUSY
+                    bool BUSY = getBusy();
+                    // Receive first
+                    // Check if we're actively receiving
+                    if (BUSY && waiting) { }
+                    // Check if we just started receicing
+                    else if (BUSY && !waiting)
+                        waiting = true;
+                    // Message is done, so process it
+                    else if (waiting && !BUSY)
                     {
-                        // SB9600
-                        if (msg.sb9600msg != null)
+                        waiting = false;
+                        // Read message
+                        byte[] rxMsg = new byte[Port.BytesToRead];
+                        Port.Read(rxMsg, 0, Port.BytesToRead);
+                        // Process
+                        processData(rxMsg);
+                    }
+
+                    // Transmit next
+                    // Send a message from the queue if we're not waiting on RX and not busy
+                    if (!waiting && !BUSY)
+                    {
+                        // Try and get a message and send it
+                        QueueMessage msg = null;
+                        if (msgQueue.TryDequeue(out msg))
                         {
-                            sendSb9600(msg.sb9600msg);
+                            // SB9600
+                            if (msg.sb9600msg != null)
+                            {
+                                Log.Debug("Got SB9600 message from queue: {msg}", msg.sb9600msg.ToString());
+                                sendSb9600(msg.sb9600msg);
+                            }
                         }
                     }
-                }
 
-                // Update radio status if new status is received
-                if (newStatus)
-                {
-                    newStatus = false;
-                    StatusCallback();
-                }
-
-                // Check for any delayed commands that need to be sent
-                long curTimeMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
-                foreach (DelayedMessage msg in delayedMessages)
-                {
-                    if (curTimeMs > msg.ExecTime)
+                    // Update radio status if new status is received
+                    if (newStatus)
                     {
-                        if (msg.SB9600msg != null)
+                        newStatus = false;
+                        StatusCallback();
+                    }
+
+                    // Check for any delayed commands that need to be sent
+                    long curTimeMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+                    foreach (DelayedMessage msg in delayedMessages)
+                    {
+                        if (curTimeMs > msg.ExecTime)
                         {
-                            sendSb9600(msg.SB9600msg);
+                            if (msg.SB9600msg != null)
+                            {
+                                sendSb9600(msg.SB9600msg);
+                            }
                         }
                     }
-                }
 
-                // Give the CPU a break
-                Thread.Sleep(1);
+                    // Give the CPU a break
+                    Thread.Sleep(1);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Got exception in SB9600 thread");
+                    Stop();
+                    WebRTC.Stop("SB9600 thread encountered an error!");
+                }
             }
+        }
+
+        public void SendButton(byte code, byte value)
+        {
+            Log.Debug("Adding button command to TX queue: {Code:X2} = {Value:X2}", code, value);
+            // prepare the message
+            SB9600Msg btnMsg = new SB9600Msg(
+                (byte)SB9600Addresses.FRONTPANEL,
+                [code, value],
+                (byte)SB9600Opcodes.BUTCTL
+            );
+            // Add to the TX queue
+            QueueMessage msg = new QueueMessage(btnMsg);
+            msgQueue.Enqueue(msg);
+        }
+
+        /// <summary>
+        /// Sends a button toggle (SB9600 code 0x02)
+        /// </summary>
+        /// <param name="code">button code</param>
+        public void ToggleButton(byte code)
+        {
+            SendButton(code, 0x02);
+        }
+
+        /// <summary>
+        /// Set transmit on radio
+        /// </summary>
+        /// <param name="tx">state of transmit</param>
+        /// <returns></returns>
+        public bool SetTransmit(bool tx)
+        {
+            byte btnVal = (byte)(tx ? 0x01 : 0x00);
+            switch (Head)
+            {
+                case HeadType.W9:
+                    SendButton(ControlHeads.W9.Buttons["ptt"], btnVal);
+                    break;
+                case HeadType.M3:
+                    SendButton(ControlHeads.M3.Buttons["ptt"], btnVal);
+                    break;
+                case HeadType.O5:
+                    //SendButton(ControlHeads.O5.Buttons["ptt"], 0x01);
+                    break;
+                default:
+                    Log.Error("Transmit not defined for headtype {Head}", Head);
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Change channel up or down on radio
+        /// </summary>
+        /// <param name="down">whether or not to go down</param>
+        /// <returns></returns>
+        public bool ChangeChannel(bool down)
+        {
+            switch (Head)
+            {
+                case HeadType.W9:
+                    string btn = down ? "btn_mode_down" : "btn_mode_up";
+                    ToggleButton(ControlHeads.W9.Buttons[btn]);
+                    break;
+                case HeadType.M3:
+                    //ToggleButton(ControlHeads.M3.Buttons["knob_chan"]);
+                    break;
+                case HeadType.O5:
+                    byte steps = (byte)(down ? 0xFF : 0x01);
+                    //SendButton(ControlHeads.O5.Buttons["knob_chan"], steps);
+                    break;
+                default:
+                    Log.Error("ChangeChannel not defined for headtype {Head}", Head);
+                    return false;
+            }
+            return true;
         }
     }
 }

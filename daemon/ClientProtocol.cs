@@ -52,6 +52,16 @@ namespace daemon
         {
             Wss.WebSocketServices["/"].Sessions.Broadcast(msg);
         }
+
+        public static void SendAck()
+        {
+            Wss.WebSocketServices["/"].Sessions.Broadcast("{\"ack\": {}}");
+        }
+
+        public static void SendNack()
+        {
+            Wss.WebSocketServices["/"].Sessions.Broadcast("{\"nack\": {}}");
+        }
     }
 
     internal class ClientProtocol : WebSocketBehavior
@@ -64,11 +74,50 @@ namespace daemon
             // Handle commands
             if (jsonObj.ContainsKey("radio"))
             {
+                // Radio Status Query
                 if (jsonObj.radio.command == "query")
                 {
                     DaemonWebsocket.SendRadioStatus();
                 }
+                // Radio Start Transmit Command
+                else if (jsonObj.radio.command == "startTx")
+                {
+                    if (DaemonWebsocket.radio.SetTransmit(true))
+                        DaemonWebsocket.SendAck();
+                    else
+                        DaemonWebsocket.SendNack();
+                }
+                // Radio Stop Transmit Command
+                else if (jsonObj.radio.command == "stopTx")
+                {
+                    if (DaemonWebsocket.radio.SetTransmit(false))
+                        DaemonWebsocket.SendAck();
+                    else
+                        DaemonWebsocket.SendNack();
+                }
+                // Channel Up/Down
+                else if (jsonObj.radio.command == "chanUp")
+                {
+                    if (DaemonWebsocket.radio.ChangeChannel(false))
+                        DaemonWebsocket.SendAck();
+                    else
+                        DaemonWebsocket.SendNack();
+                }
+                else if (jsonObj.radio.command == "chanDn")
+                {
+                    if (DaemonWebsocket.radio.ChangeChannel(true))
+                        DaemonWebsocket.SendAck();
+                    else
+                        DaemonWebsocket.SendNack();
+                }
             }
+        }
+
+        protected override void OnClose(CloseEventArgs e)
+        {
+            Serilog.Log.Warning("Websocket connection closed!");
+            WebRTC.Stop("Websocket closed");
+            DaemonWebsocket.radio.Stop();
         }
     }
 }
