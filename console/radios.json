@@ -1,10 +1,40 @@
 {
     "RadioList": [
         {
-            "address": "127.0.0.1",
+            "address": "44.48.41.27",
             "port": 8801,
             "color": "blue",
             "pan": -1
+        },
+        {
+            "address": "44.48.41.27",
+            "port": 8802,
+            "color": "blue",
+            "pan": -0.5
+        },
+        {
+            "address": "44.48.41.27",
+            "port": 8803,
+            "color": "green",
+            "pan": 0.5
+        },
+        {
+            "address": "44.48.41.27",
+            "port": 8804,
+            "color": "green",
+            "pan": 1
+        },
+        {
+            "address": "44.48.41.27",
+            "port": 8805,
+            "color": "purple",
+            "pan": 0
+        },
+        {
+            "address": "testbed.local",
+            "port": 8801,
+            "color": "red",
+            "pan": 0
         }
     ]
 }

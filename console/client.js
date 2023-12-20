@@ -115,9 +115,9 @@ const rtcConf = {
     //codec: "PCMU/8000",
     
     // Base audio encoding/decoding latency. This is added to the current webRTC round trip time when audio functions are called so that actions align with the audio
-    // This is found experimentally and varies slightly depending on daemon system performance.
-    rxBaseLatency: 500,
-    txBaseLatency: 300,
+    // This is found experimentally and varies slightly depending on daemon system performance, but ~350ms is about right for most of the tested codecs
+    rxBaseLatency: 350,
+    txBaseLatency: 350,
     // RTT (round-trip time) parameters for RTC connection
     rttLimit: 0.25,
     rttSize: 25,
@@ -158,6 +158,10 @@ var pttActive = false;
 var menuOpen = false;
 // server disconnect commanded
 var disconnecting = false;
+
+// Softkey page
+var softkeyPage = 0;
+var maxPages = 0;
 
 /***********************************************************************************
     Page Setup Functions
@@ -443,6 +447,10 @@ function updateRadioCard(idx) {
     // Get card object
     var radioCard = $("#radio" + String(idx));
 
+    // Update card name & description
+    radioCard.find(".radio-name").html(radio.status.Name);
+    radioCard.find(".radio-name").attr("title", radio.status.Description);
+
     // Limit zone & channel text to 27/18 characters
     // TODO: figure out dynamic scaling of channel/zone text so we don't have to do this
     if (radio.status.ZoneName != null) {
@@ -539,10 +547,14 @@ function updateRadioControls() {
         if (radio.status.State == "Disconnected") { return }
         // Enable softkeys
         $("#radio-controls .btn").removeClass("disabled");
-        // Get softkey text
-        radio.status.Softkeys.forEach(function(softkey, index) {
+        // Get softkey text based on page index
+        var curSoftkeyPage = radio.status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage));
+        console.debug("Got current softkey page");
+        console.debug(curSoftkeyPage);
+        // Update softkeys on page
+        curSoftkeyPage.forEach(function(softkey, index) {
             // Get text
-            $(`#softkey${index+1} .btn-text`).html(softkey.Text);
+            $(`#softkey${index+1} .btn-text`).html(softkey.Name);
             // Get state
             switch (softkey.State)
             {
@@ -554,7 +566,7 @@ function updateRadioControls() {
                     break;
             }
         });
-        exUpdateSoftkeys(radio.status.Softkeys);
+        exUpdateSoftkeys(curSoftkeyPage);
         // Clear if we don't
     } else {
         for (i=0; i<6; i++) {
@@ -579,6 +591,7 @@ function connectButton(event, obj) {
     event.stopPropagation();
     // Get ID of radio to mute
     const radioId = $(obj).closest(".radio-card").attr('id');
+    console.trace(`${radioId} connect button clicked`);
     // Get index of radio in list
     const idx = getRadioIndex(radioId);
     // If disconnected, connect
@@ -610,9 +623,8 @@ function startPtt(micActive) {
             setTimeout( function() {
                 radios[selectedRadioIdx].wsConn.send(JSON.stringify(
                     {
-                        radioControl: {
-                            command: "startTx",
-                            options: null
+                        "radio": {
+                            "command": "startTx"
                         }
                     }
                 ));
@@ -639,9 +651,8 @@ function stopPtt() {
             setTimeout( function() {
                 radios[selectedRadioIdx].wsConn.send(JSON.stringify(
                     {
-                        radioControl: {
-                            command: "stopTx",
-                            options: null
+                        "radio": {
+                            "command": "stopTx"
                         }
                     }
                 ));
@@ -664,9 +675,8 @@ function changeChannel(down) {
             console.log("Changing channel down on " + selectedRadio);
             radios[selectedRadioIdx].wsConn.send(JSON.stringify(
                 {
-                    radioControl: {
-                        command: "chanDn",
-                        options: null
+                    "radio": {
+                        "command": "chanDn"
                     }
                 }
             ));
@@ -677,9 +687,8 @@ function changeChannel(down) {
             console.log("Changing channel up on " + selectedRadio);
             radios[selectedRadioIdx].wsConn.send(JSON.stringify(
                 {
-                    radioControl: {
-                        command: "chanUp",
-                        options: null
+                    "radio": {
+                        "command": "chanUp"
                     }
                 }
             ));
@@ -692,7 +701,10 @@ function changeChannel(down) {
  * @param {int} idx softkey index
  */
 function pressSoftkey(idx) {
-    pressButton(`softkey${idx}`);
+    // convert the current softkey index to the softkey in the radio
+    var pressedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
+    console.debug("Mapped pressed softkey to softkey:" + pressedKey.Name);
+    pressButton(pressedKey.Name);
 }
 
 /**
@@ -703,27 +715,49 @@ function releaseSoftkey(idx) {
     if (config.btnSounds) {
         playSound("sound-click");
     }
-    releaseButton(`softkey${idx}`);
+    var releasedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
+    console.debug("Mapped pressed softkey to softkey:" + releasedKey.Name);
+    releaseButton(releasedKey.Name);
 }
 
 /**
- * Left arrow button
+ * Left arrow button decrements the softkey page
  */
 function button_left() {
     if (config.btnSounds) {
         playSound("sound-click");
     }
-    toggleButton("left");
+    maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
+    if (softkeyPage == 0)
+    {
+        softkeyPage = maxPages;
+    }
+    else
+    {
+        softkeyPage--;
+    }
+    console.debug(`Moving to softkey page ${softkeyPage}`);
+    updateRadioControls();
 }
 
 /**
- * Right arrow button
+ * Right arrow button increments the softkey page
  */
 function button_right() {
     if (config.btnSounds) {
         playSound("sound-click");
     }
-    toggleButton("right");
+    maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
+    if (softkeyPage == maxPages)
+    {
+        softkeyPage = 0;
+    }
+    else
+    {
+        softkeyPage++;
+    }
+    console.debug(`Moving to softkey page ${softkeyPage}`);
+    updateRadioControls();
 }
 
 /**
@@ -735,9 +769,9 @@ function toggleButton(buttonName) {
         console.log(`Sending button toggle: ${buttonName}`);
         radios[selectedRadioIdx].wsConn.send(JSON.stringify(
             {
-                radioControl: {
-                    command: "buttonToggle",
-                    options: buttonName
+                "radio": {
+                    "command": "buttonToggle",
+                    "options": buttonName
                 }
             }
         ));
@@ -749,9 +783,9 @@ function pressButton(buttonName) {
         console.log(`Sending button depress: ${buttonName}`);
         radios[selectedRadioIdx].wsConn.send(JSON.stringify(
             {
-                radioControl: {
-                    command: "buttonPress",
-                    options: buttonName
+                "radio": {
+                    "command": "buttonPress",
+                    "options": buttonName
                 }
             }
         ));
@@ -768,9 +802,9 @@ function releaseButton(buttonName) {
         console.log(`Sending button release: ${buttonName}`);
         radios[selectedRadioIdx].wsConn.send(JSON.stringify(
             {
-                radioControl: {
-                    command: "buttonRelease",
-                    options: buttonName
+                "radio": {
+                    "command": "buttonRelease",
+                    "options": buttonName
                 }
             }
         ));
@@ -786,36 +820,6 @@ function muteButton(event, obj) {
     toggleMute(idx);
     // stop prop
     event.stopPropagation();
-}
-
-/**
- * Toggle the status of radio mute
- * @param {string} obj element whose parent radio to toggle mute on
- */
-function toggleMute(idx) {
-    // Only do stuff if we have a socket connection
-    if (radios[idx].wsConn != null) {
-        // Change mute status
-        if (radios[idx].status.muted) {
-            console.log("Unmuting " + radios[idx].name);
-            radios[idx].wsConn.send(JSON.stringify(
-                {
-                    audioControl: {
-                        command: "unmute"
-                    }
-                }
-            ));
-        } else {
-            console.log("Muting " + radios[idx].name);
-            radios[idx].wsConn.send(JSON.stringify(
-                {
-                    audioControl: {
-                        command: "mute"
-                    }
-                }
-            ));
-        }
-    }
 }
 
 function startDTMF(radioId, number, digitTime, delayTime) {
@@ -1131,7 +1135,7 @@ function gotRadioConfig(data, status, obj) {
     radios = radios.map(v => ({
         ...v,
         status: {
-            state: 'Disconnected'
+            State: 'Disconnected'
         },
         rtc: {},
         wsConn: null,
@@ -1740,7 +1744,7 @@ function startAudioDevices() {
 }
 
 function muteMic() {
-    audio.inputMicGain.gain.value = 0;
+    //audio.inputMicGain.gain.value = 0;
 }
 
 function unmuteMic() {
@@ -1790,7 +1794,7 @@ function reconnectRadioMicTrack(idx) {
         sender.replaceTrack(audio.inputTrack);
     } else {
         // Add a new track if the sender died
-        console.log("Sender dead, adding new track");
+        console.warn("Sender dead, adding new track");
         radios[idx].rtc.peer.addTrack(audio.inputTrack);
     }
 }
