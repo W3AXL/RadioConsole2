@@ -10,7 +10,8 @@ using Microsoft.Extensions.Logging;
 
 namespace daemon
 {
-    internal class OpusAudioEncoder : IAudioEncoder
+    // Based on this discussion: https://github.com/sipsorcery-org/sipsorcery/issues/518#issuecomment-888639894
+    public class OpusAudioEncoder : IAudioEncoder
     {
         //Chrome use in SDP two audio channels, but the audio inself contains only one channel, so we must pass it as 2 channels in SDP but create a decoder/encoder with only one channel
         public static readonly AudioFormat MEDIA_FORMAT_OPUS = new AudioFormat(111, "opus", SAMPLE_RATE, SAMPLE_RATE, 2, "a=fmtp:111 minptime=10;useinbandfec=1");

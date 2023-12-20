@@ -24,12 +24,15 @@ using Serilog.Events;
 using Tomlyn;
 using Tomlyn.Model;
 
+using SIPSorcery.Net;
+using SIPSorceryMedia.Abstractions;
+using SIPSorcery.Media;
 using SIPSorceryMedia.SDL2;
+
 using Org.BouncyCastle.Asn1.IsisMtt.X509;
 using daemon;
 using System.Runtime;
 using DirectShowLib;
-
 
 namespace netcore_cli
 {
@@ -77,18 +80,35 @@ namespace netcore_cli
                 ListAudioDeices();
             });
             cmdRoot.AddCommand(cmdListAudio);
+            // Get audio device info command
+            var cmdGetAudio = new Command("get-audio", "Get audio device information for device name");
+            var optDeviceName = new Option<string>(new[] {"--device"}, "Device name");
+            cmdGetAudio.AddOption(optDeviceName);
+            cmdGetAudio.SetHandler(context =>
+            {
+                string devName = context.ParseResult.GetValueForOption(optDeviceName);
+                if (devName == null)
+                {
+                    Log.Error("No device name specified!");
+                    return;
+                }
+                GetAudioDeviceInfo(devName);
+            });
+            cmdRoot.AddCommand(cmdGetAudio);
 
             // Define arguments
             var optConfigFile = new Option<FileInfo>(new[] { "--config", "-c" }, "TOML daemon config file");
             var optDebug = new Option<bool>(new[] { "--debug", "-d" }, "enable debug logging");
             var optVerbose = new Option<bool>(new[] { "--verbose", "-v" }, "enable verbose logging (lots of prints)");
             var optNoReset = new Option<bool>(new[] { "--no-reset", "-nr" }, "don't reset radio on startup");
+            var optCodec = new Option<string>(new[] { "--codec" }, "(debug) codec to use for WebRTC audio, default is G722");
 
             // Add arguments
             cmdRoot.AddOption(optConfigFile);
             cmdRoot.AddOption(optVerbose);
             cmdRoot.AddOption(optDebug);
             cmdRoot.AddOption(optNoReset);
+            cmdRoot.AddOption(optCodec);
 
             // Main Runtime Handler
             cmdRoot.SetHandler((context) =>
@@ -105,7 +125,8 @@ namespace netcore_cli
                     bool debug = context.ParseResult.GetValueForOption(optDebug);
                     bool verbose = context.ParseResult.GetValueForOption(optVerbose);
                     bool noreset = context.ParseResult.GetValueForOption(optNoReset);
-                    int result = Startup(configFile, debug, verbose, noreset);
+                    string codec = context.ParseResult.GetValueForOption(optCodec);
+                    int result = Startup(configFile, debug, verbose, noreset, codec);
                     context.ExitCode = result;
                 }
             });
@@ -113,7 +134,7 @@ namespace netcore_cli
             return await cmdRoot.InvokeAsync(args);
         }
 
-        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset)
+        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, string codec = null)
         {
             // Add handler for SIGINT
             Console.CancelKeyPress += delegate {
@@ -130,6 +151,11 @@ namespace netcore_cli
             {
                 loggerSwitch.MinimumLevel = LogEventLevel.Verbose;
                 Log.Verbose("Verbose logging enabled");
+            }
+
+            if (codec != null)
+            {
+                WebRTC.Codec = codec;
             }
 
             // Read config from toml
@@ -263,6 +289,24 @@ namespace netcore_cli
                 }
             }
 
+            SDL2Helper.QuitSDL();
+        }
+
+        static void GetAudioDeviceInfo(string devName)
+        {
+            Log.Information("Getting audio device information for {devName}", devName);
+            SDL2Helper.InitSDL();
+            var audioEncoder = new OpusAudioEncoder();
+            var audioFormatManager = new MediaFormatManager<AudioFormat>(audioEncoder.SupportedFormats);
+            AudioFormat audioFormat = audioFormatManager.SelectedFormat;
+            var audioSpec = SDL2Helper.GetAudioSpec(audioFormat.ClockRate, 1);
+            uint devIdx = SDL2Helper.OpenAudioPlaybackDevice(devName, ref audioSpec);
+            Log.Information("    Device index: {index}", devIdx);
+            Log.Information("    Suppported codecs:");
+            foreach (var codec in audioEncoder.SupportedFormats)
+            {
+                Log.Information("        {codec}", codec.FormatName);
+            }
             SDL2Helper.QuitSDL();
         }
 
