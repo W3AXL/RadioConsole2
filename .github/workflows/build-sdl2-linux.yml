@@ -22,6 +22,12 @@ jobs:
       with:
         submodules: true
 
+    - name: Install Dependecies
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libasound2-dev libpulse-dev libaudio-dev libjack-dev libsndio-dev libdbus-1-dev libibus-1.0-dev libudev-dev
+        version: 1.0
+
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
