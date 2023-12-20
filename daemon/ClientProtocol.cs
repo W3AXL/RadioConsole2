@@ -110,6 +110,21 @@ namespace daemon
                     else
                         DaemonWebsocket.SendNack();
                 }
+                // Button press/release
+                else if (jsonObj.radio.command == "buttonPress")
+                {
+                    if (DaemonWebsocket.radio.PressButton((SoftkeyName)Enum.Parse(typeof(SoftkeyName),(string)jsonObj.radio.options)))
+                        DaemonWebsocket.SendAck();
+                    else
+                        DaemonWebsocket.SendNack();
+                }
+                else if (jsonObj.radio.command == "buttonRelease")
+                {
+                    if (DaemonWebsocket.radio.ReleaseButton((SoftkeyName)Enum.Parse(typeof(SoftkeyName),(string)jsonObj.radio.options)))
+                        DaemonWebsocket.SendAck();
+                    else
+                        DaemonWebsocket.SendNack();
+                }
             }
         }
 

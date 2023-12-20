@@ -24,12 +24,16 @@ using Serilog.Events;
 using Tomlyn;
 using Tomlyn.Model;
 
+using SIPSorcery.Net;
+using SIPSorceryMedia.Abstractions;
+using SIPSorcery.Media;
 using SIPSorceryMedia.SDL2;
+
 using Org.BouncyCastle.Asn1.IsisMtt.X509;
 using daemon;
 using System.Runtime;
 using DirectShowLib;
-
+using MathNet.Numerics;
 
 namespace netcore_cli
 {
@@ -77,18 +81,35 @@ namespace netcore_cli
                 ListAudioDeices();
             });
             cmdRoot.AddCommand(cmdListAudio);
+            // Get audio device info command
+            var cmdGetAudio = new Command("get-audio", "Get audio device information for device name");
+            var optDeviceName = new Option<string>(new[] {"--device"}, "Device name");
+            cmdGetAudio.AddOption(optDeviceName);
+            cmdGetAudio.SetHandler(context =>
+            {
+                string devName = context.ParseResult.GetValueForOption(optDeviceName);
+                if (devName == null)
+                {
+                    Log.Error("No device name specified!");
+                    return;
+                }
+                GetAudioDeviceInfo(devName);
+            });
+            cmdRoot.AddCommand(cmdGetAudio);
 
             // Define arguments
             var optConfigFile = new Option<FileInfo>(new[] { "--config", "-c" }, "TOML daemon config file");
             var optDebug = new Option<bool>(new[] { "--debug", "-d" }, "enable debug logging");
             var optVerbose = new Option<bool>(new[] { "--verbose", "-v" }, "enable verbose logging (lots of prints)");
             var optNoReset = new Option<bool>(new[] { "--no-reset", "-nr" }, "don't reset radio on startup");
+            var optCodec = new Option<string>(new[] { "--codec" }, "(debug) codec to use for WebRTC audio, default is G722");
 
             // Add arguments
             cmdRoot.AddOption(optConfigFile);
             cmdRoot.AddOption(optVerbose);
             cmdRoot.AddOption(optDebug);
             cmdRoot.AddOption(optNoReset);
+            cmdRoot.AddOption(optCodec);
 
             // Main Runtime Handler
             cmdRoot.SetHandler((context) =>
@@ -105,7 +126,8 @@ namespace netcore_cli
                     bool debug = context.ParseResult.GetValueForOption(optDebug);
                     bool verbose = context.ParseResult.GetValueForOption(optVerbose);
                     bool noreset = context.ParseResult.GetValueForOption(optNoReset);
-                    int result = Startup(configFile, debug, verbose, noreset);
+                    string codec = context.ParseResult.GetValueForOption(optCodec);
+                    int result = Startup(configFile, debug, verbose, noreset, codec);
                     context.ExitCode = result;
                 }
             });
@@ -113,7 +135,7 @@ namespace netcore_cli
             return await cmdRoot.InvokeAsync(args);
         }
 
-        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset)
+        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, string codec = null)
         {
             // Add handler for SIGINT
             Console.CancelKeyPress += delegate {
@@ -130,6 +152,11 @@ namespace netcore_cli
             {
                 loggerSwitch.MinimumLevel = LogEventLevel.Verbose;
                 Log.Verbose("Verbose logging enabled");
+            }
+
+            if (codec != null)
+            {
+                WebRTC.Codec = codec;
             }
 
             // Read config from toml
@@ -191,6 +218,9 @@ namespace netcore_cli
             var radioCfg = (TomlTable)config["radio"];
             string controlType = (string)radioCfg["type"];
             bool rxOnly = (bool)radioCfg["rxOnly"];
+            ///
+            /// None Control Type (aka non-controlled RX only radio)
+            ///
             if (controlType == "none")
             {
                 var noneConfig = (TomlTable)config["none"];
@@ -201,20 +231,72 @@ namespace netcore_cli
                 // Update websocket radio object
                 DaemonWebsocket.radio = radio;
             }
+            ///
+            /// Motorola SB9600 control
+            ///
             else if (controlType == "sb9600")
             {
-                
                 // Parse the SB9600 config options
                 var sb9600config = (TomlTable)config["sb9600"];
                 SB9600.HeadType head = (SB9600.HeadType)Enum.Parse(typeof(SB9600.HeadType), (string)sb9600config["head"]);
                 string port = (string)sb9600config["port"];
                 Log.Debug("      Control: {HeadType}-head SB9600 radio on port {SerialPort}", head, port);
+                
+                // Parse softkeys and button bindings
+                List<Softkey> softkeys = new List<Softkey>();
+                var cfgSoftkeys = (TomlTable)config["softkeys"];
+                // We convert the button bindings to a more parsable array
+                var cfgButtonBinding = (TomlArray)cfgSoftkeys["buttonBinding"];
+                List<string[]> btnBindings = new List<string[]>();
+                foreach ( TomlArray binding in cfgButtonBinding )
+                {
+                    btnBindings.Add([(string)binding[0], (string)binding[1]]);
+                }
+                // We iterate over each softkey entry
+                var cfgSoftkeyList = (TomlArray)cfgSoftkeys["softkeyList"];
+                foreach ( string softkey in cfgSoftkeyList )
+                {
+                    Softkey key = new Softkey();
+                    // Make sure the softkey name is valid
+                    if (!Enum.IsDefined(typeof(SoftkeyName), softkey))
+                    {
+                        Log.Error("Softkey name {name} is not defined!", softkey);
+                        return 1;
+                    }
+                    key.Name = (SoftkeyName)Enum.Parse(typeof(SoftkeyName), softkey);
+                    // Make sure that there's a valid binding for this softkey
+                    string btnName = btnBindings.Find(b => b[1] == key.Name.ToString())[0];
+                    if (btnName == null)
+                    {
+                        Log.Error("Softkey name {name} not found in button binding map!", key.Name);
+                        return 1;
+                    }
+                    // Create the button and assign it to the softkey
+                    byte btnCode;
+                    if (head == SB9600.HeadType.W9)
+                        btnCode = ControlHeads.W9.Buttons[btnName];
+                    else if (head == SB9600.HeadType.M3)
+                        btnCode = ControlHeads.M3.Buttons[btnName];
+                    else
+                    {
+                        Log.Error("Head type {Head} does not support button bindings!", head);
+                        return 1;
+                    }
+                    key.Button = new ControlHeads.Button(btnCode, btnName);
+                    // Add the softkey to the list
+                    softkeys.Add(key);
+                }
+
                 // Create SB9600 radio object
-                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups);
+                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups, softkeys);
                 radio.StatusCallback = DaemonWebsocket.SendRadioStatus;
+                
                 // Update websocket radio object
                 DaemonWebsocket.radio = radio;
             }
+            ///
+            /// CM108 single-channel PTT controlled radio
+            ///
             else if (controlType == "cm108")
             {
                 // TODO: Implement this lol
@@ -263,6 +345,24 @@ namespace netcore_cli
                 }
             }
 
+            SDL2Helper.QuitSDL();
+        }
+
+        static void GetAudioDeviceInfo(string devName)
+        {
+            Log.Information("Getting audio device information for {devName}", devName);
+            SDL2Helper.InitSDL();
+            var audioEncoder = new OpusAudioEncoder();
+            var audioFormatManager = new MediaFormatManager<AudioFormat>(audioEncoder.SupportedFormats);
+            AudioFormat audioFormat = audioFormatManager.SelectedFormat;
+            var audioSpec = SDL2Helper.GetAudioSpec(audioFormat.ClockRate, 1);
+            uint devIdx = SDL2Helper.OpenAudioPlaybackDevice(devName, ref audioSpec);
+            Log.Information("    Device index: {index}", devIdx);
+            Log.Information("    Suppported codecs:");
+            foreach (var codec in audioEncoder.SupportedFormats)
+            {
+                Log.Information("        {codec}", codec.FormatName);
+            }
             SDL2Helper.QuitSDL();
         }
 

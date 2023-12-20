@@ -4,7 +4,7 @@ name = "Test Radio Daemon"
 desc = "Radio daemon for testing and development"
 
 [network]
-ip = "127.0.0.1"
+ip = "0.0.0.0"
 port = 8801
 
 # Radio control configuration
@@ -18,13 +18,13 @@ chan = "RX Only Channel Name"
 
 [sb9600]
 head = "W9"     # head type (O5, M3, or W9)
-port = "COM12"  # serial port for serial control
+port = "/dev/ttyUSB0"  # serial port for serial control
 
 # Configure your audio devices here
 # Run `daemon list-audio` to get the proper names/paths for your audio devices
 [audio]
-txDevice = "Speakers (C-Media USB Headphone Set  )"
-rxDevice = "Microphone (C-Media USB Headphone Set  )"
+txDevice = "C-Media USB Headphone Set, USB Audio"
+rxDevice = "C-Media USB Headphone Set, USB Audio"
 
 # Text Lookups for zone/channel text
 [lookups]

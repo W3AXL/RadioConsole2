@@ -8,6 +8,7 @@ using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.FFmpeg;
 using Serilog;
 using Newtonsoft.Json;
+using MathNet.Numerics;
 
 namespace daemon
 {
@@ -39,9 +40,21 @@ namespace daemon
     public enum ScanState
     {
         NotScanning,
-        Scanning,
+        Scanning
+    }
+
+    public enum PriorityState
+    {
+        NoPriority,
         Priority1,
         Priority2
+    }
+
+    public enum PowerState
+    {
+        LowPower,
+        MidPower,
+        HighPower
     }
 
     public enum SoftkeyState
@@ -52,14 +65,51 @@ namespace daemon
     }
 
     /// <summary>
+    /// These are the valid softkey bindings which can be used to setup softkeys on radios which don't have them
+    /// </summary>
+    /// Pruned from the Astro25 mobile CPS help section on button bindings
+    public enum SoftkeyName
+    {
+        CALL,   // Signalling call
+        CHAN,   // Channel Select
+        DEL,    // Nuisance Delete
+        DIR,    // Talkaround/direct
+        EMER,   // Emergency
+        DYNP,   // Dynamic Priority
+        HOME,   // Home
+        LOCK,   // Trunking site lock
+        LPWR,   // Low power
+        MON,    // Monitor (PL defeat)
+        PAGE,   // Signalling page
+        PHON,   // Phone operation
+        RAB1,   // Repeater access button 1
+        RAB2,   // Repeater access button 2
+        RCL,    // Scan recall
+        SCAN,   // Scan mode, etc
+        SEC,    // Secure mode
+        SEL,    // Select
+        SITE,   // Site alias
+        TCH1,   // One-touch 1
+        TCH2,   // One-touch 2
+        TCH3,   // One-touch 3
+        TCH4,   // One-touch 4
+        TGRP,   // Talkgroup select
+        TMS,    // Text messaging
+        TMSQ,   // Quick message
+        ZNUP,   // Zone up
+        ZNDN,   // Zone down
+        ZONE,   // Zone select
+    }
+
+    /// <summary>
     /// Softkey object to hold key text, description (for hover) and state
     /// </summary>
     public class Softkey
     {
-        public string Text { get; set; }
+        public SoftkeyName Name { get; set; }
         public string Description { get; set; }
         public SoftkeyState State { get; set; }
-        public byte SB9600ButtonCode {  get; set; }
+        public ControlHeads.Button Button { get; set; }
     }
 
     /// <summary>
@@ -82,7 +132,7 @@ namespace daemon
     /// <summary>
     /// Radio status object, contains all the possible radio states sent to the client during status updates
     /// </summary>
-    internal class RadioStatus
+    public class RadioStatus
     {
         public string Name { get; set; } = "";
         public string Description { get; set; } = "";
@@ -90,8 +140,11 @@ namespace daemon
         public string ChannelName { get; set; } = "";
         public RadioState State { get; set; } = RadioState.Disconnected;
         public ScanState ScanState { get; set; } = ScanState.NotScanning;
+        public PriorityState PriorityState {get; set;} = PriorityState.NoPriority;
+        public PowerState PowerState {get; set;} = PowerState.LowPower;
         public List<Softkey> Softkeys { get; set; } = new List<Softkey>();
         public bool Monitor { get; set; } = false;
+        public bool Direct {get; set;} = false;
         public bool Error { get; set; } = false;
         public string ErrorMsg { get; set; } = "";
 
@@ -156,7 +209,7 @@ namespace daemon
         /// <param name="rxOnly"></param>
         /// <param name="zoneLookups"></param>
         /// <param name="chanLookups"></param>
-        public Radio(string name, string desc, RadioType type, SB9600.HeadType head, string comPort, bool rxOnly, List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null)
+        public Radio(string name, string desc, RadioType type, SB9600.HeadType head, string comPort, bool rxOnly, List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null, List<Softkey> softkeys = null)
         {
             // Get basic info
             Type = type;
@@ -171,6 +224,7 @@ namespace daemon
             Status = new RadioStatus();
             Status.Name = name;
             Status.Description = desc;
+            Status.Softkeys = softkeys;
         }
 
         /// <summary>
@@ -206,7 +260,7 @@ namespace daemon
         /// </summary>
         private void RadioStatusCallback()
         {
-            Log.Debug("Got radio status callback from interface");
+            Log.Verbose("Got radio status callback from interface");
             StatusCallback();
         }
 
@@ -246,6 +300,34 @@ namespace daemon
             else
             {
                 Log.Error("ChangeChannel not defined for interface type {IntType}", Type);
+                return false;
+            }
+        }
+
+        public bool PressButton(SoftkeyName name)
+        {
+            if (Type == RadioType.SB9600)
+            {
+                IntSB9600.PressButton(name);
+                return true;
+            }
+            else
+            {
+                Log.Error("PressButton not defined for interface type {IntType}", Type);
+                return false;
+            }
+        }
+
+        public bool ReleaseButton(SoftkeyName name)
+        {
+            if (Type == RadioType.SB9600)
+            {
+                IntSB9600.ReleaseButton(name);
+                return true;
+            }
+            else
+            {
+                Log.Error("ReleaseButton not defined for interface type {IntType}", Type);
                 return false;
             }
         }

@@ -54,6 +54,12 @@ namespace daemon
             
             Log.Debug("Created SDL2 audio sources/sinks and encoder");
 
+            Log.Verbose("Client supported formats:");
+            foreach (var format in TxEncoder.SupportedFormats)
+            {
+                Log.Verbose("{FormatName}", format.FormatName);
+            }
+
             // Add the RX track to the peer connection
             if (!TxEncoder.SupportedFormats.Any(f => f.FormatName == Codec))
             {
@@ -72,12 +78,6 @@ namespace daemon
 
             pc.OnAudioFormatsNegotiated += (formats) =>
             {
-
-                Log.Verbose("Client supported formats:");
-                foreach (var format in formats)
-                {
-                    Log.Verbose("{FormatName}", format.FormatName);
-                }
                 RxSource.SetAudioSourceFormat(formats.Find(f => f.FormatName == Codec));
                 TxEndpoint.SetAudioSinkFormat(formats.Find(f => f.FormatName == Codec));
                 Log.Debug("Negotiated audio format {AudioFormat}", formats.Find(f => f.FormatName == Codec).FormatName);
@@ -87,8 +87,12 @@ namespace daemon
             pc.onconnectionstatechange += ConnectionStateChange;
 
             // Debug Stuff
-            pc.OnReceiveReport += (re, media, rr) => Log.Verbose("RTCP Receive for {Media} from {RE}\n{Report}", media, re, rr.GetDebugSummary());
-            pc.OnSendReport += (media, sr) => Log.Verbose("RTCP Send for {Media}\n{Summary}", media, sr.GetDebugSummary());
+            pc.OnReceiveReport += (re, media, rr) => Log.Verbose("RTCP report received {Media} from {RE}\n{Report}", media, re, rr.GetDebugSummary());
+            pc.OnSendReport += (media, sr) => Log.Verbose("RTCP report sent for {Media}\n{Summary}", media, sr.GetDebugSummary());
+            pc.GetRtpChannel().OnStunMessageSent += (msg, ep, isRelay) =>
+            {
+                Log.Verbose("STUN {MessageType} sent to {Endpoint}.", msg.Header.MessageType, ep);
+            };
             pc.GetRtpChannel().OnStunMessageReceived += (msg, ep, isRelay) =>
             {
                 Log.Verbose("STUN {MessageType} received from {Endpoint}.", msg.Header.MessageType, ep);
