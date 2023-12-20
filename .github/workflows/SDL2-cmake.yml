@@ -1,6 +1,6 @@
 # This starter workflow is for a CMake project running on multiple platforms. There is a different starter workflow if you just want a single platform.
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
-name: CMake on multiple platforms
+name: SDL2 Cross Platform Build
 
 on:
   workflow_dispatch
@@ -47,6 +47,12 @@ jobs:
       with:
         name: libsdl-org/SDL
         ref: SDL2
+
+    - name: Get & cache dependecies
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libasound2-dev libpulse-dev libaudio-dev libjack-dev libsndio-dev libdbus-1-dev libibus-1.0-dev libudev-dev
+        version: 1.0
         
     - name: Set reusable strings
       # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
