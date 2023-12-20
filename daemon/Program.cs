@@ -33,6 +33,7 @@ using Org.BouncyCastle.Asn1.IsisMtt.X509;
 using daemon;
 using System.Runtime;
 using DirectShowLib;
+using MathNet.Numerics;
 
 namespace netcore_cli
 {
@@ -217,6 +218,9 @@ namespace netcore_cli
             var radioCfg = (TomlTable)config["radio"];
             string controlType = (string)radioCfg["type"];
             bool rxOnly = (bool)radioCfg["rxOnly"];
+            ///
+            /// None Control Type (aka non-controlled RX only radio)
+            ///
             if (controlType == "none")
             {
                 var noneConfig = (TomlTable)config["none"];
@@ -227,20 +231,72 @@ namespace netcore_cli
                 // Update websocket radio object
                 DaemonWebsocket.radio = radio;
             }
+            ///
+            /// Motorola SB9600 control
+            ///
             else if (controlType == "sb9600")
             {
-                
                 // Parse the SB9600 config options
                 var sb9600config = (TomlTable)config["sb9600"];
                 SB9600.HeadType head = (SB9600.HeadType)Enum.Parse(typeof(SB9600.HeadType), (string)sb9600config["head"]);
                 string port = (string)sb9600config["port"];
                 Log.Debug("      Control: {HeadType}-head SB9600 radio on port {SerialPort}", head, port);
+                
+                // Parse softkeys and button bindings
+                List<Softkey> softkeys = new List<Softkey>();
+                var cfgSoftkeys = (TomlTable)config["softkeys"];
+                // We convert the button bindings to a more parsable array
+                var cfgButtonBinding = (TomlArray)cfgSoftkeys["buttonBinding"];
+                List<string[]> btnBindings = new List<string[]>();
+                foreach ( TomlArray binding in cfgButtonBinding )
+                {
+                    btnBindings.Add([(string)binding[0], (string)binding[1]]);
+                }
+                // We iterate over each softkey entry
+                var cfgSoftkeyList = (TomlArray)cfgSoftkeys["softkeyList"];
+                foreach ( string softkey in cfgSoftkeyList )
+                {
+                    Softkey key = new Softkey();
+                    // Make sure the softkey name is valid
+                    if (!Enum.IsDefined(typeof(SoftkeyName), softkey))
+                    {
+                        Log.Error("Softkey name {name} is not defined!", softkey);
+                        return 1;
+                    }
+                    key.Name = (SoftkeyName)Enum.Parse(typeof(SoftkeyName), softkey);
+                    // Make sure that there's a valid binding for this softkey
+                    string btnName = btnBindings.Find(b => b[1] == key.Name.ToString())[0];
+                    if (btnName == null)
+                    {
+                        Log.Error("Softkey name {name} not found in button binding map!", key.Name);
+                        return 1;
+                    }
+                    // Create the button and assign it to the softkey
+                    byte btnCode;
+                    if (head == SB9600.HeadType.W9)
+                        btnCode = ControlHeads.W9.Buttons[btnName];
+                    else if (head == SB9600.HeadType.M3)
+                        btnCode = ControlHeads.M3.Buttons[btnName];
+                    else
+                    {
+                        Log.Error("Head type {Head} does not support button bindings!", head);
+                        return 1;
+                    }
+                    key.Button = new ControlHeads.Button(btnCode, btnName);
+                    // Add the softkey to the list
+                    softkeys.Add(key);
+                }
+
                 // Create SB9600 radio object
-                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups);
+                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups, softkeys);
                 radio.StatusCallback = DaemonWebsocket.SendRadioStatus;
+                
                 // Update websocket radio object
                 DaemonWebsocket.radio = radio;
             }
+            ///
+            /// CM108 single-channel PTT controlled radio
+            ///
             else if (controlType == "cm108")
             {
                 // TODO: Implement this lol
