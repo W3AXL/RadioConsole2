@@ -18,7 +18,7 @@ chan = "RX Only Channel Name"
 
 [sb9600]
 head = "W9"     # head type (O5, M3, or W9)
-port = "/dev/ttyUSB0"  # serial port for serial control
+port = "COM12"  # serial port for serial control
 
 # Configure your audio devices here
 # Run `daemon list-audio` to get the proper names/paths for your audio devices
@@ -35,4 +35,43 @@ zoneLookup = [
 chanLookup = [
 	["IAA P25", "N9IAA VHF P25"],
 	["N9IAA WX", "N9IAA Simulcast"]
+]
+
+# Softkey Definitions
+[softkeys]
+buttonBinding = [
+	[ "btn_top_1", "MON" ],
+	[ "btn_top_2", "LPWR" ],
+	[ "btn_top_3", "SCAN" ],
+	[ "btn_top_4", "DIR" ],
+	[ "btn_top_5", "SEC" ],
+	[ "btn_top_6", "" ],
+	[ "btn_kp_1", "CALL" ],
+	[ "btn_kp_2", "PAGE" ],
+	[ "btn_kp_3", "TGRP" ],
+	[ "btn_kp_4", "" ],
+	[ "btn_kp_5", "" ],
+	[ "btn_kp_6", "" ],
+	[ "btn_kp_7", "" ],
+	[ "btn_kp_8", "" ],
+	[ "btn_kp_9", "" ],
+	[ "btn_kp_*", "RCL" ],
+	[ "btn_kp_0", "" ],
+	[ "btn_kp_#", "DEL" ],
+	[ "btn_home", "HOME" ],
+	[ "btn_sel", "SEL" ]
+]
+softkeyList = [
+	"MON",
+	"DEL",
+	"LPWR",
+	"SCAN",
+	"DIR",
+	"HOME",
+	"CALL",
+	"PAGE",
+	"TGRP",
+	"SEC",
+	"RCL",
+	"SEL"
 ]

@@ -169,8 +169,11 @@ namespace netcore_cli
             DaemonWebsocket.StartWsServer();
             // Start radio
             radio.Start(noreset);
-            // Infinite loop
-            while (!shutdown) {}
+            // Infinite loop (with a sleep to give CPU a break
+            while (!shutdown) 
+            {
+                Thread.Sleep(1);
+            }
             return 0;
         }
 
