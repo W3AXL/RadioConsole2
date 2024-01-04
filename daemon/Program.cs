@@ -172,7 +172,7 @@ namespace netcore_cli
             // Infinite loop (with a sleep to give CPU a break
             while (!shutdown) 
             {
-                Thread.Sleep(1);
+                Thread.Sleep(100);
             }
             return 0;
         }
@@ -221,6 +221,7 @@ namespace netcore_cli
             var radioCfg = (TomlTable)config["radio"];
             string controlType = (string)radioCfg["type"];
             bool rxOnly = (bool)radioCfg["rxOnly"];
+            WebRTC.RxOnly = rxOnly;
             ///
             /// None Control Type (aka non-controlled RX only radio)
             ///
@@ -255,6 +256,13 @@ namespace netcore_cli
                 {
                     btnBindings.Add([(string)binding[0], (string)binding[1]]);
                 }
+                // Make sure we have button bindings
+                if (btnBindings == null)
+                {
+                    Log.Error("No button bindings defined!");
+                    return 1;
+                }
+                Log.Debug("Loaded button bindings: {buttonBindings}", btnBindings);
                 // We iterate over each softkey entry
                 var cfgSoftkeyList = (TomlArray)cfgSoftkeys["softkeyList"];
                 foreach ( string softkey in cfgSoftkeyList )
@@ -290,8 +298,14 @@ namespace netcore_cli
                     softkeys.Add(key);
                 }
 
+                // Parse using LEDs for RX states
+                bool rxLeds = false;
+                if (sb9600config.ContainsKey("useLedsForRx"))
+                    rxLeds = (bool)sb9600config["useLedsForRx"];
+                Log.Information("Using RX LEDs for RX state");
+
                 // Create SB9600 radio object
-                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups, softkeys);
+                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups, softkeys, rxLeds);
                 radio.StatusCallback = DaemonWebsocket.SendRadioStatus;
                 
                 // Update websocket radio object

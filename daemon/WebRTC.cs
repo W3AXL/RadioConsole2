@@ -29,6 +29,8 @@ namespace daemon
 
         public static string Codec { get; set; } = "G722";
 
+        public static bool RxOnly {get; set;} = false;
+
         public static Task<RTCPeerConnection> CreatePeerConnection()
         {
             Log.Debug("New client connected to RTC endpoint, creating peer connection");
@@ -47,28 +49,53 @@ namespace daemon
             RxSource = new SDL2AudioSource(Daemon.Config.RxAudioDevice, RxEncoder);
             Log.Debug("RX audio using input {RxInput}", Daemon.Config.RxAudioDevice);
 
+            RxSource.OnAudioSourceError += (e) => {
+                Log.Error("Got RX source error: {error}", e);
+            };
+
             // TX audio setup
-            TxEncoder = new AudioEncoder();
-            TxEndpoint = new SDL2AudioEndPoint(Daemon.Config.TxAudioDevice, TxEncoder);
-            Log.Debug("TX audio using output {TxOutput}", Daemon.Config.TxAudioDevice);
+            if (!RxOnly)
+            {
+                TxEncoder = new AudioEncoder();
+                TxEndpoint = new SDL2AudioEndPoint(Daemon.Config.TxAudioDevice, TxEncoder);
+                Log.Debug("TX audio using output {TxOutput}", Daemon.Config.TxAudioDevice);
+
+                TxEndpoint.OnAudioSinkError += (e) => {
+                    Log.Error("Got TX endpoint error: {error}", e);
+                };
+            }
+            else
+            {
+                Log.Warning("RX only radio defined, skipping TX audio setup");
+            }
+            
             
             Log.Debug("Created SDL2 audio sources/sinks and encoder");
 
             Log.Verbose("Client supported formats:");
-            foreach (var format in TxEncoder.SupportedFormats)
+            foreach (var format in RxEncoder.SupportedFormats)
             {
                 Log.Verbose("{FormatName}", format.FormatName);
             }
 
             // Add the RX track to the peer connection
-            if (!TxEncoder.SupportedFormats.Any(f => f.FormatName == Codec))
+            if (!RxEncoder.SupportedFormats.Any(f => f.FormatName == Codec))
             {
                 Log.Error("Specified format {SpecFormat} not supported by audio encoder!", Codec);
                 throw new ArgumentException("Invalid codec specified!");
             }
-            RtcTrack = new MediaStreamTrack(TxEncoder.SupportedFormats.Find(f => f.FormatName == Codec), MediaStreamStatusEnum.SendRecv);
+            if (!RxOnly)
+            {
+                RtcTrack = new MediaStreamTrack(RxEncoder.SupportedFormats.Find(f => f.FormatName == Codec), MediaStreamStatusEnum.SendRecv);
+                Log.Debug("Added send/recv audio track to peer connection");
+            } 
+            else
+            {
+                RtcTrack = new MediaStreamTrack(RxEncoder.SupportedFormats.Find(f => f.FormatName == Codec), MediaStreamStatusEnum.SendOnly);
+                Log.Debug("Added send-only audio track to peer connection");
+            }
             pc.addTrack(RtcTrack);
-            Log.Debug("Added send/recv audio track to peer connection");
+            
 
             // Map callbacks
             RxSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) => {
@@ -79,7 +106,8 @@ namespace daemon
             pc.OnAudioFormatsNegotiated += (formats) =>
             {
                 RxSource.SetAudioSourceFormat(formats.Find(f => f.FormatName == Codec));
-                TxEndpoint.SetAudioSinkFormat(formats.Find(f => f.FormatName == Codec));
+                if (!RxOnly)
+                    TxEndpoint.SetAudioSinkFormat(formats.Find(f => f.FormatName == Codec));
                 Log.Debug("Negotiated audio format {AudioFormat}", formats.Find(f => f.FormatName == Codec).FormatName);
             };
 
@@ -106,15 +134,16 @@ namespace daemon
                 if (media == SDPMediaTypesEnum.audio)
                 {
                     //Log.Verbose("Got RTP audio from {Endpoint} - ({length}-byte payload)", rep.ToString(), rtpPkt.Payload.Length);
-                    TxEndpoint.GotAudioRtp(
-                        rep, 
-                        rtpPkt.Header.SyncSource, 
-                        rtpPkt.Header.SequenceNumber, 
-                        rtpPkt.Header.Timestamp, 
-                        rtpPkt.Header.PayloadType, 
-                        rtpPkt.Header.MarkerBit == 1,
-                        rtpPkt.Payload
-                    );
+                    if (!RxOnly)
+                        TxEndpoint.GotAudioRtp(
+                            rep, 
+                            rtpPkt.Header.SyncSource, 
+                            rtpPkt.Header.SequenceNumber, 
+                            rtpPkt.Header.Timestamp, 
+                            rtpPkt.Header.PayloadType, 
+                            rtpPkt.Header.MarkerBit == 1,
+                            rtpPkt.Payload
+                        );
                 }
             };
 
@@ -156,7 +185,8 @@ namespace daemon
         private static async Task StartAudio()
         {
             await RxSource.StartAudio();
-            await TxEndpoint.StartAudioSink();
+            if (!RxOnly)
+                await TxEndpoint.StartAudioSink();
             Log.Debug("Audio started");
         }
 
@@ -164,7 +194,8 @@ namespace daemon
         {
             // Close audio
             await RxSource.CloseAudio();
-            await TxEndpoint.CloseAudioSink();
+            if (!RxOnly)
+                await TxEndpoint.CloseAudioSink();
             // De-init SDL2
             SDL2Helper.QuitSDL();
             Log.Debug("SDL2 audio closed");

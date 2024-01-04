@@ -252,6 +252,8 @@ namespace daemon
 
         private bool noReset = false;
 
+        private bool RxLeds = false;
+
         /// <summary>
         /// Reference back to Radio state object for status updates
         /// </summary>
@@ -259,8 +261,6 @@ namespace daemon
 
         private string displayText1 { get; set; } = "";
         private string displayText2 { get; set; } = "";
-        private List<TextLookup> ZoneLookups { get; set; }
-        private List<TextLookup> ChanLookups { get; set; }
         
         public enum HeadType
         {
@@ -618,22 +618,20 @@ namespace daemon
             }
         }
 
-        public SB9600(SerialPort port, HeadType _head, List<TextLookup> zoneLookups, List<TextLookup> chanLookups)
+        public SB9600(SerialPort port, HeadType _head, bool rxLeds = false)
         {
             Port = port;
             Port.BaudRate = 9600;
             Head = _head;
-            ZoneLookups = zoneLookups;
-            ChanLookups = chanLookups;
+            RxLeds = rxLeds;
         }
 
-        public SB9600(string portName, HeadType _head, List<TextLookup> zoneLookups, List<TextLookup> chanLookups)
+        public SB9600(string portName, HeadType _head, bool rxLeds = false)
         {
             Port = new SerialPort(portName);
             Port.BaudRate = 9600;
             Head = _head;
-            ZoneLookups = zoneLookups;
-            ChanLookups = chanLookups;
+            RxLeds = rxLeds;
         }
 
         public void Start(bool noreset)
@@ -1133,32 +1131,6 @@ namespace daemon
                                     displayText1 = newDisplay;
                                     // By default we use the full display as the radio's channel text
                                     radioStatus.ChannelName = displayText1;
-                                    // Lookup zone text match, if any
-                                    if (ZoneLookups != null)
-                                    {
-                                        foreach (TextLookup lookup in ZoneLookups)
-                                        {
-                                            if (displayText1.Contains(lookup.Match))
-                                            {
-                                                radioStatus.ZoneName = lookup.Replacement;
-                                                Log.Verbose("Found zone text {ZoneName} from {Match} in display text {Text}", radioStatus.ZoneName, lookup.Match, displayText1);
-                                                // Replace the channel text with the display text minus the matched characters
-                                                radioStatus.ChannelName = displayText1.Replace(lookup.Match, "");
-                                            }
-                                        }
-                                    }
-                                    // Lookup channel text match, if any
-                                    if (ChanLookups != null)
-                                    {
-                                        foreach (TextLookup lookup in ChanLookups)
-                                        {
-                                            if (radioStatus.ChannelName.Contains(lookup.Match))
-                                            {
-                                                radioStatus.ChannelName = lookup.Replacement;
-                                                Log.Verbose("Found channel text {ChannelName} from {Match} in original text {Text}", radioStatus.ChannelName, lookup.Match, displayText1);
-                                            }
-                                        }
-                                    }
                                     // Flag that we've got a new status
                                     if (radioStatus.ChannelName != "")
                                         Log.Information("Got new channel name: {ChanText}", radioStatus.ChannelName);
@@ -1175,6 +1147,9 @@ namespace daemon
                                 // Top row is zone text
                                 if (srow == 0)
                                 {
+                                    // Init the display text if we haven't yet
+                                    if (displayText1 == null || displayText1 == "")
+                                        displayText1 = "              ";
                                     // Replace the specified indexes based on starting column value
                                     displayText1 = displayText1[..scol] + text + displayText1[(scol + chars)..];
                                     // Verify that the new text is not an ignored string
@@ -1182,18 +1157,6 @@ namespace daemon
                                     {
                                         radioStatus.ZoneName = displayText1;
                                         Log.Verbose("Got new zone text for radio: {ZoneName}", radioStatus.ZoneName);
-                                        // Perform lookup
-                                        if (ZoneLookups.Count > 0)
-                                        {
-                                            foreach (TextLookup lookup in ZoneLookups)
-                                            {
-                                                if (radioStatus.ZoneName.Contains(lookup.Match))
-                                                {
-                                                    radioStatus.ZoneName = lookup.Replacement;
-                                                    Log.Verbose("Found zone text {ZoneName} from {Match} in original text {Text}", radioStatus.ZoneName, lookup.Match, displayText1);
-                                                }
-                                            }
-                                        }
                                         // Set flag
                                         newStatus = true;
                                     }
@@ -1201,6 +1164,9 @@ namespace daemon
                                 // Bottom row is channel text
                                 else if (srow == 1)
                                 {
+                                    // Init the display text if we haven't yet
+                                    if (displayText2 == null || displayText2 == "")
+                                        displayText2 = "              ";
                                     // Replace updated characters
                                     displayText2 = displayText2[..scol] + text + displayText2[(scol + chars)..];
                                     // Verify that it's not an ignored string
@@ -1208,18 +1174,6 @@ namespace daemon
                                     {
                                         radioStatus.ChannelName = displayText2;
                                         Log.Verbose("Got new channel text for radio: {ChannelName}", radioStatus.ChannelName);
-                                        // Perform lookup
-                                        if (ChanLookups.Count > 0)
-                                        {
-                                            foreach (TextLookup lookup in ChanLookups)
-                                            {
-                                                if (radioStatus.ChannelName.Contains(lookup.Match))
-                                                {
-                                                    radioStatus.ChannelName = lookup.Replacement;
-                                                    Log.Verbose("Found channel text {ChannelName} from {Match} in original text {Text}", radioStatus.ChannelName, lookup.Match, displayText2);
-                                                }
-                                            }
-                                        }
                                         // Set flag
                                         newStatus = true;
                                     }
@@ -1266,6 +1220,30 @@ namespace daemon
                             ControlHeads.Indicator indicator = ControlHeads.GetIndicator(Head, codes[i]);
                             indicator.State = (ControlHeads.IndicatorStates)states[i];
                             Log.Verbose("Indicator {indicator} ({code}) state is now {state}", indicator.Name, indicator.Code, indicator.State);
+
+                            // Check for RX state by indicator state, if enabled
+                            if (RxLeds)
+                            {
+                                if (indicator.Name.Contains("ind_nonpri") || indicator.Name.Contains("ind_pri"))
+                                {
+                                    if (indicator.State != ControlHeads.IndicatorStates.OFF)
+                                    {
+                                        if (radioStatus.State != RadioState.Receiving)
+                                        {
+                                            Log.Information("Radio now receiving, source: {indicator name}", indicator.Name.ToString());
+                                            radioStatus.State = RadioState.Receiving;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (radioStatus.State != RadioState.Idle && radioStatus.State != RadioState.Transmitting)
+                                        {
+                                            Log.Information("Radio no longer receiving, source: {indicator name}", indicator.Name.ToString());
+                                            radioStatus.State = RadioState.Idle;
+                                        }
+                                    }
+                                }
+                            }
                             
                             // For M3 we update certain statuses based on the screen indicators
                             if (Head == HeadType.M3)
@@ -1448,6 +1426,12 @@ namespace daemon
                     {
                         inSbep = false;
                         int processed = processSBEP(data);
+                        // This can happen sometimes, I think it's just the counter messing up, we ignore it for now
+                        if (processed > data.Length)
+                        {
+                            Log.Warning("Processed more bytes ({bytes}) than we had in buffer ({buffer})?", processed, data.Length);
+                            processed = data.Length;
+                        }
                         data = data[processed..];
                     }
                 }
@@ -1501,6 +1485,9 @@ namespace daemon
                     // Message is done, so process it
                     else if (waiting && !BUSY)
                     {
+                        // Let things settle
+                        Thread.Sleep(1);
+                        // We're no longer waiting
                         waiting = false;
                         // Read message
                         byte[] rxMsg = new byte[Port.BytesToRead];
@@ -1621,7 +1608,10 @@ namespace daemon
                     ToggleButton(ControlHeads.W9.Buttons[btn]);
                     break;
                 case HeadType.M3:
-                    //ToggleButton(ControlHeads.M3.Buttons["knob_chan"]);
+                    // M3 channel up/down is defined by programming
+                    SoftkeyName name = down ? SoftkeyName.CHDN : SoftkeyName.CHUP;
+                    Softkey key = radioStatus.Softkeys.Find(s => s.Name == name);
+                    ToggleButton(key.Button.Code);
                     break;
                 case HeadType.O5:
                     byte steps = (byte)(down ? 0xFF : 0x01);

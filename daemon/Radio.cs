@@ -72,6 +72,8 @@ namespace daemon
     {
         CALL,   // Signalling call
         CHAN,   // Channel Select
+        CHUP,   // Channel Up
+        CHDN,   // Channel Down
         DEL,    // Nuisance Delete
         DIR,    // Talkaround/direct
         EMER,   // Emergency
@@ -209,7 +211,7 @@ namespace daemon
         /// <param name="rxOnly"></param>
         /// <param name="zoneLookups"></param>
         /// <param name="chanLookups"></param>
-        public Radio(string name, string desc, RadioType type, SB9600.HeadType head, string comPort, bool rxOnly, List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null, List<Softkey> softkeys = null)
+        public Radio(string name, string desc, RadioType type, SB9600.HeadType head, string comPort, bool rxOnly, List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null, List<Softkey> softkeys = null, bool rxLeds = false)
         {
             // Get basic info
             Type = type;
@@ -218,7 +220,7 @@ namespace daemon
             ZoneLookups = zoneLookups;
             ChanLookups = chanLookups;
             // Create Interface
-            IntSB9600 = new SB9600(comPort, head, ZoneLookups, ChanLookups);
+            IntSB9600 = new SB9600(comPort, head, rxLeds);
             IntSB9600.StatusCallback = RadioStatusCallback;
             // Create status
             Status = new RadioStatus();
@@ -261,6 +263,46 @@ namespace daemon
         private void RadioStatusCallback()
         {
             Log.Verbose("Got radio status callback from interface");
+            // Perform lookups on zone/channel names (radio-control-type agnostic)
+            if (ZoneLookups.Count > 0)
+            {
+                foreach (TextLookup lookup in ZoneLookups)
+                {
+                    // An empty string for the match indicates we should always replace the zone name with the replacement
+                    if (lookup.Match == "")
+                    {
+                        Log.Verbose("Empty lookup {replacement} found for zone name, overriding all other lookups", lookup.Replacement);
+                        Status.ZoneName = lookup.Replacement;
+                        break;
+                    }
+                    if (Status.ZoneName.Contains(lookup.Match))
+                    {
+                        Log.Verbose("Found zone text {ZoneName} from {Match} in original text {Text}", lookup.Replacement, lookup.Match, Status.ZoneName);
+                        Status.ZoneName = lookup.Replacement;
+                    }
+                    // On Moto W9, we also look for zone in the channel text since it's a one-liner display
+                    if (Type == RadioType.SB9600 && IntSB9600.Head == SB9600.HeadType.W9)
+                    {
+                        if (Status.ChannelName.Contains(lookup.Match))
+                        {
+                            Log.Verbose("Found zone text {ZoneName} from {Match} in channel text {Text} on W9 head", lookup.Replacement, lookup.Match, Status.ChannelName);
+                            Status.ZoneName = lookup.Replacement;
+                        }
+                    }
+                }
+            }
+            if (ChanLookups.Count > 0)
+            {
+                foreach (TextLookup lookup in ChanLookups)
+                {
+                    if (Status.ChannelName.Contains(lookup.Match))
+                    {
+                        Log.Verbose("Found channel text {ChannelName} from {Match} in original text {Text}", lookup.Replacement, lookup.Match, Status.ChannelName);
+                        Status.ChannelName = lookup.Replacement;
+                    }
+                }
+            }
+            // Call the next callback up
             StatusCallback();
         }
 

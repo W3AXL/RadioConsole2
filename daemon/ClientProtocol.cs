@@ -132,7 +132,7 @@ namespace daemon
         {
             Serilog.Log.Warning("Websocket connection closed!");
             WebRTC.Stop("Websocket closed");
-            DaemonWebsocket.radio.Stop();
+            //DaemonWebsocket.radio.Stop();
         }
     }
 }
