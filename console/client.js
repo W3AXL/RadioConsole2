@@ -1,29 +1,26 @@
+const fs = require('fs');
+
 /***********************************************************************************
     Global Variables
 ***********************************************************************************/
 
-var version = "2.1.0";
+var version = "1.0rc1";
 
-// Local user config variables (saved to cookie)
+// Default config (read/written from config.json)
 var config = {
-    timeFormat: "Local",
-
-    tpt: "mot",
-    btnSounds: true,
-
-    audio: {
-        rxAgc: false,
-        unselectedVol: -3.0,
-        input: "default",
-        output: "default"
+    Radios: [],
+    Autoconnect: false,
+    ClockFormat: "UTC",
+    Audio: {
+        ButtonSounds: true,
+        UnselectedVol: -9.0,
+        ToneVolume: -9.0,
+        UseAGC: true,
     },
-    
-    serverAddress: "",
-    serverPort: 0,
-    serverAutoConn: false,
-
-    extensionAddress: "",
-    extensionPort: 0
+    Extension: {
+        address: "127.0.0.1",
+        port: 5555
+    }
 }
 
 // Radio List (read from radio config initially and populated with audio sources/sinks and rtc connections)
@@ -183,10 +180,7 @@ function pageLoad() {
     getAudioDevices();
 
     // Query radio config from client.json
-    readRadioConfig();
-
-    // Read user config from cookie
-    readUserConfig();
+    readConfig();
 
     // Get client timezone
     const d = new Date();
@@ -196,7 +190,7 @@ function pageLoad() {
     setInterval(updateClock, 100);
 
     // If autoconnect is specified, autoconnect!
-    if (config.autoconnect) {
+    if (config.Autoconnect) {
         connectAllButton();
     }
 
@@ -669,7 +663,7 @@ function stopPtt() {
 function changeChannel(down) {
     if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
         if (down) {
-            if (config.btnSounds) {
+            if (config.Audio.ButtonSounds) {
                 playSound("sound-click");
             }
             console.log("Changing channel down on " + selectedRadio);
@@ -681,7 +675,7 @@ function changeChannel(down) {
                 }
             ));
         } else {
-            if (config.btnSounds) {
+            if (config.Audio.ButtonSounds) {
                 playSound("sound-click");
             }
             console.log("Changing channel up on " + selectedRadio);
@@ -712,7 +706,7 @@ function pressSoftkey(idx) {
  * @param {int} idx softkey index
  */
 function releaseSoftkey(idx) {
-    if (config.btnSounds) {
+    if (config.Audio.ButtonSounds) {
         playSound("sound-click");
     }
     var releasedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
@@ -724,7 +718,7 @@ function releaseSoftkey(idx) {
  * Left arrow button decrements the softkey page
  */
 function button_left() {
-    if (config.btnSounds) {
+    if (config.Audio.ButtonSounds) {
         playSound("sound-click");
     }
     maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
@@ -744,7 +738,7 @@ function button_left() {
  * Right arrow button increments the softkey page
  */
 function button_right() {
-    if (config.btnSounds) {
+    if (config.Audio.ButtonSounds) {
         playSound("sound-click");
     }
     maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
@@ -917,10 +911,10 @@ function closePopup(obj = null) {
  */
 function updateClock() {
     var timestr = "HH:mm:ss"
-    if (config.timeFormat == "Local") {
+    if (config.ClockFormat == "Local") {
         var time = getTimeLocal(timestr);
         $("#clock").html(time + " " + timeZone);
-    } else if (config.timeFormat == "UTC") {
+    } else if (config.ClockFormat == "UTC") {
         $("#clock").html(getTimeUTC(timestr + " UTC"));
     } else {
         console.error("Invalid time format!")
@@ -999,139 +993,46 @@ function getRadioIndex(id) {
     return idx = parseInt(id.replace("radio", ""));
 }
 
-/**
- * Save the server config input
- */
-function saveDaemonConfig() {
-    // Disconnect from existing server
-
-    // Get values
-    const autoconnect = $("#daemon-autoconnect").prop('checked');
-
-    // Save config info
-    config.serverAutoConn = autoconnect;
-
-    // Save config to cookie
-    saveUserConfig();
-}
-
-/**
- * Save the client config
- */
-function saveClientConfig() {
-    // Get values
-    const timeFormat = $("#client-timeformat").val();
-    const rxAgc = $("#client-rxagc").is(":checked");
-    const unselectedVol = $("#unselected-vol").val();
-    const toneVol = $("#tone-vol").val();
-
-    // Set config
-    config.timeFormat = timeFormat;
-    config.audio.rxAgc = rxAgc;
-    config.audio.unselectedVol = parseFloat(unselectedVol);
-    config.audio.toneVol = parseFloat(toneVol);
-
-    // Save config to cookie
-    saveUserConfig();
-
-    // Update radio audio
-    if (audio.context) {
-        updateRadioAudio();
-    }
-
-    // Update tone audio
-    $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVol));
-    $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVol));
-    $('#sound-click').prop("volume", dbToGain(config.audio.toneVol));
-}
-
-/**
- * Save the extension config
- */
-function saveExtensionConfig() {
-    // Get values
-    const extensionAddress = $("#extension-address").val();
-    const extensionPort = $("#extension-port").val();
-
-    // Set
-    config.extensionAddress = extensionAddress;
-    config.extensionPort = parseInt(extensionPort);
-
-    // Save
-    saveUserConfig();
-}
-
-/**
- * Save config to cookie, as JSON
- */
-function saveUserConfig() {
-    // Convert config object to cookie
-    configJson = JSON.stringify(config);
-    console.log("Saving config json: " + configJson);
-    // Save to cookie
-    Cookies.set('config',configJson);
-}
-
-/**
- * Read config from cookie
- */
-function readUserConfig() {
-    // Read config from cookie
-    configJson = Cookies.get('config');
-    // Only try and parse if we have a stored config cookie
-    if (configJson) {
-        // Convert to config object
-        config = JSON.parse(configJson);
-        // Update server popup values
-        $("#daemon-autoconnect").prop('checked',config.daemonAutoConn);
-        // Update client popup values
-        $("#client-timeformat").val(config.timeFormat);
-        $("#client-rxagc").prop("checked", config.audio.rxAgc);
-        $(`#unselected-vol option[value=${config.audio.unselectedVol}]`).attr('selected', 'selected');
-        // Update extension popup values
-        $("#extension-address").val(config.extensionAddress);
-        $("#extension-port").val(config.extensionPort);
-        // Tone volume elements
-        $(`#tone-vol option[value=${config.audio.toneVol}]`).attr('selected', 'selected');
-        $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVol));
-        $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVol));
-        $('#sound-click').prop("volume", dbToGain(config.audio.toneVol));
-    } else {
-        console.warn("No config cookie detected, using defaults");
-    }
-}
-
-/**
- * Clears out config from cookies
- */
-function clearConfig() {
-    Cookies.remove('config');
-}
-
 /***********************************************************************************
-    Radio Config Reading
+    Config Reading/Writing to Json
 ***********************************************************************************/
 
-function readRadioConfig() {
-    // Read the json config file from the server
-    var radioJson = [];
-    $.ajax({
-        type: 'GET',
-        url: './radios.json',
-        dataType: 'json',
-        success: gotRadioConfig,
-        error: function(obj, status, error) {alert(`Failed to read radios.json: ${error}`);console.error(`${status}: ${error}`);},
-        async: true,
-        timeout: 100
-    });
-}
+function readConfig() {
+    // Create a new config file if it doesn't exist
+    if (!fs.existsSync('./config.json')) {
+        console.warn("No config.json file found, creating default");
+        try {
+            fs.writeFileSync('./config.json', JSON.stringify(config, null, 4));
+        }
+        catch (e) {
+            alert("Failed to write default config file!");
+        }
+    }
 
-function gotRadioConfig(data, status, obj) {
-    console.debug(`Successfully read radios.json, status: ${status}`);
-    radioJson = data;
-    console.debug(radioJson['RadioList']);
-    radios = radioJson['RadioList'];
-    // Populate default values (this map function adds the key,value pairs to every item in the list)
+    // Read the config file
+    console.debug("Reading config json file");
+    config = JSON.parse(fs.readFileSync("./config.json"));
+    console.debug("Successfully read config json");
+
+    // Autoconnect on launch
+    $("#daemon-autoconnect").prop('checked', config.Autoconnect);
+    // Clock Format
+    $("#client-timeformat").val(config.ClockFormat);
+    // Audio stuff
+    $("#client-rxagc").prop("checked", config.Audio.UseAGC);
+    // Unselected Volume
+    $(`#unselected-vol option[value=${config.Audio.UnselectedVol}]`).attr('selected', 'selected');
+    // Tone volume elements
+    $(`#tone-vol option[value=${config.Audio.ToneVolume}]`).attr('selected', 'selected');
+    $('#sound-ptt').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-ptt-end').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-click').prop("volume", dbToGain(config.Audio.ToneVolume));
+    // Update extension popup values
+    $("#extension-address").val(config.Extension.address);
+    $("#extension-port").val(config.Extension.port);
+
+    // Get radios
+    radios = config.Radios;
     radios = radios.map(v => ({
         ...v,
         status: {
@@ -1142,7 +1043,7 @@ function gotRadioConfig(data, status, obj) {
         audioSrc: null,
     }));
 
-    // Validate Input
+    // Validate Radio Config
     radios.forEach((radio, idx) => {
         // Validate Color
         if (!validColors.includes(radios[idx].color)) {
@@ -1160,10 +1061,41 @@ function gotRadioConfig(data, status, obj) {
 
     // Populate radio cards
     populateRadios();
+}
 
-    // Connect and load if autoconnect is true
-    if (config.serverAutoConn) {
-        //connect()
+function saveConfig() {
+
+    // Client config values
+    const clockFormat = $("#client-timeformat").val();
+    const useAgc = $("#client-rxagc").is(":checked");
+    const unselectedVol = $("#unselected-vol").val();
+    const toneVol = $("#tone-vol").val();
+    config.ClockFormat = clockFormat;
+    config.Audio.UseAGC = useAgc;
+    config.Audio.UnselectedVol = parseFloat(unselectedVol);
+    config.Audio.ToneVolume = parseFloat(toneVol);
+
+    // Extension config values
+    const extensionAddress = $("#extension-address").val();
+    const extensionPort = $("#extension-port").val();
+    config.Extension.address = extensionAddress;
+    config.Extension.port = parseInt(extensionPort);
+
+    // Update tone audio
+    $('#sound-ptt').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-ptt-end').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-click').prop("volume", dbToGain(config.Audio.ToneVolume));
+
+    // Update radio audio
+    if (audio.context) {
+        updateRadioAudio();
+    }
+
+    try {
+        fs.writeFileSync('./config.json', JSON.stringify(config, null, 4));
+    }
+    catch (e) {
+        alert("Failed to write default config file!");
     }
 }
 
@@ -1744,7 +1676,7 @@ function startAudioDevices() {
 }
 
 function muteMic() {
-    //audio.inputMicGain.gain.value = 0;
+    audio.inputMicGain.gain.value = 0;
 }
 
 function unmuteMic() {
@@ -1938,11 +1870,11 @@ function playSound(soundId) {
             console.debug(`Radio ${radios[idx].name} is selected. Setting gain to 1`);
             radios[idx].audioSrc.gainNode.gain.setValueAtTime(1, audio.context.currentTime);
         } else {
-            console.debug(`Radio ${radios[idx].name} is unselected. Setting gain to ${config.audio.unselectedVol}`);
-            radios[idx].audioSrc.gainNode.gain.setValueAtTime(dbToGain(config.audio.unselectedVol), audio.context.currentTime);
+            console.debug(`Radio ${radios[idx].name} is unselected. Setting gain to ${config.Audio.UnselectedVol}`);
+            radios[idx].audioSrc.gainNode.gain.setValueAtTime(dbToGain(config.Audio.UnselectedVol), audio.context.currentTime);
         }
         // Set AGC based on user setting
-        if (config.audio.rxAgc) {
+        if (config.Audio.UseAGC) {
             console.log(`Enabling AGC for radio ${radios[idx].name}`);
             radios[idx].audioSrc.agcNode.threshold.setValueAtTime(audio.agcThreshold, audio.context.currentTime);
             radios[idx].audioSrc.makeupNode.gain.setValueAtTime(audio.agcMakeup, audio.context.currentTime);
@@ -2450,7 +2382,7 @@ function extensionConnect() {
         return;
     }
     // Create the connection
-    extensionWs = new WebSocket(`ws://${config.extensionAddress}:${config.extensionPort}`);
+    extensionWs = new WebSocket(`ws://${config.Extension.address}:${config.Extension.port}`);
     // Create websocket
     extensionWs.onerror = function(event) { handleExtensionError(event) };
     extensionWs.onmessage = function(event) { recvExtensionMessage(event) };

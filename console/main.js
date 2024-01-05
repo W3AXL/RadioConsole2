@@ -14,7 +14,11 @@ function createWindow() {
         width: 1280, 
         height: 430,
         autoHideMenuBar: true,
-        icon: 'console-icon@4x.png'
+        icon: 'console-icon@4x.png',
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        }
     })
 
     // Load the page
@@ -28,4 +32,6 @@ function createWindow() {
     win.webContents.openDevTools()
 }
 
-app.on('ready', createWindow)
+app.on('ready', () => {
+    createWindow();
+})

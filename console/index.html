@@ -1,6 +1,6 @@
 <html>
     <head>
-        <title>Python Radio Console</title>
+        <title>RadioConsole2</title>
 
         <!-- Topcoat CSS -->
         <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
@@ -10,6 +10,12 @@
 
         <!-- Custom CSS -->
         <link rel="stylesheet" type="text/css" href="css/custom.css">
+
+        <!-- 
+            We use this to properly load our custom scripts in electron 
+            https://stackoverflow.com/a/37480521/1842613
+        -->
+        <script>if (typeof module === 'object') {window.module = module; module = undefined;} </script>
 
         <!-- JQuery -->
         <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
@@ -24,6 +30,9 @@
 
         <!-- audio resampler -->
         <script type="text/javascript" src="wave-resampler.js"></script>
+
+        <!-- Trailing script import fix -->
+        <script>if (window.module) module = window.module;</script>
     </head>
     <body>
         <!-- Top Nav Bar -->
@@ -37,7 +46,7 @@
             </div>
 
             <!-- Logo and Title -->
-            <div id="navbar-logo" class="navbar-item">RadioConsole</div>
+            <div id="navbar-logo" class="navbar-item">RadioConsole2</div>
 
             <!-- Version -->
             <div id="navbar-version" class="navbar-item">VERSION</div>
@@ -319,7 +328,7 @@
                     <tr>
                         <td></td>
                         <td>
-                            <button class="topcoat-button--cta" onclick="saveClientConfig()">Save</button>
+                            <button class="topcoat-button--cta" onclick="saveConfig()">Save</button>
                         </td>
                     </tr>
                 </table>
@@ -367,7 +376,7 @@
                     <tr>
                         <td></td>
                         <td>
-                            <button class="topcoat-button--cta" onclick="saveExtensionConfig()">Save</button>
+                            <button class="topcoat-button--cta" onclick="saveConfig()">Save</button>
                         </td>
                     </tr>
                 </table>
