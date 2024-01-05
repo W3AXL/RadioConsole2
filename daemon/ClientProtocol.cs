@@ -130,7 +130,7 @@ namespace daemon
 
         protected override void OnClose(CloseEventArgs e)
         {
-            Serilog.Log.Warning("Websocket connection closed!");
+            Serilog.Log.Warning("Websocket connection closed: {args}", e.Reason);
             WebRTC.Stop("Websocket closed");
             //DaemonWebsocket.radio.Stop();
         }
