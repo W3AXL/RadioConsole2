@@ -699,11 +699,14 @@ namespace daemon
 
         private bool sendSb9600(SB9600Msg msg, int attempts = 3)
         {
-            byte[] data = msg.Encode();
             // Wait for busy to drop
-            while (getBusy()) { }
+            while (getBusy()) { 
+                Log.Debug("Waiting for BUSY to drop");
+            }
             // Grab busy
             setBusy(true);
+            // Encode
+            byte[] data = msg.Encode();
             // flag for successful send
             bool sent = false;
             while (!sent && attempts > 0)
@@ -1078,7 +1081,7 @@ namespace daemon
                 // Get rid of the byte
                 msgBytes = msgBytes[1..];
                 extraBytes += 1;
-                Log.Verbose("Ignoring leading SBEP 0x50 ACK");
+                Log.Debug("Ignoring leading SBEP 0x50 ACK");
             }
 
             // Try to decode from the msg buffer
@@ -1377,17 +1380,24 @@ namespace daemon
                             Log.Warning("Got unhandled SBEP opcode {Opcode:X2}", msg.Opcode);
                         break;
                 }
+                Log.Debug("Processed {proc} bytes from {len}-byte msg", msgLength + extraBytes, msgBytes.Length);
+                // Check for a trailing 0x50 ack and discard it
+                if (msgBytes.Length > extraBytes + msgLength)
+                {
+                    if (msgBytes[extraBytes + msgLength - 1] == 0x50)
+                    {
+                        extraBytes += 1;
+                        Log.Debug("Ignoring trailing SBEP 0x50 ACK");
+                    }
+                }
+                // Return the total number of bytes we read
+                return extraBytes + msgLength;
             }
-
-            // Check for a trailing 0x50 ack and discard it
-            if (msgBytes[extraBytes + msgLength - 1] == 0x50)
+            else
             {
-                extraBytes += 1;
-                Log.Verbose("Ignoring trailing SBEP 0x50 ACK");
+                Log.Error("Failed to decode SBEP message! Tried to decode {data}", msgBytes);
+                return -1;
             }
-
-            // Return the total number of bytes we read
-            return extraBytes + msgLength;
         }
 
         private void processData(byte[] data)
@@ -1478,17 +1488,19 @@ namespace daemon
                     bool BUSY = getBusy();
                     // Receive first
                     // Check if we're actively receiving
-                    if (BUSY && waiting) { }
+                    if (BUSY && waiting) { 
+                        Thread.Sleep(1);
+                    }
                     // Check if we just started receicing
                     else if (BUSY && !waiting)
                         waiting = true;
                     // Message is done, so process it
                     else if (waiting && !BUSY)
                     {
-                        // Let things settle
-                        Thread.Sleep(1);
                         // We're no longer waiting
                         waiting = false;
+                        // Let things settle
+                        Thread.Sleep(1);
                         // Read message
                         byte[] rxMsg = new byte[Port.BytesToRead];
                         Port.Read(rxMsg, 0, Port.BytesToRead);
@@ -1498,7 +1510,7 @@ namespace daemon
 
                     // Transmit next
                     // Send a message from the queue if we're not waiting on RX and not busy
-                    if (!waiting && !BUSY)
+                    else if (!waiting && !BUSY)
                     {
                         // Try and get a message and send it
                         QueueMessage msg = null;
@@ -1507,7 +1519,7 @@ namespace daemon
                             // SB9600
                             if (msg.sb9600msg != null)
                             {
-                                Log.Debug("Got SB9600 message from queue: {msg}", msg.sb9600msg.ToString());
+                                Log.Debug("Got SB9600 message from queue: {msg}", msg.sb9600msg.Data);
                                 sendSb9600(msg.sb9600msg);
                             }
                         }

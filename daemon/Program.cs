@@ -20,6 +20,7 @@ using System.ComponentModel;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
+using Serilog.Sinks.File;
 
 using Tomlyn;
 using Tomlyn.Model;
@@ -103,6 +104,7 @@ namespace netcore_cli
             var optVerbose = new Option<bool>(new[] { "--verbose", "-v" }, "enable verbose logging (lots of prints)");
             var optNoReset = new Option<bool>(new[] { "--no-reset", "-nr" }, "don't reset radio on startup");
             var optCodec = new Option<string>(new[] { "--codec" }, "(debug) codec to use for WebRTC audio, default is G722");
+            var optLogging = new Option<bool>(new[] { "--log", "-l" }, "log console output to file");
 
             // Add arguments
             cmdRoot.AddOption(optConfigFile);
@@ -110,6 +112,7 @@ namespace netcore_cli
             cmdRoot.AddOption(optDebug);
             cmdRoot.AddOption(optNoReset);
             cmdRoot.AddOption(optCodec);
+            cmdRoot.AddOption(optLogging);
 
             // Main Runtime Handler
             cmdRoot.SetHandler((context) =>
@@ -127,7 +130,8 @@ namespace netcore_cli
                     bool verbose = context.ParseResult.GetValueForOption(optVerbose);
                     bool noreset = context.ParseResult.GetValueForOption(optNoReset);
                     string codec = context.ParseResult.GetValueForOption(optCodec);
-                    int result = Startup(configFile, debug, verbose, noreset, codec);
+                    bool log = context.ParseResult.GetValueForOption(optLogging);
+                    int result = Startup(configFile, debug, verbose, noreset, log, codec);
                     context.ExitCode = result;
                 }
             });
@@ -135,7 +139,7 @@ namespace netcore_cli
             return await cmdRoot.InvokeAsync(args);
         }
 
-        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, string codec = null)
+        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, bool log, string codec = null)
         {
             // Add handler for SIGINT
             Console.CancelKeyPress += delegate {
@@ -165,6 +169,23 @@ namespace netcore_cli
             {
                 return result;
             }
+
+            // Set up file logging (we do this after config reading)
+            if (log)
+            {
+                // Create the logs directory if it doesn't exist
+                System.IO.Directory.CreateDirectory("logs");
+                // Get the timestamp
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+                Log.Information("Logging to file: {Name}_{timestamp}.log", Config.DaemonName, timestamp);
+                // We append the file logger to the original created logger
+                Log.Logger = new LoggerConfiguration()
+                    .WriteTo.Logger(Log.Logger)
+                    .WriteTo.File($"logs/{Config.DaemonName.Replace(" ", "_")}_{timestamp}.log")
+                    .MinimumLevel.ControlledBy(loggerSwitch)
+                    .CreateLogger();
+            }
+
             // Start websocket server
             DaemonWebsocket.StartWsServer();
             // Start radio
