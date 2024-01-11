@@ -2,29 +2,10 @@
     Global Variables
 ***********************************************************************************/
 
-var version = "2.1.0";
+var version = "1.0rc1";
 
-// Local user config variables (saved to cookie)
-var config = {
-    timeFormat: "Local",
-
-    tpt: "mot",
-    btnSounds: true,
-
-    audio: {
-        rxAgc: false,
-        unselectedVol: -3.0,
-        input: "default",
-        output: "default"
-    },
-    
-    serverAddress: "",
-    serverPort: 0,
-    serverAutoConn: false,
-
-    extensionAddress: "",
-    extensionPort: 0
-}
+// Config, read from main.js on page load
+var config = null;
 
 // Radio List (read from radio config initially and populated with audio sources/sinks and rtc connections)
 var radios = [];
@@ -183,10 +164,7 @@ function pageLoad() {
     getAudioDevices();
 
     // Query radio config from client.json
-    readRadioConfig();
-
-    // Read user config from cookie
-    readUserConfig();
+    readConfig();
 
     // Get client timezone
     const d = new Date();
@@ -194,12 +172,6 @@ function pageLoad() {
 
     // Setup clock timer
     setInterval(updateClock, 100);
-
-    // If autoconnect is specified, autoconnect!
-    if (config.autoconnect) {
-        connectAllButton();
-    }
-
 }
 
 /**
@@ -381,11 +353,11 @@ function populateRadios() {
         console.log("Adding radio " + radio.name);
         // Add the radio card
         addRadioCard("radio" + String(index), radio.name, radio.color);
+        // Update edit list
+        addRadioToEditTable(radio);
         // Populate its text
         updateRadioCard(index);
     });
-    // Bind the cards
-    bindRadioCardButtons();
 }
 
 /**
@@ -412,32 +384,57 @@ function addRadioCard(id, name, color) {
     newCard.querySelector(".radio-card").id = id;
     newCard.querySelector(".radio-card .header h2").textContent = name;
 
+    // Bind click events, etc
+    newCard.querySelector(".radio-card").addEventListener('click', function (event) {
+        // Prevent continual propagation
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        // Select the radio
+        selectRadio(id);
+    });
+
+    // Bind the minimize button
+    $(".minimize-radio-card").click(function (event) {
+
+    })
+
     $("#main-layout").append(newCard);
+}
+
+function addRadioToEditTable(radio) {
+    $("#edit-radios-table tr:last").after(`
+        <tr><td>${radio.name}</td><td>${radio.address}</td><td>${radio.port}</td><td><a href="#" onclick="deleteRadio(this, '${radio.name}')"><ion-icon name='trash-bin-sharp'></ion-icon></a></td></tr>
+    `);
+}
+
+function deleteRadio(editRow, name) {
+    var found = false;
+    console.warn(`Removing radio ${name}`);
+    // Remove from config and radio objects
+    radios.forEach((radio, index) => {
+        if (radio.name == name) {
+            // Update list objects
+            config.Radios.splice(index, 1);
+            radios.splice(index, 1);
+            // Remove radio card
+            console.debug("Removing radio card by identifier: " + `.radio-card:contains("${name}")`);
+            $(`.radio-card:contains("${name}")`).remove();
+            // Update List
+            $(editRow).closest("tr").remove();
+            // Save config
+            saveConfig();
+            // update flag
+            found = true;
+        }
+    });
+    if (!found) {
+        alert("Failed to delete radio!");
+    }
 }
 
 function stopClick(event, obj) {
     event.stopPropagation();
     event.preventDefault();
-}
-
-/**
- * Binds radio card buttons & click events to functions
- */
-function bindRadioCardButtons() {
-    // Bind clicking of the card to selection of a radio
-    $(".radio-card").on('click', function (event) {
-        // Prevent continual propagation
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        // Get the ID of the selecting item
-        var cardId = $(this).attr('id');
-        // Select the radio
-        selectRadio(cardId);
-    })
-    // Bind the minimize button
-    $(".minimize-radio-card").click(function (event) {
-
-    })
 }
 
 function updateRadioCard(idx) {
@@ -669,7 +666,7 @@ function stopPtt() {
 function changeChannel(down) {
     if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
         if (down) {
-            if (config.btnSounds) {
+            if (config.Audio.ButtonSounds) {
                 playSound("sound-click");
             }
             console.log("Changing channel down on " + selectedRadio);
@@ -681,7 +678,7 @@ function changeChannel(down) {
                 }
             ));
         } else {
-            if (config.btnSounds) {
+            if (config.Audio.ButtonSounds) {
                 playSound("sound-click");
             }
             console.log("Changing channel up on " + selectedRadio);
@@ -712,7 +709,7 @@ function pressSoftkey(idx) {
  * @param {int} idx softkey index
  */
 function releaseSoftkey(idx) {
-    if (config.btnSounds) {
+    if (config.Audio.ButtonSounds) {
         playSound("sound-click");
     }
     var releasedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
@@ -724,7 +721,7 @@ function releaseSoftkey(idx) {
  * Left arrow button decrements the softkey page
  */
 function button_left() {
-    if (config.btnSounds) {
+    if (config.Audio.ButtonSounds) {
         playSound("sound-click");
     }
     maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
@@ -744,7 +741,7 @@ function button_left() {
  * Right arrow button increments the softkey page
  */
 function button_right() {
-    if (config.btnSounds) {
+    if (config.Audio.ButtonSounds) {
         playSound("sound-click");
     }
     maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
@@ -916,11 +913,12 @@ function closePopup(obj = null) {
  * Update the clock based on the selected time format
  */
 function updateClock() {
+    if (!config) {return;}
     var timestr = "HH:mm:ss"
-    if (config.timeFormat == "Local") {
+    if (config.ClockFormat == "Local") {
         var time = getTimeLocal(timestr);
         $("#clock").html(time + " " + timeZone);
-    } else if (config.timeFormat == "UTC") {
+    } else if (config.ClockFormat == "UTC") {
         $("#clock").html(getTimeUTC(timestr + " UTC"));
     } else {
         console.error("Invalid time format!")
@@ -999,139 +997,44 @@ function getRadioIndex(id) {
     return idx = parseInt(id.replace("radio", ""));
 }
 
-/**
- * Save the server config input
- */
-function saveDaemonConfig() {
-    // Disconnect from existing server
-
-    // Get values
-    const autoconnect = $("#daemon-autoconnect").prop('checked');
-
-    // Save config info
-    config.serverAutoConn = autoconnect;
-
-    // Save config to cookie
-    saveUserConfig();
-}
-
-/**
- * Save the client config
- */
-function saveClientConfig() {
-    // Get values
-    const timeFormat = $("#client-timeformat").val();
-    const rxAgc = $("#client-rxagc").is(":checked");
-    const unselectedVol = $("#unselected-vol").val();
-    const toneVol = $("#tone-vol").val();
-
-    // Set config
-    config.timeFormat = timeFormat;
-    config.audio.rxAgc = rxAgc;
-    config.audio.unselectedVol = parseFloat(unselectedVol);
-    config.audio.toneVol = parseFloat(toneVol);
-
-    // Save config to cookie
-    saveUserConfig();
-
-    // Update radio audio
-    if (audio.context) {
-        updateRadioAudio();
-    }
-
-    // Update tone audio
-    $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVol));
-    $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVol));
-    $('#sound-click').prop("volume", dbToGain(config.audio.toneVol));
-}
-
-/**
- * Save the extension config
- */
-function saveExtensionConfig() {
-    // Get values
-    const extensionAddress = $("#extension-address").val();
-    const extensionPort = $("#extension-port").val();
-
-    // Set
-    config.extensionAddress = extensionAddress;
-    config.extensionPort = parseInt(extensionPort);
-
-    // Save
-    saveUserConfig();
-}
-
-/**
- * Save config to cookie, as JSON
- */
-function saveUserConfig() {
-    // Convert config object to cookie
-    configJson = JSON.stringify(config);
-    console.log("Saving config json: " + configJson);
-    // Save to cookie
-    Cookies.set('config',configJson);
-}
-
-/**
- * Read config from cookie
- */
-function readUserConfig() {
-    // Read config from cookie
-    configJson = Cookies.get('config');
-    // Only try and parse if we have a stored config cookie
-    if (configJson) {
-        // Convert to config object
-        config = JSON.parse(configJson);
-        // Update server popup values
-        $("#daemon-autoconnect").prop('checked',config.daemonAutoConn);
-        // Update client popup values
-        $("#client-timeformat").val(config.timeFormat);
-        $("#client-rxagc").prop("checked", config.audio.rxAgc);
-        $(`#unselected-vol option[value=${config.audio.unselectedVol}]`).attr('selected', 'selected');
-        // Update extension popup values
-        $("#extension-address").val(config.extensionAddress);
-        $("#extension-port").val(config.extensionPort);
-        // Tone volume elements
-        $(`#tone-vol option[value=${config.audio.toneVol}]`).attr('selected', 'selected');
-        $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVol));
-        $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVol));
-        $('#sound-click').prop("volume", dbToGain(config.audio.toneVol));
-    } else {
-        console.warn("No config cookie detected, using defaults");
-    }
-}
-
-/**
- * Clears out config from cookies
- */
-function clearConfig() {
-    Cookies.remove('config');
-}
-
 /***********************************************************************************
-    Radio Config Reading
+    Config Reading/Writing to Json
 ***********************************************************************************/
 
-function readRadioConfig() {
-    // Read the json config file from the server
-    var radioJson = [];
-    $.ajax({
-        type: 'GET',
-        url: './radios.json',
-        dataType: 'json',
-        success: gotRadioConfig,
-        error: function(obj, status, error) {alert(`Failed to read radios.json: ${error}`);console.error(`${status}: ${error}`);},
-        async: true,
-        timeout: 100
-    });
-}
+async function readConfig() {
 
-function gotRadioConfig(data, status, obj) {
-    console.debug(`Successfully read radios.json, status: ${status}`);
-    radioJson = data;
-    console.debug(radioJson['RadioList']);
-    radios = radioJson['RadioList'];
-    // Populate default values (this map function adds the key,value pairs to every item in the list)
+    // Read config via IPC and parse
+    configJson = await window.electronAPI.readConfig();
+    try {
+        console.debug("Reading config data");
+        console.debug(configJson);
+        config = JSON.parse(configJson);
+    }
+    catch (e) {
+        alert("Error reading config: " + e);
+    }
+    
+    console.debug("Successfully read config json");
+
+    // Autoconnect on launch
+    $("#daemon-autoconnect").prop('checked', config.Autoconnect);
+    // Clock Format
+    $("#client-timeformat").val(config.ClockFormat);
+    // Audio stuff
+    $("#client-rxagc").prop("checked", config.Audio.UseAGC);
+    // Unselected Volume
+    $(`#unselected-vol option[value=${config.Audio.UnselectedVol}]`).attr('selected', 'selected');
+    // Tone volume elements
+    $(`#tone-vol option[value=${config.Audio.ToneVolume}]`).attr('selected', 'selected');
+    $('#sound-ptt').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-ptt-end').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-click').prop("volume", dbToGain(config.Audio.ToneVolume));
+    // Update extension popup values
+    $("#extension-address").val(config.Extension.address);
+    $("#extension-port").val(config.Extension.port);
+
+    // Get radios
+    radios = config.Radios;
     radios = radios.map(v => ({
         ...v,
         status: {
@@ -1142,7 +1045,7 @@ function gotRadioConfig(data, status, obj) {
         audioSrc: null,
     }));
 
-    // Validate Input
+    // Validate Radio Config
     radios.forEach((radio, idx) => {
         // Validate Color
         if (!validColors.includes(radios[idx].color)) {
@@ -1155,16 +1058,110 @@ function gotRadioConfig(data, status, obj) {
             radios[idx].pan = 0;
         }
         // Default name (used for logging until we get the proper name)
-        radios[idx].name = radios[idx].address + ":" + radios[idx].port;
+        radios[idx].name = `Radio ${idx}`;
     });
 
     // Populate radio cards
     populateRadios();
 
-    // Connect and load if autoconnect is true
-    if (config.serverAutoConn) {
-        //connect()
+    // If autoconnect is specified, autoconnect!
+    if (config.Autoconnect) {
+        connectAllButton();
     }
+}
+
+async function saveConfig() {
+
+    // Client config values
+    const clockFormat = $("#client-timeformat").val();
+    const useAgc = $("#client-rxagc").is(":checked");
+    const unselectedVol = $("#unselected-vol").val();
+    const toneVol = $("#tone-vol").val();
+    config.ClockFormat = clockFormat;
+    config.Audio.UseAGC = useAgc;
+    config.Audio.UnselectedVol = parseFloat(unselectedVol);
+    config.Audio.ToneVolume = parseFloat(toneVol);
+
+    // Extension config values
+    const extensionAddress = $("#extension-address").val();
+    const extensionPort = $("#extension-port").val();
+    config.Extension.address = extensionAddress;
+    config.Extension.port = parseInt(extensionPort);
+
+    // Update tone audio
+    $('#sound-ptt').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-ptt-end').prop("volume", dbToGain(config.Audio.ToneVolume));
+    $('#sound-click').prop("volume", dbToGain(config.Audio.ToneVolume));
+
+    // Update radio audio
+    if (audio.context) {
+        updateRadioAudio();
+    }
+
+    const result = await window.electronAPI.saveConfig(JSON.stringify(config, null, 4));
+
+    if (result != true)
+    {
+        alert("Failed to save config: " + result);
+    }
+}
+
+function newRadioClear() {
+    $('#new-radio-address').val('');
+    $('#new-radio-port').val('');
+    $('#new-radio-pan').val(0);
+}
+
+function newRadioAdd() {
+    // Get values
+    const newRadioAddress = $('#new-radio-address').val();
+    const newRadioPort = $('#new-radio-port').val();
+    const newRadioColor = $('#new-radio-color').val();
+    const newRadioPan = $('#new-radio-pan').val();
+
+    // Create the new radio entry
+    var newRadio = {
+        address: newRadioAddress,
+        port: newRadioPort,
+        color: newRadioColor,
+        pan: newRadioPan,
+    };
+
+    // Validate
+    if (!validColors.includes(newRadio.color)) {
+        console.warn(`Color ${newRadio.color} not valid, defaulting to blue`);
+        radios[idx].color = "blue";
+    }
+
+    // Save config
+    config.Radios.push(newRadio);
+    saveConfig();
+    
+    // Populate default values
+    newRadio.status = { State: 'Disconnected' };
+    newRadio.rtc = {};
+    newRadio.wsConn = null;
+    newRadio.audioSrc = null;
+
+    // Get the index
+    var newRadioIdx = radios.length;
+
+    // Default name (used for logging until we get the proper name)
+    newRadio.name = `Radio ${newRadioIdx}`;
+
+    // Append to config
+    radios.push(newRadio);
+
+    // Populate new radio
+    console.log("Adding radio " + newRadio.name);
+    // Add the radio card
+    addRadioCard("radio" + String(newRadioIdx), newRadio.name, newRadio.color);
+    // Populate its text
+    updateRadioCard(newRadioIdx);
+    // Update edit list
+    addRadioToEditTable(newRadio);
+    // Clear form
+    newRadioClear();
 }
 
 /***********************************************************************************
@@ -1744,7 +1741,7 @@ function startAudioDevices() {
 }
 
 function muteMic() {
-    //audio.inputMicGain.gain.value = 0;
+    audio.inputMicGain.gain.value = 0;
 }
 
 function unmuteMic() {
@@ -1938,11 +1935,11 @@ function playSound(soundId) {
             console.debug(`Radio ${radios[idx].name} is selected. Setting gain to 1`);
             radios[idx].audioSrc.gainNode.gain.setValueAtTime(1, audio.context.currentTime);
         } else {
-            console.debug(`Radio ${radios[idx].name} is unselected. Setting gain to ${config.audio.unselectedVol}`);
-            radios[idx].audioSrc.gainNode.gain.setValueAtTime(dbToGain(config.audio.unselectedVol), audio.context.currentTime);
+            console.debug(`Radio ${radios[idx].name} is unselected. Setting gain to ${config.Audio.UnselectedVol}`);
+            radios[idx].audioSrc.gainNode.gain.setValueAtTime(dbToGain(config.Audio.UnselectedVol), audio.context.currentTime);
         }
         // Set AGC based on user setting
-        if (config.audio.rxAgc) {
+        if (config.Audio.UseAGC) {
             console.log(`Enabling AGC for radio ${radios[idx].name}`);
             radios[idx].audioSrc.agcNode.threshold.setValueAtTime(audio.agcThreshold, audio.context.currentTime);
             radios[idx].audioSrc.makeupNode.gain.setValueAtTime(audio.agcMakeup, audio.context.currentTime);
@@ -2450,7 +2447,7 @@ function extensionConnect() {
         return;
     }
     // Create the connection
-    extensionWs = new WebSocket(`ws://${config.extensionAddress}:${config.extensionPort}`);
+    extensionWs = new WebSocket(`ws://${config.Extension.address}:${config.Extension.port}`);
     // Create websocket
     extensionWs.onerror = function(event) { handleExtensionError(event) };
     extensionWs.onmessage = function(event) { recvExtensionMessage(event) };

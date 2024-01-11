@@ -1,6 +1,6 @@
 <html>
     <head>
-        <title>Python Radio Console</title>
+        <title>RadioConsole2</title>
 
         <!-- Topcoat CSS -->
         <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
@@ -11,6 +11,12 @@
         <!-- Custom CSS -->
         <link rel="stylesheet" type="text/css" href="css/custom.css">
 
+        <!-- 
+            We use this to properly load our custom scripts in electron 
+            https://stackoverflow.com/a/37480521/1842613
+        -->
+        <script>if (typeof module === 'object') {window.module = module; module = undefined;} </script>
+
         <!-- JQuery -->
         <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
 
@@ -19,11 +25,8 @@
         <script type="text/javascript" src="https://unpkg.com/dayjs@1.8.21/plugin/utc.js"></script>
         <script>dayjs.extend(window.dayjs_plugin_utc)</script>
 
-        <!-- js-cookie -->
-        <script type="text/javascript" src="js.cookie.min.js"></script>
-
-        <!-- audio resampler -->
-        <script type="text/javascript" src="wave-resampler.js"></script>
+        <!-- Trailing script import fix -->
+        <script>if (window.module) module = window.module;</script>
     </head>
     <body>
         <!-- Top Nav Bar -->
@@ -37,7 +40,7 @@
             </div>
 
             <!-- Logo and Title -->
-            <div id="navbar-logo" class="navbar-item">RadioConsole</div>
+            <div id="navbar-logo" class="navbar-item">RadioConsole2</div>
 
             <!-- Version -->
             <div id="navbar-version" class="navbar-item">VERSION</div>
@@ -51,6 +54,11 @@
             <!-- Clock -->
             <div id="navbar-clock">
                 <div id="clock"></div>
+            </div>
+
+            <!-- Edit Radio Cards Button -->
+            <div id="navbar-edit" class="navbar-item" title="Edit Radios" onclick="showConfigPopup('#edit-radios-popup')">
+                <div class="btn"><ion-icon name="pencil-sharp"></ion-icon></div>
             </div>
 
             <!-- Extension Connect/Disconnect Button -->
@@ -181,7 +189,7 @@
 
             <!-- Placeholder text before connection to server -->
             <div id="text-placeholder" style="display: none;">
-                <h2>Please connect to a server to begin.</h2>
+                <h2>Add a radio to begin!</h2>
             </div>
 
             <!-- Main Body Dimming Div -->
@@ -319,10 +327,96 @@
                     <tr>
                         <td></td>
                         <td>
-                            <button class="topcoat-button--cta" onclick="saveClientConfig()">Save</button>
+                            <button class="topcoat-button--cta" onclick="saveConfig()">Save</button>
                         </td>
                     </tr>
                 </table>
+            </div>
+        </div>
+
+        <!-- Add Radio Popup -->
+        <div id="add-radio-popup" class="popup" style="display: none">
+            <div class="popup-header">
+                <h2>Add Radio</h2>
+                <div class="popup-buttons">
+                    <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
+                </div>
+            </div>
+            <div class="popup-content">
+                <table class="popup-table">
+                    <!-- Daemon Address -->
+                    <tr>
+                        <td>
+                            <h3>Daemon Address</h3>
+                        </td>
+                        <td>
+                            <input type="text" id="new-radio-address" class="topcoat-text-input" placeholder="127.0.0.1" value="">
+                        </td>    
+                    </tr>
+                    <!-- Daemon Port -->
+                    <tr>
+                        <td>
+                            <h3>Daemon Port</h3>
+                        </td>
+                        <td>
+                            <input type="text" id="new-radio-port" class="topcoat-text-input" placeholder="8801" value="" maxlength="5">
+                        </td>    
+                    </tr>
+                    <!-- Card Color -->
+                    <tr>
+                        <td>
+                            <h3>Card Color</h3>
+                        </td>
+                        <td>
+                            <select id="new-radio-color">
+                                <option value="red" selected="selected">Red</option>
+                                <option value="amber">Amber</option>
+                                <option value="green">Green</option>
+                                <option value="blue">Blue</option>
+                                <option value="purple">Purple</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <!-- Default Pan Value -->
+                    <tr>
+                        <td>
+                            <h3>Default Pan</h3>
+                        </td>
+                        <td>
+                            <input type="range" min="-1" max="1" value="0" step="0.1" id="new-radio-pan">
+                        </td>
+                    </tr>
+                    <!-- Add/Cancel buttons -->
+                    <tr>
+                        <td style="text-align: right;">
+                            <button class="topcoat-button--cta" onclick="newRadioClear();closePopup(this);">Cancel</button>
+                        </td>
+                        <td>
+                            <button class="topcoat-button--cta" onclick="newRadioAdd();closePopup(this);">Add</button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Edit Radios Popup -->
+        <div id="edit-radios-popup" class="popup" style="display: none;">
+            <div class="popup-header">
+                <h2>Edit Radios</h2>
+                <div class="popup-buttons">
+                    <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
+                </div>
+            </div>
+            <div class="popup-content">
+                <table id="edit-radios-table">
+                    <tr>
+                        <th>Name</th>
+                        <th>Address</th>
+                        <th>Port</th>
+                        <th>Delete</th>
+                    </tr>
+                </table>
+                <div style="padding: 4px; font-size: 18px;"><a href="#" onclick="showConfigPopup('#add-radio-popup')"><ion-icon name="add-circle-sharp"></ion-icon></a></div>
             </div>
         </div>
 
@@ -367,7 +461,7 @@
                     <tr>
                         <td></td>
                         <td>
-                            <button class="topcoat-button--cta" onclick="saveExtensionConfig()">Save</button>
+                            <button class="topcoat-button--cta" onclick="saveConfig()">Save</button>
                         </td>
                     </tr>
                 </table>

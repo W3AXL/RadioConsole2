@@ -1,11 +1,38 @@
 {
-  "name": "rc2-console",
-  "version": "1.0.0",
-  "description": "RadioConsole2 Console GUI",
-  "main": "main.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "W3AXL",
-  "license": "GPL-3.0"
+    "name": "rc2-console",
+    "version": "1.0.0",
+    "description": "RadioConsole2 Client GUI",
+    "author": "W3AXL",
+    "license": "MIT",
+    "main": "main.js",
+    "scripts": {
+        "pack": "electron-builder --dir",
+        "dist": "electron-builder"
+    },
+    "build": {
+        "appId": "rc2-console",
+        "productName": "RadioConsole2 GUI",
+        "copyright": "Copyright © 2023 W3AXL",
+        "win": {
+            "publisherName": "W3AXL",
+            "target": [
+                "portable"
+            ],
+            "icon": "console-icon.png"
+        },
+        "portable": {
+            "artifactName": "rc2-console.exe"
+        },
+        "directories": {
+            "output": "./output",
+            "app": "./",
+            "buildResources": "./resources"
+        }
+    },
+    "keywords": [],
+    "devDependencies": {
+        "cross-env": "^7.0.3",
+        "electron": "^28.1.2",
+        "electron-builder": "^24.9.1"
+    }
 }

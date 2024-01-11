@@ -1,5 +1,5 @@
 {
-    "RadioList": [
+    "Radios": [
         {
             "address": "44.48.41.27",
             "port": 8801,
@@ -36,5 +36,17 @@
             "color": "red",
             "pan": 0
         }
-    ]
+    ],
+    "Autoconnect": false,
+    "ClockFormat": "UTC",
+    "Audio": {
+        "ButtonSounds": true,
+        "UnselectedVol": -9,
+        "ToneVolume": -9,
+        "UseAGC": true
+    },
+    "Extension": {
+        "address": "127.0.0.1",
+        "port": 5555
+    }
 }

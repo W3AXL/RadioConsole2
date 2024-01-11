@@ -263,7 +263,8 @@ ion-icon {
 }
 
 #navbar-connect,
-#navbar-ext {
+#navbar-ext,
+#navbar-edit {
     float: right;
     padding-left: 0;
     padding-right: 16px;
@@ -1060,6 +1061,31 @@ ion-icon {
 
 .popup-content .disconnected {
     color: var(--color-alert-red-light);
+}
+
+#edit-radios-table {
+    width: 100%;
+    text-align: left;
+    color: var(--color-txt-light);
+    border-spacing: 0;
+    background-color: var(--color-bg-dark);
+}
+
+#edit-radios-table th {
+    background-color: var(--color-accent-dark);
+    padding: 4px;
+}
+
+#edit-radios-table td {
+    padding: 4px;
+}
+
+.popup a {
+    color: var(--color-txt-light);
+}
+
+#add-radio-popup {
+    z-index: 6;
 }
 
 /********************************
