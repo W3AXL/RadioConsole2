@@ -31,6 +31,8 @@ namespace daemon
             Wss.AddWebSocketService<WebRTCWebSocketPeer>("/rtc", (peer) => peer.CreatePeerConnection = WebRTC.CreatePeerConnection);
             // Set up the regular message handler
             Wss.AddWebSocketService<ClientProtocol>("/");
+            // Keeps the thing alive
+            Wss.KeepClean = false;
             // Start the service
             Wss.Start();
         }
@@ -133,6 +135,11 @@ namespace daemon
             Serilog.Log.Warning("Websocket connection closed: {args}", e.Reason);
             WebRTC.Stop("Websocket closed");
             //DaemonWebsocket.radio.Stop();
+        }
+
+        protected override void OnError(WebSocketSharp.ErrorEventArgs e)
+        {
+            Serilog.Log.Error("Websocket encountered an error! {error}", e.Message);
         }
     }
 }

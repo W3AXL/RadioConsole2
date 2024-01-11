@@ -18,7 +18,7 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
     <PackageReference Include="serilog.sinks.file" Version="5.0.0" />
     <PackageReference Include="SIPSorcery" Version="6.1.1-pre" />
-    <PackageReference Include="SIPSorcery.WebSocketSharp" Version="0.0.1" />
+    <PackageReference Include="SIPSorcery.websocketsharp" Version="0.0.1" />
     <PackageReference Include="SIPSorceryMedia" Version="4.0.67-pre" />
     <PackageReference Include="SIPSorceryMedia.FFmpeg" Version="1.2.1" />
     <PackageReference Include="SIPSorceryMedia.SDL2" Version="1.2.0" />
