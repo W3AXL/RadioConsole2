@@ -1,27 +1,11 @@
-const fs = require('fs');
-
 /***********************************************************************************
     Global Variables
 ***********************************************************************************/
 
 var version = "1.0rc1";
 
-// Default config (read/written from config.json)
-var config = {
-    Radios: [],
-    Autoconnect: false,
-    ClockFormat: "UTC",
-    Audio: {
-        ButtonSounds: true,
-        UnselectedVol: -9.0,
-        ToneVolume: -9.0,
-        UseAGC: true,
-    },
-    Extension: {
-        address: "127.0.0.1",
-        port: 5555
-    }
-}
+// Config, read from main.js on page load
+var config = null;
 
 // Radio List (read from radio config initially and populated with audio sources/sinks and rtc connections)
 var radios = [];
@@ -188,12 +172,6 @@ function pageLoad() {
 
     // Setup clock timer
     setInterval(updateClock, 100);
-
-    // If autoconnect is specified, autoconnect!
-    if (config.Autoconnect) {
-        connectAllButton();
-    }
-
 }
 
 /**
@@ -375,11 +353,11 @@ function populateRadios() {
         console.log("Adding radio " + radio.name);
         // Add the radio card
         addRadioCard("radio" + String(index), radio.name, radio.color);
+        // Update edit list
+        addRadioToEditTable(radio);
         // Populate its text
         updateRadioCard(index);
     });
-    // Bind the cards
-    bindRadioCardButtons();
 }
 
 /**
@@ -406,32 +384,57 @@ function addRadioCard(id, name, color) {
     newCard.querySelector(".radio-card").id = id;
     newCard.querySelector(".radio-card .header h2").textContent = name;
 
+    // Bind click events, etc
+    newCard.querySelector(".radio-card").addEventListener('click', function (event) {
+        // Prevent continual propagation
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        // Select the radio
+        selectRadio(id);
+    });
+
+    // Bind the minimize button
+    $(".minimize-radio-card").click(function (event) {
+
+    })
+
     $("#main-layout").append(newCard);
+}
+
+function addRadioToEditTable(radio) {
+    $("#edit-radios-table tr:last").after(`
+        <tr><td>${radio.name}</td><td>${radio.address}</td><td>${radio.port}</td><td><a href="#" onclick="deleteRadio(this, '${radio.name}')"><ion-icon name='trash-bin-sharp'></ion-icon></a></td></tr>
+    `);
+}
+
+function deleteRadio(editRow, name) {
+    var found = false;
+    console.warn(`Removing radio ${name}`);
+    // Remove from config and radio objects
+    radios.forEach((radio, index) => {
+        if (radio.name == name) {
+            // Update list objects
+            config.Radios.splice(index, 1);
+            radios.splice(index, 1);
+            // Remove radio card
+            console.debug("Removing radio card by identifier: " + `.radio-card:contains("${name}")`);
+            $(`.radio-card:contains("${name}")`).remove();
+            // Update List
+            $(editRow).closest("tr").remove();
+            // Save config
+            saveConfig();
+            // update flag
+            found = true;
+        }
+    });
+    if (!found) {
+        alert("Failed to delete radio!");
+    }
 }
 
 function stopClick(event, obj) {
     event.stopPropagation();
     event.preventDefault();
-}
-
-/**
- * Binds radio card buttons & click events to functions
- */
-function bindRadioCardButtons() {
-    // Bind clicking of the card to selection of a radio
-    $(".radio-card").on('click', function (event) {
-        // Prevent continual propagation
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        // Get the ID of the selecting item
-        var cardId = $(this).attr('id');
-        // Select the radio
-        selectRadio(cardId);
-    })
-    // Bind the minimize button
-    $(".minimize-radio-card").click(function (event) {
-
-    })
 }
 
 function updateRadioCard(idx) {
@@ -910,6 +913,7 @@ function closePopup(obj = null) {
  * Update the clock based on the selected time format
  */
 function updateClock() {
+    if (!config) {return;}
     var timestr = "HH:mm:ss"
     if (config.ClockFormat == "Local") {
         var time = getTimeLocal(timestr);
@@ -997,21 +1001,19 @@ function getRadioIndex(id) {
     Config Reading/Writing to Json
 ***********************************************************************************/
 
-function readConfig() {
-    // Create a new config file if it doesn't exist
-    if (!fs.existsSync('./config.json')) {
-        console.warn("No config.json file found, creating default");
-        try {
-            fs.writeFileSync('./config.json', JSON.stringify(config, null, 4));
-        }
-        catch (e) {
-            alert("Failed to write default config file!");
-        }
-    }
+async function readConfig() {
 
-    // Read the config file
-    console.debug("Reading config json file");
-    config = JSON.parse(fs.readFileSync("./config.json"));
+    // Read config via IPC and parse
+    configJson = await window.electronAPI.readConfig();
+    try {
+        console.debug("Reading config data");
+        console.debug(configJson);
+        config = JSON.parse(configJson);
+    }
+    catch (e) {
+        alert("Error reading config: " + e);
+    }
+    
     console.debug("Successfully read config json");
 
     // Autoconnect on launch
@@ -1056,14 +1058,19 @@ function readConfig() {
             radios[idx].pan = 0;
         }
         // Default name (used for logging until we get the proper name)
-        radios[idx].name = radios[idx].address + ":" + radios[idx].port;
+        radios[idx].name = `Radio ${idx}`;
     });
 
     // Populate radio cards
     populateRadios();
+
+    // If autoconnect is specified, autoconnect!
+    if (config.Autoconnect) {
+        connectAllButton();
+    }
 }
 
-function saveConfig() {
+async function saveConfig() {
 
     // Client config values
     const clockFormat = $("#client-timeformat").val();
@@ -1091,12 +1098,70 @@ function saveConfig() {
         updateRadioAudio();
     }
 
-    try {
-        fs.writeFileSync('./config.json', JSON.stringify(config, null, 4));
+    const result = await window.electronAPI.saveConfig(JSON.stringify(config, null, 4));
+
+    if (result != true)
+    {
+        alert("Failed to save config: " + result);
     }
-    catch (e) {
-        alert("Failed to write default config file!");
+}
+
+function newRadioClear() {
+    $('#new-radio-address').val('');
+    $('#new-radio-port').val('');
+    $('#new-radio-pan').val(0);
+}
+
+function newRadioAdd() {
+    // Get values
+    const newRadioAddress = $('#new-radio-address').val();
+    const newRadioPort = $('#new-radio-port').val();
+    const newRadioColor = $('#new-radio-color').val();
+    const newRadioPan = $('#new-radio-pan').val();
+
+    // Create the new radio entry
+    var newRadio = {
+        address: newRadioAddress,
+        port: newRadioPort,
+        color: newRadioColor,
+        pan: newRadioPan,
+    };
+
+    // Validate
+    if (!validColors.includes(newRadio.color)) {
+        console.warn(`Color ${newRadio.color} not valid, defaulting to blue`);
+        radios[idx].color = "blue";
     }
+
+    // Save config
+    config.Radios.push(newRadio);
+    saveConfig();
+    
+    // Populate default values
+    newRadio.status = { State: 'Disconnected' };
+    newRadio.rtc = {};
+    newRadio.wsConn = null;
+    newRadio.audioSrc = null;
+
+    // Get the index
+    var newRadioIdx = radios.length;
+
+    // Default name (used for logging until we get the proper name)
+    newRadio.name = `Radio ${newRadioIdx}`;
+
+    // Append to config
+    radios.push(newRadio);
+
+    // Populate new radio
+    console.log("Adding radio " + newRadio.name);
+    // Add the radio card
+    addRadioCard("radio" + String(newRadioIdx), newRadio.name, newRadio.color);
+    // Populate its text
+    updateRadioCard(newRadioIdx);
+    // Update edit list
+    addRadioToEditTable(newRadio);
+    // Clear form
+    newRadioClear();
 }
 
 /***********************************************************************************
