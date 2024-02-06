@@ -227,13 +227,14 @@ namespace daemon
         // Class Variables
         public SerialPort Port { get; set; }
 
+        private byte[] rxBuffer = new byte[512];
+
         // Cancellation token for serial listener task
         private CancellationTokenSource ts;
         private CancellationToken ct;
 
         // Flags for SB9600
         private bool inSbep = false;
-        private bool waiting = false;
 
         // Queue for TX messages to send in infinite loop when free
         private ConcurrentQueue<QueueMessage> msgQueue = new ConcurrentQueue<QueueMessage>();
@@ -459,6 +460,66 @@ namespace daemon
                 return crc;
             }
 
+            /// <summary>
+            /// Calculated the expected total SBEP message length in bytes (including header and CRC)
+            /// </summary>
+            /// <param name="data">data array to extract the header from</param>
+            /// <returns>total byte length of message</returns>
+            public static int CalcLength(byte[] data)
+            {
+                int headerLength = 1;
+
+                // Get msn and lsn of first byte
+                byte msn = (byte)(data[0] >> 4);
+                byte lsn = (byte)(data[0] & 0x0F);
+
+                // Get extended opcode first
+                byte opcode = 0x00;
+                if (msn == 0x0F)
+                {
+                    opcode = data[1];
+                    headerLength += 1;
+                }
+                else
+                {
+                    opcode = msn;
+                }
+
+                // Get length byte next
+                int msgLength;
+                // Detect extended length bytes
+                if (lsn == 0x0F)
+                {
+                    byte[] lenBytes;
+                    if (opcode >= 0x0F)
+                    {
+                        // we start at index 2 if we have a preceeding extended opcode byte
+                        lenBytes = data[2..4];
+                    }
+                    else
+                    {
+                        // start at index 1 if there's no extended opcode byte
+                        lenBytes = data[1..3];
+                    }
+                    Log.Verbose("Got extended SBEP size bytes {SizeBytes}", lenBytes);
+                    if (BitConverter.IsLittleEndian)
+                    {
+                        Array.Reverse(lenBytes);
+                    }
+                    msgLength = BitConverter.ToInt16(lenBytes);
+                    Log.Verbose("Got extended SBEP size {Size}", msgLength);
+                    headerLength += 2;
+                }
+                else
+                {
+                    msgLength = lsn;
+                    Log.Verbose("Got SBEP size {LSN} = {Size}", Util.Hex(lsn), msgLength);
+                }
+
+                // Return the header length + message length
+                return headerLength + msgLength;
+            }
+
             public int Decode(byte[] data)
             {
                 Log.Verbose("Decoding SBEP message {SbepMsg}", data);
@@ -512,6 +573,13 @@ namespace daemon
                     Log.Verbose("Got SBEP size {LSN} = {Size}", Util.Hex(lsn), length);
                 }
 
+                // Make sure we got enough data
+                if (data.Length < length + dataIdx)
+                {
+                    Log.Error("Not enough data in buffer ({dataLen}) for message of length {length}. Data: {data}", data.Length, length, data);
+                    throw new ArgumentException("Provided data not big enough for SBEP length in message!");
+                }
+
                 // Extract data
                 byte[] msgData = data[dataIdx..(dataIdx + length - 1)];
                 Log.Verbose("Got SBEP message data {SbepMsgData}", msgData);
@@ -521,7 +589,7 @@ namespace daemon
                 byte calcCrc = CalcCrc(data[..(length + dataIdx - 1)]);
                 if (recvCrc != calcCrc)
                 {
-                    Log.Error("SBEP CRC check failed! Got {ReceivedCRC} but expected {CalculatedCRC}", Util.Hex(recvCrc), Util.Hex(calcCrc));
+                    Log.Error("SBEP CRC check failed for message {messgae}! Got {ReceivedCRC} but expected {CalculatedCRC}", msgData, Util.Hex(recvCrc), Util.Hex(calcCrc));
                     return 0;
                 }
                 Log.Verbose("SBEP CRC check passed");
@@ -1070,19 +1138,10 @@ namespace daemon
 
         private int processSBEP(byte[] msgBytes)
         {
-            Log.Verbose("Processing SBEP message {MsgBytes}", msgBytes);
+            Log.Verbose("Decoding SBEP bytes {MsgBytes}", msgBytes);
 
             int extraBytes = 0;
             byte[] origMsg = msgBytes;
-
-            // Ignore the 0x50 ACK if there is one
-            if (msgBytes[0] == 0x50)
-            {
-                // Get rid of the byte
-                msgBytes = msgBytes[1..];
-                extraBytes += 1;
-                Log.Debug("Ignoring leading SBEP 0x50 ACK");
-            }
 
             // Try to decode from the msg buffer
             SBEPMsg msg = new SBEPMsg();
@@ -1381,15 +1440,6 @@ namespace daemon
                         break;
                 }
                 Log.Debug("Processed {proc} bytes from {len}-byte msg", msgLength + extraBytes, msgBytes.Length);
-                // Check for a trailing 0x50 ack and discard it
-                if (msgBytes.Length > extraBytes + msgLength)
-                {
-                    if (msgBytes[extraBytes + msgLength - 1] == 0x50)
-                    {
-                        extraBytes += 1;
-                        Log.Debug("Ignoring trailing SBEP 0x50 ACK");
-                    }
-                }
                 // Return the total number of bytes we read
                 return extraBytes + msgLength;
             }
@@ -1479,38 +1529,84 @@ namespace daemon
                 }
             }
 
+            // Rolling 5-byte SB9600 message buffer
+            List<byte> sb9600Buffer = new List<byte>();
+
             Log.Debug("SB9600 service running");
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    // Get the current state of BUSY
-                    bool BUSY = getBusy();
-                    // Receive first
-                    // Check if we're actively receiving
-                    if (BUSY && waiting) { 
-                        Thread.Sleep(1);
-                    }
-                    // Check if we just started receicing
-                    else if (BUSY && !waiting)
-                        waiting = true;
-                    // Message is done, so process it
-                    else if (waiting && !BUSY)
+                    // First, check if we've entered SBEP mode
+                    if (inSbep)
                     {
-                        // We're no longer waiting
-                        waiting = false;
-                        // Let things settle
-                        Thread.Sleep(1);
-                        // Read message
-                        byte[] rxMsg = new byte[Port.BytesToRead];
-                        Port.Read(rxMsg, 0, Port.BytesToRead);
-                        // Process
-                        processData(rxMsg);
+                        List<byte> sbepHeader = new List<byte>();
+                        // Wait until we get at least 4 bytes, so we can read the expected size
+                        Log.Debug("Waiting for 4 SBEP bytes to determine size");
+                        while (sbepHeader.Count < 4)
+                        {
+                            byte nextByte = (byte)Port.ReadByte();
+                            // Ignore SBEP ACKs before our header
+                            if (nextByte == 0x50 && sbepHeader.Count == 0)
+                            {
+                                Log.Debug("Ignoring leading 0x50 SBEP ACK");
+                            }
+                            else
+                            {
+                                sbepHeader.Add(nextByte);
+                            }
+                            Thread.Sleep(1);
+                        }
+                        // Decode the SBEP size
+                        int sbepLength = SBEPMsg.CalcLength(sbepHeader.ToArray());
+                        // Wait for the expected amount of additional bytes before we try and process
+                        while (Port.BytesToRead < (sbepLength - 4))
+                        {
+                            Thread.Sleep(1);
+                        }
+                        // Create a buffer for the entire SBEP message and copy the read bytes to it
+                        byte[] sbepMsg = new byte[sbepLength];
+                        Buffer.BlockCopy(sbepHeader.ToArray(), 0, sbepMsg, 0, 4);
+                        // Read the remaining bytes from the port
+                        Port.Read(sbepMsg, 4, sbepLength - 4);
+                        // Process the message
+                        processSBEP(sbepMsg);
+                        // Exit SBEP
+                        inSbep = false;
+                        Log.Debug("Exiting SBEP");
+                    }
+                    
+                    // Next, handle SB9600
+                    else
+                    {
+                        // Only try to decode an SB9600 message if we've got enough bytes (5 or more)
+                        while (sb9600Buffer.Count + Port.BytesToRead >= 5 && !inSbep)
+                        {
+                            Log.Debug("Got at least 5 bytes for an SB9600, trying to parse");
+                            // Get 5 bytes into our buffer so we can process them
+                            while (sb9600Buffer.Count < 5)
+                            {
+                                byte newByte = (byte)Port.ReadByte();
+                                // Ignore a trailing 0x50 ACK from previous SBEP message
+                                if (sb9600Buffer.Count == 0 && newByte == 0x50)
+                                {
+                                    Log.Debug("Skipping 0x50 ACK byte from previous SBEP message sequence");
+                                }
+                                sb9600Buffer.Add(newByte);
+                            }
+                            // Process the message
+                            if (!processSB9600(sb9600Buffer.ToArray()))
+                            {
+                                throw new Exception("Failed to decode SB9600 message!");
+                            }
+                            // Flush the SB9600 buffer
+                            sb9600Buffer.Clear();
+                        }
                     }
 
                     // Transmit next
                     // Send a message from the queue if we're not waiting on RX and not busy
-                    else if (!waiting && !BUSY)
+                    if (!getBusy() && !inSbep)
                     {
                         // Try and get a message and send it
                         QueueMessage msg = null;
@@ -1523,6 +1619,19 @@ namespace daemon
                                 sendSb9600(msg.sb9600msg);
                             }
                         }
+
+                        // Check for any delayed commands that need to be sent
+                        long curTimeMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+                        foreach (DelayedMessage delMsg in delayedMessages)
+                        {
+                            if (curTimeMs > delMsg.ExecTime)
+                            {
+                                if (delMsg.SB9600msg != null)
+                                {
+                                    sendSb9600(delMsg.SB9600msg);
+                                }
+                            }
+                        }
                     }
 
                     // Update radio status if new status is received
@@ -1530,19 +1639,6 @@ namespace daemon
                     {
                         newStatus = false;
                         StatusCallback();
-                    }
-
-                    // Check for any delayed commands that need to be sent
-                    long curTimeMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
-                    foreach (DelayedMessage msg in delayedMessages)
-                    {
-                        if (curTimeMs > msg.ExecTime)
-                        {
-                            if (msg.SB9600msg != null)
-                            {
-                                sendSb9600(msg.SB9600msg);
-                            }
-                        }
                     }
 
                     // Give the CPU a break

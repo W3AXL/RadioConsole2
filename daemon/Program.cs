@@ -67,7 +67,9 @@ namespace netcore_cli
             // Logging
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.ControlledBy(loggerSwitch)
-                .WriteTo.Console()
+                .WriteTo.Console(
+                    outputTemplate: "[{Timestamp:HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
                 .CreateLogger();
 
             /*
