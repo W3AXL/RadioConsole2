@@ -1,0 +1,36 @@
+name: Build Console app for Windows
+
+on:
+  workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ^8.14.0
+
+      - name: CD, install, and build
+        run: |
+          cd console
+          pnpm install
+          pnpm dist
+
+      - name: Upload Console Artifact
+        uses: actions/upload-artifact@v2
+        with: 
+          name: rc2-console-win
+          path: console/output/rc2-console.exe
+          if-no-files-found: error

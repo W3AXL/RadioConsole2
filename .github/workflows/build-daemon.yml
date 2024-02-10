@@ -19,7 +19,7 @@ jobs:
         runtime: [linux-x64, linux-arm64, win-x64]
     runs-on: ubuntu-latest
     env:
-      DAEMON_PATH: daemon-${{ matrix.runtime }}
+      DAEMON_PATH: rc2-daemon-${{ matrix.runtime }}
       DAEMON_SRC_PATH: ./daemon
     steps:
       # Checkout repo with recursive submodules
