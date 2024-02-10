@@ -1,4 +1,4 @@
-name: Build Console app for Windows & Linux
+name: Build Console app for Windows
 
 on:
   workflow_dispatch
@@ -27,3 +27,10 @@ jobs:
           cd console
           pnpm install
           pnpm dist
+
+      - name: Upload Console Artifact
+        uses: actions/upload-artifact@v2
+        with: 
+          name: rc2-console-win
+          path: console/output/rc2-console.exe
+          if-no-files-found: error
