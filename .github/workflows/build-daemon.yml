@@ -45,11 +45,11 @@ jobs:
           dotnet-version: 8.0.x
       # Restore deps
       - name: Restore dependencies
-        working-directory: $DAEMON_SRC_PATH
+        working-directory: ${{ env.$DAEMON_SRC_PATH }}
         run: dotnet restore
       # Build & publish the daemon
       - name: Build and Publish
-        working-directory: $DAEMON_SRC_PATH
+        working-directory: ${{ env.$DAEMON_SRC_PATH }}
         run: dotnet publish -c Release -r ${{ matrix.runtime }} --self-contained true
       # Package
       - name: Package
