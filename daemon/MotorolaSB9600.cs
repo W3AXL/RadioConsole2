@@ -1555,14 +1555,14 @@ namespace daemon
                             {
                                 sbepHeader.Add(nextByte);
                             }
-                            Thread.Sleep(1);
+                            Thread.Sleep(2);
                         }
                         // Decode the SBEP size
                         int sbepLength = SBEPMsg.CalcLength(sbepHeader.ToArray());
                         // Wait for the expected amount of additional bytes before we try and process
                         while (Port.BytesToRead < (sbepLength - 4))
                         {
-                            Thread.Sleep(1);
+                            Thread.Sleep(2);
                         }
                         // Create a buffer for the entire SBEP message and copy the read bytes to it
                         byte[] sbepMsg = new byte[sbepLength];
@@ -1642,7 +1642,7 @@ namespace daemon
                     }
 
                     // Give the CPU a break
-                    Thread.Sleep(1);
+                    Thread.Sleep(2);
                 }
                 catch (Exception ex)
                 {
