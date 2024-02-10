@@ -10,44 +10,59 @@ on:
 #  pull_request:
 #    branches: [ "main" ]
 
+env:
+  DAEMON_SRC_PATH: ./daemon
+
 jobs:
-  build-matrix:
-    defaults:
-      run:
-        working-directory: ./daemon
-    
+  setup:
+    name: setup
+    runs-on: ubuntu-20.04
+    outputs:
+      VERSION: ${{ steps.get_version.outputs.VERSION }}
+    steps:
+      - name: Get version
+        id: get_version
+        run: echo VERSION=${GITHUB_REF/refs\/tags\//} >> $GITHUB_OUTPUT
+
+  build:
+    name: Build
+    needs: [setup]
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-
-    runs-on: ${{ matrix.os }}
-    
+        runtime: [linux-x64, linux-arm64, win-x64]
+    runs-on: ubuntu-20.04
+    env:
+      DAEMON_PATH: daemon-${{ needs.setup.outputs.VERSION }}-${{ matrix.runtime }}
     steps:
-    - name: Checkout Repo
-      uses: actions/checkout@v3
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: 8.0.x
-    
-    - name: Cache Dependecies
-      uses: actions/cache@v3
-      with:
-        path: ~/.nuget/packages
-        # Look to see if there is a cache hit for the corresponding requirements file
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget
-    
-    - name: Restore Dependecies
-      run: dotnet restore
-    
-    - name: Build
-      run: dotnet build --no-restore
-
-    - name: Publish
-      run: dotnet publish
-    
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
+      # Checkout repo with recursive submodules
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.setup.outputs.VERSION }}
+          submodules: recursive
+      # Setup dotnet environment
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 8.0.x
+      # Restore deps
+      - name: Restore dependencies
+        working-directory: $DAEMON_SRC_PATH
+        run: dotnet restore
+      # Build & publish the daemon
+      - name: Build and Publish
+        working-directory: $DAEMON_SRC_PATH
+        run: dotnet publish -c Release -r ${{ matrix.runtime }} --self-contained true
+      # Package
+      - name: Package
+        run: |
+          mkdir "$DAEMON_PATH"
+          cp -r ${{ $DAEMON_SRC_PATH }}/bin/Release/net8.0/${{ matrix.runtime }}/publish/* "$DAEMON_PATH"
+          zip -r "${{ DAEMON_PATH }}.zip" "$DAEMON_PATH"
+      # Upload
+      - name: Upload Daemon Artifacts
+        uses: actions/upload-artifact@v2
+        with: 
+          name: ${{ DAEMON_PATH }}
+          path: ${{ DAEMON_PATH }}.zip
+      
