@@ -47,11 +47,12 @@ jobs:
           mkdir ${DAEMON_PATH}
           cp -r ${DAEMON_SRC_PATH}/bin/Release/net8.0/${{ matrix.runtime }}/publish/* "${DAEMON_PATH}"
           (cd ${DAEMON_PATH}; zip -r ../${DAEMON_PATH}.zip ./*)
-      # Upload
+      # Upload (this automatically makes the artifacts into zips when you download them
+      #    later, we should make it so we use the zips above and auto-increment releases or something
       - name: Upload Daemon Artifacts
         uses: actions/upload-artifact@v2
         with: 
           name: ${{ env.DAEMON_PATH }}
-          path: ${{ env.DAEMON_PATH }}.zip
+          path: ${{ env.DAEMON_PATH }}/*
           if-no-files-found: error
       
