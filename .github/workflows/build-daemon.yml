@@ -46,7 +46,7 @@ jobs:
         run: |
           mkdir ${DAEMON_PATH}
           cp -r ${DAEMON_SRC_PATH}/bin/Release/net8.0/${{ matrix.runtime }}/publish/* "${DAEMON_PATH}"
-          zip ${DAEMON_PATH}.zip "${DAEMON_PATH}/*"
+          (cd ${DAEMON_PATH}; zip -r ${DAEMON_PATH}.zip ./*)
       # Upload
       - name: Upload Daemon Artifacts
         uses: actions/upload-artifact@v2
