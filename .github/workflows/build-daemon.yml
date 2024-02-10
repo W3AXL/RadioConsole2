@@ -11,25 +11,15 @@ on:
 #    branches: [ "main" ]
 
 jobs:
-  setup:
-    name: setup
-    runs-on: ubuntu-20.04
-    outputs:
-      VERSION: ${{ steps.get_version.outputs.VERSION }}
-    steps:
-      - name: Get version
-        id: get_version
-        run: echo VERSION=${GITHUB_REF/refs\/tags\//} >> $GITHUB_OUTPUT
 
   build:
     name: Build
-    needs: [setup]
     strategy:
       matrix:
         runtime: [linux-x64, linux-arm64, win-x64]
     runs-on: ubuntu-20.04
     env:
-      DAEMON_PATH: daemon-${{ needs.setup.outputs.VERSION }}-${{ matrix.runtime }}
+      DAEMON_PATH: daemon-${{ matrix.runtime }}
       DAEMON_SRC_PATH: ./daemon
     steps:
       # Checkout repo with recursive submodules
