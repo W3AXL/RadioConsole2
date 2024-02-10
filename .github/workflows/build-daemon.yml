@@ -10,9 +10,6 @@ on:
 #  pull_request:
 #    branches: [ "main" ]
 
-env:
-  DAEMON_SRC_PATH: ./daemon
-
 jobs:
   setup:
     name: setup
@@ -33,6 +30,7 @@ jobs:
     runs-on: ubuntu-20.04
     env:
       DAEMON_PATH: daemon-${{ needs.setup.outputs.VERSION }}-${{ matrix.runtime }}
+      DAEMON_SRC_PATH: ./daemon
     steps:
       # Checkout repo with recursive submodules
       - name: Checkout Repo
