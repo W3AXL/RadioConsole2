@@ -16,15 +16,12 @@ jobs:
 
       - name: Install Node.js
         uses: actions/setup-node@v3
-        with:
-          node-version-file: 'console/package.json'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
-        with:
-          run-install: 'console/package.json'
 
       - name: CD, install, and build
         run: |
           cd console
+          pnpm install
           pnpm dist-multi
