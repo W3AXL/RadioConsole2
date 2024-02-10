@@ -1,0 +1,26 @@
+name: Build Console app for Windows & Linux
+
+on:
+  workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          run_install: console/package.json
+
+      - name: Run Build
+        run: pnpm dist-multi
