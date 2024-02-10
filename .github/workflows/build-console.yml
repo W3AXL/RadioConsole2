@@ -20,7 +20,10 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v3
         with:
-          run_install: console/package.json
+          run_install: false
 
-      - name: Run Build
-        run: pnpm dist-multi
+      - name: CD, install, and build
+        run: |
+          cd console
+          pnpm install
+          pnpm dist-multi
