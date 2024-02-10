@@ -2,7 +2,7 @@
     Global Variables
 ***********************************************************************************/
 
-var version = "1.0rc1";
+var version = "1.0-beta1";
 
 // Config, read from main.js on page load
 var config = null;
@@ -1920,8 +1920,6 @@ function playSound(soundId) {
 
 /**
  * Updates the audio parameters for each radio audio source based on current config and selected radio
- * NOTE: For whatever reason between the python server and this script the track order gets reversed
- * Therefore, we ascend the source list while descending the radio list
  */
  function updateRadioAudio() {
     console.debug("Updating radio sound parameters");

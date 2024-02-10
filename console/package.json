@@ -7,7 +7,8 @@
     "main": "main.js",
     "scripts": {
         "pack": "electron-builder --dir",
-        "dist": "electron-builder"
+        "dist": "electron-builder",
+        "dist-multi": "electron-builder -wl"
     },
     "build": {
         "appId": "rc2-console",
