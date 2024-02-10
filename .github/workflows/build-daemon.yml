@@ -44,9 +44,10 @@ jobs:
       # Package
       - name: Package
         run: |
-          mkdir "${DAEMON_PATH}"
-          cp -r "/home/runner/work/RadioConsole2/RadioConsole2/daemon/bin/Release/net8.0/${{ matrix.runtime }}/publish/*" "${DAEMON_PATH}"
-          zip -r "${DAEMON_PATH}.zip" "${DAEMON_PATH}"
+          mkdir ${DAEMON_PATH}
+          ls ${DAEMON_SRC_PATH}
+          cp -r ${DAEMON_SRC_PATH}/bin/Release/net8.0/${{ matrix.runtime }}/publish/* "${DAEMON_PATH}"
+          zip -r ${DAEMON_PATH}.zip "${DAEMON_PATH}"
       # Upload
       - name: Upload Daemon Artifacts
         uses: actions/upload-artifact@v2
