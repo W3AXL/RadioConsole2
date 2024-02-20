@@ -1,4 +1,6 @@
 # RadioConsole2
+![](docs/media/tut-mainwindow-connected.png)
+
 The updated and improved python-radio-console!
 ## Overview
 RC2 consists of two parts - the GUI console (`rc2-console`) and the radio control daemons (`rc2-daemon`), one per each radio to be connected to the console.
@@ -61,10 +63,20 @@ Once your configuration file has been created, you can run the daemon using the 
 
 When you run the daemon, you should see some output as the daemon connects to the radio and updates its zone/channel/status information.
 ### Configuring the Console UI
-- First, run the rc2-console.exe file. You will be presented with an empty console window like below:\
-
-- Once you have your daemon(s) running as explained above, you can add new radios to the console. Click the pencil icon to bring up the edit window\
+- First, run the rc2-console.exe file. You will be presented with an empty console window like below. Once you have your daemon(s) running as explained above, you can add new radios to the console. Click the pencil icon to bring up the edit window\
+  \
+  ![](docs/media/tut-mainwindow-edit.png)
 
 - Use the plus (+) button to add a new radio definition. Specify the address of the PC running the daemon and the port you configured above. A new radio card will automatically be added to the main console window.\
+  \
+  ![](docs/media/tut-radios-add.png) \
+  ![](docs/media/tut-radio-new.png) \
+  In addition to the radio's address and port, you can specify the background color of the radio card and the default panning (left to right) of the radio's RX audio.
 
-- Click the signal bars on the radio card to connect to the daemon. If everything goes well, you should see the bars go green and the radio text get populated from the daemon.\
+- Click the signal bars on the radio card to connect to the daemon. You can also click the power icon in the top right which will connect to all daemons currently configured.\
+  \
+  ![](docs/media/tut-mainwindow-connect.png) \
+  \
+  If everything goes well, you should see the bars go green and the radio text get populated from the daemon: \
+  \
+  ![](docs/media/tut-mainwindow-connected.png)
