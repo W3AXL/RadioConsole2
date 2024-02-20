@@ -56,4 +56,15 @@ chanLookup = [
 This section defines the softkeys available on the console UI, and what buttons on the radio control head map to these softkeys. At first this may seem confusing - see the Wiki entry on button bindings for more information and available options.
 - `buttonBinding`: This section defines the buttons on the radio's control head and what functions are programmed to each button. 
 - `softkeyList`: This section defines what softkeys are made availble on the console UI. The keys defined here map to the button bindings defined in `buttonBinding` above.
-## Building from Source
+### Running the Daemon
+Once your configuration file has been created, you can run the daemon using the `-c` flag to specify the config file to use. For example: `./daemon -c config.toml`. You may optionally enable logging, debug printing, and other features with additional command line switches. Run `./daemon -h` to get a full list of available command line flags.
+
+When you run the daemon, you should see some output as the daemon connects to the radio and updates its zone/channel/status information.
+### Configuring the Console UI
+- First, run the rc2-console.exe file. You will be presented with an empty console window like below:\
+
+- Once you have your daemon(s) running as explained above, you can add new radios to the console. Click the pencil icon to bring up the edit window\
+
+- Use the plus (+) button to add a new radio definition. Specify the address of the PC running the daemon and the port you configured above. A new radio card will automatically be added to the main console window.\
+
+- Click the signal bars on the radio card to connect to the daemon. If everything goes well, you should see the bars go green and the radio text get populated from the daemon.\
