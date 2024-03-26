@@ -490,15 +490,6 @@ function updateRadioCard(idx) {
             break;
     }
 
-    // Update mute icon
-    if (radio.status.muted) {
-        radioCard.find("#icon-mute").attr('name', 'volume-mute-sharp');
-        radioCard.find("#icon-mute").addClass("muted");
-    } else {
-        radioCard.find("#icon-mute").attr('name', 'volume-high-sharp');
-        radioCard.find("#icon-mute").removeClass("muted");
-    }
-
     // Update alert icon
     if (radio.status.Error) {
         radioCard.find("#icon-alert").addClass("alerting");
@@ -808,6 +799,15 @@ function releaseButton(buttonName) {
     }
 }
 
+function toggleMute(idx) {
+    // Check mute
+    if (radios[idx].mute) {
+        muteRadio(idx, false);
+    } else {
+        muteRadio(idx, true);
+    }
+}
+
 function muteButton(event, obj) {
     // Get ID of radio to mute
     const radioId = $(obj).closest(".radio-card").attr('id');
@@ -1057,6 +1057,8 @@ async function readConfig() {
             console.debug(`Radio ${idx} has no pan property, defaulting to 0`);
             radios[idx].pan = 0;
         }
+        // Default mute (not muted)
+        radios[idx].mute = false;
         // Default name (used for logging until we get the proper name)
         radios[idx].name = `Radio ${idx}`;
     });
@@ -1956,9 +1958,23 @@ function playSound(soundId) {
  */
 function muteRadio(idx, mute) {
     if (mute) {
+        console.info(`Muting radio ${idx}`);
+        // Set audio node
         radios[idx].audioSrc.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
+        // Set icon
+        $(`#radio${idx} .icon-mute`).addClass('muted');
+        $(`#radio${idx} .icon-mute`).prop('name', 'volume-mute-sharp');
+        // Set state
+        radios[idx].mute = true;
     } else {
+        console.info(`Unmuting radio ${idx}`);
+        // Set audio node
         radios[idx].audioSrc.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
+        // Set icon
+        $(`#radio${idx} .icon-mute`).removeClass('muted');
+        $(`#radio${idx} .icon-mute`).prop('name', 'volume-high-sharp');
+        // Set state
+        radios[idx].mute = false;
     }
 }
 
@@ -1973,12 +1989,13 @@ function updateAudio(idx) {
         return;
     }
     // Mute if we're muted or not receiving, after the specified delay in rtc.rxLatency
-    if (radios[idx].status.muted || (radios[idx].status.State != 'Receiving')) {
+    if (radios[idx].mute || (radios[idx].status.State != 'Receiving')) {
         setTimeout(function() {
             console.debug(`Muting audio for radio ${radios[idx].name}`);
             radios[idx].audioSrc.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
         }, radios[idx].rtc.rxLatency);
-    } else {
+    // Unmute only if we're not forced muted by the client
+    } else if (!radios[idx].mute) {
         setTimeout(function() {
             console.debug(`Unmuting audio for radio ${radios[idx].name}`);
             radios[idx].audioSrc.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
@@ -2434,6 +2451,36 @@ function handleSocketError(event, idx) {
     //window.alert("Server connection errror: " + event.data);
 }
 
+function restartRadio(event, obj) {
+    // Stop propagation of click
+    event.stopPropagation();
+    // Get raido index
+    const radioId = $(obj).closest(".radio-card").attr('id');
+    console.log(`Restarting radio ${radioId}`);
+    // Get index of radio in list
+    const idx = getRadioIndex(radioId);
+    // Stop PTT if running
+    if (radios[idx].status.State == "Transmitting" || selectedRadioIdx == idx) {
+        console.info("Stopping PTT and deslecting radio");
+        stopPtt();
+        deselectRadios();
+    }
+    // Send reset command to radio
+    console.info("Sending reset command");
+    radios[idx].wsConn.send(JSON.stringify(
+        {
+            "radio": {
+                "command": "reset"
+            }
+        }
+    ));
+    // Disconnect and reconnect
+    disconnectRadio(idx);
+    setTimeout(() => {
+        connectRadio(idx);
+    }, 500);
+}
+
 /***********************************************************************************
     Extension Websocket Functions
 ***********************************************************************************/
@@ -2607,7 +2654,7 @@ function escapeRegExp(string) {
 }
 
 /**
- * Converts a power gain value to the equivalent constant multiplier
+ * Converts a voltage gain value to the equivalent constant multiplier
  * @param {float} db Gain in decibels
  * @returns gain as a factor relative to 1
  */

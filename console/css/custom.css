@@ -407,9 +407,9 @@ ion-icon {
     position: relative;
     margin-left: 8px;
     margin-top: 8px;
-    width: 294px;
+    width: 300px;
     height: 124px;
-    font-family: "B612";
+    font-family: "Iosevka Bold";
     /* Clip Path for Angles */
     clip-path: polygon(0 0, 100% 0, 100% 83%, 93% 100%, 0 100%);
     background-color: rgba(0,0,0,0);
@@ -417,7 +417,8 @@ ion-icon {
 }
 
 .radio-card .card {
-    width: 290px;
+    /* Width is overall card width -4 px for border */
+    width: 296px;
     height: 120px;
     position: absolute;
 }
@@ -456,7 +457,7 @@ ion-icon {
 }
 
 .radio-card .header {
-    width: 290px;
+    width: 100%;
     height: 30px;
     position: absolute;
     top: 2px;
@@ -521,9 +522,9 @@ ion-icon {
     margin: 0;
     font-weight: normal;
     display: inline;
-    margin-top: 4px;
+    margin-top: 2px;
     margin-left: 16px;
-    font-size: 13px;
+    font-size: 16px;
 }
 
 .radio-card .icon-stack {
@@ -548,7 +549,7 @@ ion-icon {
     color: var(--color-accent-dark);
 }
 
-.icon-stack #icon-mute.muted {
+.icon-stack .icon-mute.muted {
     color: var(--color-alert-red-light);
 }
 
@@ -638,8 +639,8 @@ ion-icon {
 .dtmf-dropdown {
     position: absolute;
     width: 100px;
-    height: 86px;
-    margin-top: 118px;
+    height: 90px;
+    margin-top: 120px;
     margin-left: 24px;
     text-align: center;
     border-radius: 2px;
@@ -658,11 +659,11 @@ ion-icon {
     width: 90px;
     right: 100px;
     top: 30px;
-    font-size: 16px;
+    font-size: 18px;
     font-family: "Iosevka Bold";
     color: var(--color-txt-light);
-    background-color: rgba(32,32,32,0.5);
-    border: 1px solid rgba(128,128,128,0.5);
+    background-color: rgba(32,32,32,0.75);
+    border: 1px solid rgba(128,128,128,0.75);
     z-index: 10;
 }
 
@@ -670,13 +671,13 @@ ion-icon {
     display: block;
     width: 86px;
     text-align: right;
-    padding-top: 4px;
-    padding-right: 4px;
+    padding-top: 2px;
+    padding-right: 2px;
 }
 
 .dtmf-table {
     margin-top: -2px;
-    font-size: 13px;
+    font-size: 17px;
     font-family: "Iosevka Bold";
     color: var(--color-txt-light);
     width: 100px;
@@ -692,11 +693,11 @@ ion-icon {
 }
 
 .dtmf-table td:hover {
-    background-color: rgba(255,255,255,0.1);
+    background-color: rgba(255,255,255,0.25);
 }
 
 .dtmf-table td:active {
-    background-color: rgba(0,0,0,0.2);
+    background-color: rgba(0,0,0,0.25);
 }
 
 /* Common dropdown styling */
@@ -738,7 +739,7 @@ ion-icon {
 
 .radio-card .content {
     position: absolute;
-    width: 290px;
+    width: 100%;
     height: 90px;
     top: 32px;
     left: 2px;
