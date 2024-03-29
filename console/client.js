@@ -444,8 +444,8 @@ function updateRadioCard(idx) {
     // Get card object
     var radioCard = $("#radio" + String(idx));
 
-    // Update card name & description
-    radioCard.find(".radio-name").html(radio.status.Name);
+    // Update card name & description (we limit the header name to 14 characters)
+    radioCard.find(".radio-name").html(radio.status.Name ? radio.status.Name.substring(0,14) : `Radio ${idx}`);
     radioCard.find(".radio-name").attr("title", radio.status.Description);
 
     // Limit zone & channel text to 27/18 characters
