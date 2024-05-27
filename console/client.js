@@ -18,6 +18,11 @@ var audio = {
     running: false,
     // DTMF generator
     dtmf: null,
+    dtmfGain: 0.3,
+    // Alert tone generator
+    tones: null,
+    tonesGain: 0.3,
+    tonesPeriod: 500,
     // Input device, stream, meter, etc
     input: null,
     inputStream: null,
@@ -109,6 +114,9 @@ const rtcConf = {
 
 // Flag to start/stop animation callback for audio meters (to save CPU when we're not doing anything)
 var audio_playing = false;
+
+// Flag to unmute the mic on receipt of a startTx ACK from the radio
+var txUnmuteMic = false;
 
 testInput = null;
 
@@ -527,6 +535,7 @@ function updateRadioCard(idx) {
  * Update the bottom control bar based on the selected radio
  */
 function updateRadioControls() {
+    var softkeyStates = [false, false, false, false, false, false];
     // Update if we have a selected radio
     if (selectedRadio) {
         // Get the radio from the list
@@ -548,14 +557,14 @@ function updateRadioControls() {
             {
                 case "On":
                     $(`#softkey${index+1}`).addClass("pressed");
+                    softkeyStates[index] = true;
                     break;
                 case "Off":
                     $(`#softkey${index+1}`).removeClass("pressed");
                     break;
             }
         });
-        exUpdateSoftkeys(curSoftkeyPage);
-        // Clear if we don't
+    // Clear if we don't
     } else {
         for (i=0; i<6; i++) {
             $(`#softkey${i+1} .btn-text`).html("");
@@ -563,10 +572,10 @@ function updateRadioControls() {
         // Disable softkeys
         $("#radio-controls .btn").addClass("disabled");
         $("#radio-controls .btn").removeClass("pressed");
-        // Clear softkey states on extension
-        exUpdateSoftkeys([false, false, false, false, false, false]);
+        // Disable alert button and hide bar
+        hideAlertBar();
     }
-    exUpdateSoftkeys();
+    exUpdateSoftkeys(softkeyStates);
 }
 
 /**
@@ -603,8 +612,12 @@ function startPtt(micActive) {
         if (radios[selectedRadioIdx].wsConn) {
             console.log("Starting PTT on " + selectedRadio);
             pttActive = true;
+            
+            // Old logic that doesn't use the ACK below
             // Unmute mic after timeout, if requested
-            if (micActive) {setTimeout( unmuteMic, audio.micUnmuteDelay);}
+            /**if (micActive) {
+                setTimeout( unmuteMic, audio.micUnmuteDelay);
+            }
             // Play TPT
             playSound("sound-ptt");
             // Send radio keyup after latency timeout
@@ -616,7 +629,18 @@ function startPtt(micActive) {
                         }
                     }
                 ));
-            }, radios[selectedRadioIdx].rtc.txLatency);
+            }, radios[selectedRadioIdx].rtc.txLatency);**/
+            
+            // Flag that we want the mic to unmute or not
+            txUnmuteMic = micActive;
+            // Send the command
+            radios[selectedRadioIdx].wsConn.send(JSON.stringify(
+                {
+                    "radio": {
+                        "command": "startTx"
+                    }
+                }
+            ));
         }
     } else if (!pttActive && !selectedRadio) {
         pttActive = true;
@@ -633,6 +657,8 @@ function stopPtt() {
         pttActive = false;
         // Mute mic
         setTimeout( muteMic, audio.micMuteDelay );
+        // Play sound
+        //playSound("sound-ptt-end");
         // Send the stop command if connected
         if (radios[selectedRadioIdx].wsConn && selectedRadio) {
             // Wait and then stop TX (handles mic latency)
@@ -644,7 +670,6 @@ function stopPtt() {
                         }
                     }
                 ));
-                playSound("sound-ptt-end");
             }, radios[selectedRadioIdx].rtc.txLatency);
         }
     }
@@ -862,6 +887,50 @@ function dialNumber(radioId, number, digitTime, delayTime) {
             clearDTMFDialpad(radioId);
         }, startTime + ((digitTime + delayTime) * number.length) + rtcConf.txBaseLatency);
     }
+}
+
+function startAlert(mode) {
+    // Start PTT
+    startPtt(false);
+    // Set and start tone gen
+    switch (mode) {
+        case 1:
+            audio.tones.mode = "cont";
+            break;
+        case 2:
+            audio.tones.mode = "alt";
+            break;
+        case 3:
+            audio.tones.mode = "pulse";
+            break;
+    }
+    // Wait for TX
+    sendAlert()
+}
+
+function sendAlert() {
+    // Wait for TX
+    if (radios[selectedRadioIdx].status.State != "Transmitting") {
+        console.debug("waiting for radio to start transmitting");
+        setTimeout(() => {
+            sendAlert();
+        }, 50);
+    } else {
+        console.debug("Radio transmitting, starting alert tone");
+        audio.tones.start();
+    }
+}
+
+function stopAlert() {
+    console.debug("Stopping alert tones");
+    // Stop the tones
+    audio.tones.stop();
+    // Re-enable the mic
+    setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
+    // We wait 5 seconds after the release of the alert button before releasing PTT
+    setTimeout(() => {
+        stopPtt();
+    }, 5000);
 }
 
 /***********************************************************************************
@@ -1722,6 +1791,8 @@ function startAudioDevices() {
             audio.inputMicGain.connect(audio.inputAnalyzer);
             // Setup DTMF generator once we have our input audio nodes
             audio.dtmf = new DualTone(audio.context, 100, 200);
+            // Setup Alert Tone generator
+            audio.tones = new AlertTone(audio.context, "alt", 1500, 800);
             // Add the first available mic track to the peer connection, this will call the onnegotiationneeded handler which will send a new SDP offer
             audio.inputTrack = audio.inputDest.stream.getTracks()[0];
             // Add a listener to restart the track when it ends (happens sometimes)
@@ -1743,10 +1814,12 @@ function startAudioDevices() {
 }
 
 function muteMic() {
+    console.log("Muting mic");
     audio.inputMicGain.gain.value = 0;
 }
 
 function unmuteMic() {
+    console.log("Unmuting mic");
     audio.inputMicGain.gain.value = 1;
 }
 
@@ -2152,6 +2225,126 @@ function clearDTMFDialpad(radioId) {
 }
 
 /***********************************************************************************
+    Console Alert Tone Functions
+***********************************************************************************/
+
+/**
+ * Console alert tone generator class
+ * @param {audioContext} context the audio context
+ * @param {string} mode alert mode, "cont", "alt", or "pulse"
+ * @param {int} freq1 primary frequency
+ * @param {int} freq2 secondary frequency, not used unless in "alt" mode
+ */
+function AlertTone(context, mode) {
+    this.context = context;
+    this.mode = mode;
+    // Used to cancel the tone period timeout callback
+    this.timeoutId = null;
+    // Used to get the current status of the generator
+    this.status = 0;
+}
+
+AlertTone.prototype.setup = function() {
+    // Create the audio nodes
+    this.osc = this.context.createOscillator();
+    this.gain = this.context.createGain();
+    this.filter = this.context.createBiquadFilter();
+    // Setup initial values
+    switch (this.mode) {
+        case "cont":
+        case "pulse":
+            this.osc.frequency.value = 1000;
+            break;
+        case "alt":
+            this.osc.frequency.value = 1500;
+            break;
+    }
+    this.gain.gain.value = audio.tonesGain;
+    this.filter.type = 'lowpass';
+    this.filter.frequency = '4000';
+    // Connect
+    this.osc.connect(this.gain);
+    this.gain.connect(this.filter);
+    this.filter.connect(audio.outputGain);
+    this.filter.connect(audio.inputAnalyzer);
+    this.filter.connect(audio.inputDest);
+}
+
+AlertTone.prototype.timerCallback = function() {
+    // behavior changes depending on mode
+    switch (this.mode) {
+        case "cont":
+            // Do nothing
+            break;
+        case "alt":
+            // Get current osc frequency
+            const curFreq = this.osc.frequency.value;
+            // Change to the other one
+            if (curFreq == 1500) {
+                this.osc.frequency.value = 800;
+            } else {
+                this.osc.frequency.value = 1500;
+            }
+            break;
+        case "pulse":
+            // Get current gain
+            const curGain = this.gain.gain.value;
+            // Mute or unmute
+            if (curGain == 0) {
+                this.gain.gain.value = audio.tonesGain;
+            } else {
+                this.gain.gain.value = 0;
+            }
+            break;
+    }
+    // Set the timeout again
+    this.timeoutId = setTimeout(() => {
+        this.timerCallback();
+    }, Math.floor(audio.tonesPeriod / 2) );
+}
+
+AlertTone.prototype.start = function() {
+    this.setup();
+    this.osc.start(0);
+    this.status = 1;
+    this.gain.gain.value = audio.tonesGain;
+    // Start timer
+    this.timeoutId = setTimeout(() => {
+        this.timerCallback();
+    }, Math.floor(audio.tonesPeriod / 2) );
+}
+
+AlertTone.prototype.stop = function() {
+    this.osc.stop(0);
+    if (this.timeoutId) {
+        clearTimeout(this.timeoutId);
+    }
+    this.status = 0;
+    this.gain.gain.value = 0;
+}
+
+/**
+ * Show/Hide the alert bar
+ */
+function alertBar() {
+    // Make sure button is not disabled
+    if (document.getElementById("alert-bar-icon").classList.contains("disabled")) {
+        return;
+    }
+    // Get the bar
+    const bar = document.getElementById("alert-bar");
+    if (bar.classList.contains("hidden")) {
+        bar.classList.remove("hidden");
+    } else {
+        bar.classList.add("hidden");
+    }
+}
+
+function hideAlertBar() {
+    document.getElementById("alert-bar").classList.add("hidden");
+}
+
+/***********************************************************************************
     DTMF Functions
     Mostly lifted from the example here:
     https://codepen.io/edball/pen/EVMaVN
@@ -2179,7 +2372,7 @@ DualTone.prototype.setup = function() {
     // Setup initial values
     this.osc1.frequency.value = this.freq1;
     this.osc2.frequency.value = this.freq2;
-    this.gainNode.gain.value = 0.3;
+    this.gainNode.gain.value = audio.dtmfGain;
     this.filter.type = 'lowpass';
     this.filter.frequency = '4000';
     // Connect everything
@@ -2197,7 +2390,7 @@ DualTone.prototype.start = function() {
     this.osc1.start(0);
     this.osc2.start(0);
     this.status = 1;
-    this.gainNode.gain.value = 0.3;
+    this.gainNode.gain.value = audio.dtmfGain;
 }
 
 DualTone.prototype.stop = function() {
@@ -2401,6 +2594,24 @@ function recvSocketMessage(event, idx) {
                 getSpkrData(value['data']);
                 break;
 
+            // ACK handler
+            case "ack":
+                switch (value) {
+                    case "startTx":
+                        // Unmute mic after timeout, if requested
+                        if (txUnmuteMic) {
+                            setTimeout( unmuteMic, audio.micUnmuteDelay);
+                            txUnmuteMic = false;
+                        }
+                        // Play TPT
+                        playSound("sound-ptt");
+                        break;
+                    case "stopTx":
+                        playSound("sound-ptt-end");
+                        break;
+                }
+                break;
+
             // NACK handler
             case "nack":
                 console.error("Got NACK from server");
@@ -2498,7 +2709,7 @@ function extensionConnect() {
     extensionWs.onmessage = function(event) { recvExtensionMessage(event) };
     extensionWs.onclose = function(event) { handleExtensionClose(event) };
     // Wait for active
-    waitForWebSocket(extensionWs, extensionConnected);
+    waitForWebSockets([extensionWs], extensionConnected);
 }
 
 function extensionConnected() {

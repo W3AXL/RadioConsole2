@@ -641,7 +641,7 @@ ion-icon {
     width: 100px;
     height: 90px;
     margin-top: 120px;
-    margin-left: 24px;
+    margin-left: 48px;
     text-align: center;
     border-radius: 2px;
     transition: all 0.25s ease;
@@ -860,7 +860,8 @@ ion-icon {
     display: flex;
 }
 
-#radio-controls {
+#radio-controls,
+#alert-bar {
     margin-left: auto;
     margin-right: auto;
     display: inline-flex;
@@ -921,34 +922,71 @@ ion-icon {
 }
 
 #chan-btns {
-    margin-left: 40px;
+    margin-left: 1vw;
 }
 
 #chan-up {
     clip-path: polygon(15% 0, 100% 0, 100% 100%, 0 100%, 0 30%);
-    width: 80px;
+    width: 64px;
 }
 
 #chan-down {
     clip-path: polygon(0 0, 100% 0, 100% 70%, 85% 100%, 0 100%);
-    width: 80px;
+    width: 64px;
 }
 
 #ptt-btn {
-    margin-left: 40px;
+    margin-left: 1vw;
 }
 
 #ptt {
     background-color: var(--color-card-midred) !important;
     color: var(--color-card-lightred);
     clip-path: polygon(15% 0, 100% 0, 100% 70%, 85% 100%, 0 100%, 0 30%);
-    width: 80px;
+    width: 64px;
 }
 
 #ptt.pressed,
 #ptt:active:hover {
     background-color: var(--color-card-darkred) !important;
     color: var(--color-txt-light);
+}
+
+#alert-bar-btn,
+.alert-btn {
+    margin-left: 1vw;
+}
+
+#alert-bar-icon.pressed,
+#alert-bar-icon:active:hover {
+    background-color: var(--color-card-darkamber) !important;
+    color: var(--color-txt-light);
+}
+
+#alert-bar-icon,
+.alert-btn-icon {
+    background-color: var(--color-card-midamber) !important;
+    color: var(--color-card-lightamber);
+    clip-path: polygon(15% 0, 100% 0, 100% 70%, 85% 100%, 0 100%, 0 30%);
+    width: 64px;
+}
+
+/********************************
+    Alert Bar
+********************************/
+
+#alert-bar {
+    position: fixed;
+    right: 0;
+    padding-right: 60px;
+    bottom: 60px;
+    height: 60px;
+    background-color: var(--color-bg-mid2);
+    clip-path: polygon(5% 0, 100% 0, 100% 100%, 0 100%, 0 30%);
+}
+
+#alert-bar.hidden {
+    display: none;
 }
 
 /********************************

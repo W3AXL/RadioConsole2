@@ -257,6 +257,35 @@
                     </div>
                 </div>
 
+                <!-- Alert Tone Button -->
+                <div class="btn-bar" id="alert-bar-btn">
+                    <div id="alert-bar-icon" class="btn disabled" onclick="alertBar()">
+                        <span class="btn-text"><ion-icon name="warning-sharp"></ion-icon></span>
+                    </div>
+                </div>
+
+                <!-- Alert Tone Bar Popup -->
+                <div id="alert-bar" class="hidden">
+                    <!-- Alert 1 -->
+                    <div class="btn-bar alert-btn">
+                        <div class="alert-btn-icon btn" id="alert1" onmousedown="startAlert(1)" onmouseup="stopAlert()">
+                            <span class="btn-text">1</span>
+                        </div>
+                    </div>
+                    <!-- Alert 2 -->
+                    <div class="btn-bar alert-btn">
+                        <div class="alert-btn-icon btn" id="alert2" onmousedown="startAlert(2)" onmouseup="stopAlert()">
+                            <span class="btn-text">2</span>
+                        </div>
+                    </div>
+                    <!-- Alert 3 -->
+                    <div class="btn-bar alert-btn">
+                        <div class="alert-btn-icon btn" id="alert3" onmousedown="startAlert(3)" onmouseup="stopAlert()">
+                            <span class="btn-text">3</span>
+                        </div>
+                    </div>
+                </div>
+
             </div>
             
         </div>
