@@ -1,3 +1,5 @@
+**NOTE: This document needs to be updated for RadioConsole2. Most of these messages no longer apply**
+
 ## JSON Command Spec
 
 Used in websocket communication between client & radio daemon. Most command exchanges begin on the client and are responded to by the daemon. The daemon does not query the client at any point in time.

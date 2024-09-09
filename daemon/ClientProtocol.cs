@@ -55,14 +55,14 @@ namespace daemon
             Wss.WebSocketServices["/"].Sessions.Broadcast(msg);
         }
 
-        public static void SendAck()
+        public static void SendAck(String cmd = "")
         {
-            Wss.WebSocketServices["/"].Sessions.Broadcast("{\"ack\": {}}");
+            Wss.WebSocketServices["/"].Sessions.Broadcast($"{{\"ack\": \"{cmd}\"}}");
         }
 
-        public static void SendNack()
+        public static void SendNack(String cmd = "")
         {
-            Wss.WebSocketServices["/"].Sessions.Broadcast("{\"nack\": {}}");
+            Wss.WebSocketServices["/"].Sessions.Broadcast($"{{\"nack\": \"{cmd}\"}}");
         }
     }
 
@@ -85,47 +85,56 @@ namespace daemon
                 else if (jsonObj.radio.command == "startTx")
                 {
                     if (DaemonWebsocket.radio.SetTransmit(true))
-                        DaemonWebsocket.SendAck();
+                        DaemonWebsocket.SendAck("startTx");
                     else
-                        DaemonWebsocket.SendNack();
+                        DaemonWebsocket.SendNack("startTx");
                 }
                 // Radio Stop Transmit Command
                 else if (jsonObj.radio.command == "stopTx")
                 {
                     if (DaemonWebsocket.radio.SetTransmit(false))
-                        DaemonWebsocket.SendAck();
+                        DaemonWebsocket.SendAck("stopTx");
                     else
-                        DaemonWebsocket.SendNack();
+                        DaemonWebsocket.SendNack("stopTx");
                 }
                 // Channel Up/Down
                 else if (jsonObj.radio.command == "chanUp")
                 {
                     if (DaemonWebsocket.radio.ChangeChannel(false))
-                        DaemonWebsocket.SendAck();
+                        DaemonWebsocket.SendAck("chanUp");
                     else
-                        DaemonWebsocket.SendNack();
+                        DaemonWebsocket.SendNack("chanUp");
                 }
                 else if (jsonObj.radio.command == "chanDn")
                 {
                     if (DaemonWebsocket.radio.ChangeChannel(true))
-                        DaemonWebsocket.SendAck();
+                        DaemonWebsocket.SendAck("chanDn");
                     else
-                        DaemonWebsocket.SendNack();
+                        DaemonWebsocket.SendNack("chanDn");
                 }
                 // Button press/release
                 else if (jsonObj.radio.command == "buttonPress")
                 {
                     if (DaemonWebsocket.radio.PressButton((SoftkeyName)Enum.Parse(typeof(SoftkeyName),(string)jsonObj.radio.options)))
-                        DaemonWebsocket.SendAck();
+                        DaemonWebsocket.SendAck("buttonPress");
                     else
-                        DaemonWebsocket.SendNack();
+                        DaemonWebsocket.SendNack("buttonPress");
                 }
                 else if (jsonObj.radio.command == "buttonRelease")
                 {
                     if (DaemonWebsocket.radio.ReleaseButton((SoftkeyName)Enum.Parse(typeof(SoftkeyName),(string)jsonObj.radio.options)))
-                        DaemonWebsocket.SendAck();
+                        DaemonWebsocket.SendAck("buttonRelease");
                     else
-                        DaemonWebsocket.SendNack();
+                        DaemonWebsocket.SendNack("buttonRelease");
+                }
+                // Reset
+                else if (jsonObj.radio.command == "reset")
+                {
+                    Serilog.Log.Information("Resetting and restarting radio interface");
+                    // Stop
+                    DaemonWebsocket.radio.Stop();
+                    // Restart with reset
+                    DaemonWebsocket.radio.Start(false);
                 }
             }
         }

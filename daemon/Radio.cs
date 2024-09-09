@@ -29,9 +29,9 @@ namespace daemon
     /// </summary>
     public enum RadioType
     {
-        ListenOnly,     // Generic single channel radio, RX state is controlled by VOX threshold on receive audio
-        CM108,   // Generic single channel radio, controlled by CM108 soundcard GPIO
-        SB9600,     // SB9600 radio controlled via seria
+        ListenOnly, // Generic single channel radio, RX state is controlled by VOX threshold on receive audio
+        CM108,      // Generic single channel radio, controlled by CM108 soundcard GPIO
+        SB9600,     // SB9600 radio controlled via serial
     }
 
     /// <summary>
@@ -183,6 +183,8 @@ namespace daemon
         public delegate void Callback();
         public Callback StatusCallback { get; set; }
 
+        public int RecTimeout { get; set; } = 0;
+
         /// <summary>
         /// Overload for a listen-only radio
         /// </summary>
@@ -302,6 +304,23 @@ namespace daemon
                     }
                 }
             }
+            // Call recording start/stop callbacks which will trigger audio recording file start/stop if enabled
+            if (Status.State == RadioState.Transmitting)
+            {
+                Task.Delay(100).ContinueWith(t => RecTxCallback());
+            }
+            else if (Status.State == RadioState.Receiving)
+            {
+                Task.Delay(100).ContinueWith(t => RecRxCallback());
+            }
+            // Stop recording if we're not either of the above
+            else
+            {
+                if (WebRTC.RecTxInProgress || WebRTC.RecRxInProgress)
+                {
+                    Task.Delay(RecTimeout).ContinueWith(t => RecStopCallback());
+                }
+            }
             // Call the next callback up
             StatusCallback();
         }
@@ -371,6 +390,46 @@ namespace daemon
             {
                 Log.Error("ReleaseButton not defined for interface type {IntType}", Type);
                 return false;
+            }
+        }
+
+        private void RecTxCallback()
+        {
+            // If we were recording RX, stop
+            if (WebRTC.RecRxInProgress)
+            {
+                WebRTC.RecStop();
+            }
+            if (!WebRTC.RecTxInProgress)
+            {
+                WebRTC.RecStartTx(Status.ChannelName.Trim());
+            }
+        }
+
+        private void RecRxCallback()
+        {
+            // If we were recording TX, stop
+            if (WebRTC.RecTxInProgress)
+            {
+                WebRTC.RecStop();
+            }
+            // Start recording RX if we're not
+            if (!WebRTC.RecRxInProgress)
+            {
+                WebRTC.RecStartRx(Status.ChannelName.Trim());
+            }
+        }
+
+        private void RecStopCallback()
+        {
+            // Only stop recording if we have to
+            if (WebRTC.RecTxInProgress && Status.State != RadioState.Transmitting)
+            {
+                WebRTC.RecStop();
+            }
+            if (WebRTC.RecRxInProgress && Status.State != RadioState.Receiving)
+            {
+                WebRTC.RecStop();
             }
         }
     }

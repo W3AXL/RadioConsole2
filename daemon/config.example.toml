@@ -26,6 +26,11 @@ port = "COM12"  # serial port for serial control
 txDevice = "C-Media USB Headphone Set, USB Audio"
 rxDevice = "C-Media USB Headphone Set, USB Audio"
 
+# Recording parameters for audio files
+[recording]
+enabled = true
+path = ""
+
 # Text Lookups for zone/channel text
 [lookups]
 zoneLookup = [

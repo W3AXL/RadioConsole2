@@ -1439,7 +1439,7 @@ namespace daemon
                             Log.Warning("Got unhandled SBEP opcode {Opcode:X2}", msg.Opcode);
                         break;
                 }
-                Log.Debug("Processed {proc} bytes from {len}-byte msg", msgLength + extraBytes, msgBytes.Length);
+                Log.Verbose("Processed {proc} bytes from {len}-byte msg", msgLength + extraBytes, msgBytes.Length);
                 // Return the total number of bytes we read
                 return extraBytes + msgLength;
             }
@@ -1542,14 +1542,14 @@ namespace daemon
                     {
                         List<byte> sbepHeader = new List<byte>();
                         // Wait until we get at least 4 bytes, so we can read the expected size
-                        Log.Debug("Waiting for 4 SBEP bytes to determine size");
+                        Log.Verbose("Waiting for 4 SBEP bytes to determine size");
                         while (sbepHeader.Count < 4)
                         {
                             byte nextByte = (byte)Port.ReadByte();
                             // Ignore SBEP ACKs before our header
                             if (nextByte == 0x50 && sbepHeader.Count == 0)
                             {
-                                Log.Debug("Ignoring leading 0x50 SBEP ACK");
+                                Log.Verbose("Ignoring leading 0x50 SBEP ACK");
                             }
                             else
                             {
@@ -1573,7 +1573,7 @@ namespace daemon
                         processSBEP(sbepMsg);
                         // Exit SBEP
                         inSbep = false;
-                        Log.Debug("Exiting SBEP");
+                        Log.Verbose("Exiting SBEP");
                     }
                     
                     // Next, handle SB9600
@@ -1582,7 +1582,7 @@ namespace daemon
                         // Only try to decode an SB9600 message if we've got enough bytes (5 or more)
                         while (sb9600Buffer.Count + Port.BytesToRead >= 5 && !inSbep)
                         {
-                            Log.Debug("Got at least 5 bytes for an SB9600, trying to parse");
+                            Log.Verbose("Got at least 5 bytes for an SB9600, trying to parse");
                             // Get 5 bytes into our buffer so we can process them
                             while (sb9600Buffer.Count < 5)
                             {

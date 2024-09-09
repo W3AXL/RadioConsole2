@@ -346,6 +346,26 @@ namespace netcore_cli
                 Log.Error("Unknown radio control type specified: {InvalidControlType}", controlType);
                 return 1;
             }
+
+            // Audio Recording Config (optional)
+            if (config.ContainsKey("recording"))
+            {
+                var recCfg = (TomlTable)config["recording"];
+                bool record = (bool)recCfg["enabled"];
+                WebRTC.Record = record;
+                if (record)
+                {
+                    string recPath = (string)recCfg["path"];
+                    WebRTC.RecPath = recPath;
+                    double recRxGain = (double)recCfg["rxGain"];
+                    double recTxGain = (double)recCfg["txGain"];
+                    WebRTC.SetRecGains(recRxGain, recTxGain);
+                    int recTimeout = Convert.ToInt32(recCfg["timeout"]);
+                    radio.RecTimeout = recTimeout;
+                    Log.Information("Recording enabled, path {recPath}, RX Gain {rxGain}, TX Gain {txGain}, Timeout {timeout}", recPath, recRxGain, recTxGain, recTimeout);
+                }
+            }
+            
             return 0;
         }
 
