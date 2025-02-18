@@ -124,6 +124,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tar -czvf rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz "${{ env.PUBLISH_PATH }}/daemon" "${{ env.PUBLISH_PATH }}/*.dll" "${{ env.PUBLISH_PATH }}/config.example.toml"
+          tar -czvf rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz ${{ env.PUBLISH_PATH }}/daemon ${{ env.PUBLISH_PATH }}/*.dll ${{ env.PUBLISH_PATH }}/config.example.toml
           gh release upload ${{ inputs.release_tag }} rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz
           
