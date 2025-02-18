@@ -99,11 +99,11 @@ jobs:
         with: 
           name: rc2-daemon-${{ matrix.runtime }}
           path: |
-            "${{ env.PUBLISH_PATH }}/daemon.exe"
-            "${{ env.PUBLISH_PATH }}/daemon"
-            "${{ env.PUBLISH_PATH }}/*.dll"
-            "${{ env.PUBLISH_PATH }}/config.example.toml"
-          #if-no-files-found: error
+            ${{ env.PUBLISH_PATH }}/daemon.exe
+            ${{ env.PUBLISH_PATH }}/daemon
+            ${{ env.PUBLISH_PATH }}/*.dll
+            ${{ env.PUBLISH_PATH }}/config.example.toml
+          if-no-files-found: error
       
       # Upload release zip
       - name: Upload release zip
