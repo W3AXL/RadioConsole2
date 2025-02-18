@@ -74,7 +74,9 @@ async function createWindow() {
     ipcMain.handle("readConfig", readConfig);
     ipcMain.handle("saveConfig", saveConfig);
 
-    mainWin.loadFile(path.join(__dirname, "index.html"));
+    mainWin.loadFile(path.join(__dirname, "index.html"))
+        .then(() => { mainWin.webContents.send('appVersion', app.getVersion()); })
+        .then(() => { mainWin.show() });
 }
 
 app.on('ready', () => {

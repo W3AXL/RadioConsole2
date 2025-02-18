@@ -2,8 +2,6 @@
     Global Variables
 ***********************************************************************************/
 
-var version = "1.0-beta1";
-
 // Config, read from main.js on page load
 var config = null;
 
@@ -156,6 +154,11 @@ var maxPages = 0;
     Page Setup Functions
 ***********************************************************************************/
 
+// Populate version callback
+window.electronAPI.getVersion((event, data) => {
+    $("#navbar-version").html(data);
+});
+
 /**
  * Page load function. Starts timers, etc.
  */
@@ -164,9 +167,6 @@ function pageLoad() {
 
     // Enable JQuery Tooltips
     //$( document ).tooltip();
-
-    // Populate version
-    $("#navbar-version").html(version);
 
     // Query media devices
     getAudioDevices();

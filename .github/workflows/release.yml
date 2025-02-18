@@ -1,0 +1,26 @@
+name: Create new RC2 release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Create Release
+      id: create_release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create ${{ github.ref_name }}
+
+  build-release:
+    uses: ./.github/workflows/build.yml
+    with:
+      release: true
+      release_tag: ${{ github.ref_name }}
