@@ -82,14 +82,14 @@ jobs:
           dotnet-version: 8.0.x
       
       # Restore deps
-      - name: Restore dependencies
-        run: dotnet restore
-        working-directory: ${{ env.DAEMON_SRC_PATH }}
+      #- name: Restore dependencies
+      #  run: dotnet restore
+      #  working-directory: ${{ env.DAEMON_SRC_PATH }}
       
-      # Build & Publish the daemon
+      # Restore, Build & Publish the daemon
       - name: Build & Publish
         working-directory: ${{ env.DAEMON_SRC_PATH }}
-        run: dotnet publish --no-restore -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o "${{ env.DAEMON_SRC_PATH }}/publish"
+        run: dotnet publish -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o "./publish"
       
       # Upload non-release artifacts
       - name: Upload non-release artifacts
@@ -102,6 +102,7 @@ jobs:
             "${{ env.DAEMON_SRC_PATH }}/publish/daemon"
             "${{ env.DAEMON_SRC_PATH }}/publish/*.dll"
             "${{ env.DAEMON_SRC_PATH }}/publish/config.example.toml"
+          if-no-files-found: error
       
       # Upload release zip
       - name: Upload release zip
