@@ -36,6 +36,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache-dependency-path: console/pnpm-lock.yaml
           cache: 'pnpm'
 
       - name: CD, install, and build
