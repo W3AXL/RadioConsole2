@@ -25,15 +25,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: ^8.14.0
+          version: 10
 
       - name: CD, install, and build
         run: |
@@ -61,10 +61,10 @@ jobs:
 
   # Build the daemon for windows/linux
   build-daemon:
-    name: Build Daemon on Windows & Linux
+    name: Build Daemon on ${{ matrix.runtime }}
     strategy:
       matrix:
-        runtime: [linux-x64, linux-arm64, win-x64]
+        runtime: [linux-x64, win-x64]
     runs-on: ubuntu-latest
     env:
       DAEMON_SRC_PATH: ./daemon
