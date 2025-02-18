@@ -682,9 +682,6 @@ function stopPtt() {
 function changeChannel(down) {
     if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
         if (down) {
-            if (config.Audio.ButtonSounds) {
-                playSound("sound-click");
-            }
             console.log("Changing channel down on " + selectedRadio);
             radios[selectedRadioIdx].wsConn.send(JSON.stringify(
                 {
@@ -694,9 +691,6 @@ function changeChannel(down) {
                 }
             ));
         } else {
-            if (config.Audio.ButtonSounds) {
-                playSound("sound-click");
-            }
             console.log("Changing channel up on " + selectedRadio);
             radios[selectedRadioIdx].wsConn.send(JSON.stringify(
                 {
@@ -725,9 +719,6 @@ function pressSoftkey(idx) {
  * @param {int} idx softkey index
  */
 function releaseSoftkey(idx) {
-    if (config.Audio.ButtonSounds) {
-        playSound("sound-click");
-    }
     var releasedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
     console.debug("Mapped pressed softkey to softkey:" + releasedKey.Name);
     releaseButton(releasedKey.Name);
@@ -1990,7 +1981,16 @@ function changeVolume(increment) {
  * @param {string} soundId id of the HTML embed object
  */
 function playSound(soundId) {
-    document.getElementById(soundId).play();
+    // Get embedded element
+    const sndSource = document.getElementById(soundId);
+    // If not null, create a new object and play it (this lets us play the same sound more than once simultaneously)
+    if (sndSource)
+    {
+        var snd = new Audio();
+        snd.type = sndSource.getAttribute('type');
+        snd.src = sndSource.getAttribute('src');
+        snd.play();
+    }
 }
 
 /**
@@ -2609,12 +2609,22 @@ function recvSocketMessage(event, idx) {
                     case "stopTx":
                         playSound("sound-ptt-end");
                         break;
+                    case "chanDn":
+                    case "chanUp":
+                    //case "buttonPress":
+                    case "buttonRelease":
+                    case "buttonToggle":
+                        if (config.Audio.ButtonSounds) {
+                            playSound("sound-click");
+                        }
+                        break;
                 }
                 break;
 
             // NACK handler
             case "nack":
                 console.error("Got NACK from server");
+                playSound("sound-error")
                 break;
         }
     }

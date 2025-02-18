@@ -8,7 +8,8 @@
     "scripts": {
         "pack": "electron-builder --dir",
         "dist": "electron-builder",
-        "dist-multi": "electron-builder -wl"
+        "dist-multi": "electron-builder -wl",
+        "start": "electron ."
     },
     "build": {
         "appId": "rc2-console",
@@ -36,7 +37,7 @@
     "keywords": [],
     "devDependencies": {
         "cross-env": "^7.0.3",
-        "electron": "^28.1.2",
+        "electron": "^28.3.3",
         "electron-builder": "^24.9.1"
     }
 }
