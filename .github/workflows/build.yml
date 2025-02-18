@@ -105,19 +105,21 @@ jobs:
             ${{ env.PUBLISH_PATH }}/config.example.toml
           if-no-files-found: error
       
-      # Upload release zip
-      - name: Upload release zip
-        if: ${{ inputs.release }}
-        shell: pwsh
+      # Upload windows release zip
+      - name: Upload win-x64 release zip
+        if: ${{ (matrix.runtime == 'win-x64') && (inputs.release) }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ($env:RUNNER_OS -eq "Windows") {
-            Compress-Archive -Path "${{ env.PUBLISH_PATH }}/daemon.exe", "${{ env.PUBLISH_PATH }}/daemon", "${{ env.PUBLISH_PATH }}/*.dll", "${{ env.PUBLISH_PATH }}/config.example.toml" -Destination rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
-            gh release upload ${{ inputs.release_tag }} rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
-          }
-          else {
-            tar -czvf rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz "${{ env.PUBLISH_PATH }}/daemon" "${{ env.PUBLISH_PATH }}/*.dll" "${{ env.PUBLISH_PATH }}/config.example.toml"
-            gh release upload ${{ inputs.release_tag }} rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz
-          }
+          Compress-Archive -Path "${{ env.PUBLISH_PATH }}/daemon.exe", "${{ env.PUBLISH_PATH }}/*.dll", "${{ env.PUBLISH_PATH }}/config.example.toml" -Destination rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
+          gh release upload ${{ inputs.release_tag }} rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
+
+      # Upload linux release tar
+      - name: Upload linux-x64 release tar
+        if: ${{ (matrix.runtime == 'linux-x64') && (inputs.release) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tar -czvf rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz "${{ env.PUBLISH_PATH }}/daemon" "${{ env.PUBLISH_PATH }}/*.dll" "${{ env.PUBLISH_PATH }}/config.example.toml"
+          gh release upload ${{ inputs.release_tag }} rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.tar.gz
           
