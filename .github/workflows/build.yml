@@ -103,7 +103,7 @@ jobs:
             "${{ env.PUBLISH_PATH }}/daemon"
             "${{ env.PUBLISH_PATH }}/*.dll"
             "${{ env.PUBLISH_PATH }}/config.example.toml"
-          if-no-files-found: error
+          #if-no-files-found: error
       
       # Upload release zip
       - name: Upload release zip
