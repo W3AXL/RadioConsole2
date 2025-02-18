@@ -89,7 +89,7 @@ jobs:
       # Build & Publish the daemon
       - name: Build & Publish
         working-directory: ${{ env.DAEMON_SRC_PATH }}
-        run: dotnet publish --no-restore -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o "${{env.DOTNET_ROOT}}/rc2-daemon"
+        run: dotnet publish --no-restore -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o "${{ env.DAEMON_SRC_PATH }}/publish"
       
       # Upload non-release artifacts
       - name: Upload non-release artifacts
@@ -98,11 +98,10 @@ jobs:
         with: 
           name: rc2-daemon-${{ matrix.runtime }}
           path: |
-            "${{env.DOTNET_ROOT}}/rc2-daemon/daemon.exe"
-            "${{env.DOTNET_ROOT}}/rc2-daemon/daemon"
-            "${{env.DOTNET_ROOT}}/rc2-daemon/*.dll"
-            "${{env.DOTNET_ROOT}}/rc2-daemon/config.example.toml"
-          if-no-files-found: error
+            "${{ env.DAEMON_SRC_PATH }}/publish/daemon.exe"
+            "${{ env.DAEMON_SRC_PATH }}/publish/daemon"
+            "${{ env.DAEMON_SRC_PATH }}/publish/*.dll"
+            "${{ env.DAEMON_SRC_PATH }}/publish/config.example.toml"
       
       # Upload release zip
       - name: Upload release zip
@@ -110,5 +109,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          Compress-Archive -Path "${{env.DOTNET_ROOT}}/rc2-daemon/daemon.exe", "${{env.DOTNET_ROOT}}/rc2-daemon/daemon", "${{env.DOTNET_ROOT}}/rc2-daemon/*.dll", "${{env.DOTNET_ROOT}}/rc2-daemon/config.example.toml" -Destination rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
+          Compress-Archive -Path "${{ env.DAEMON_SRC_PATH }}/publish/daemon.exe", "${{ env.DAEMON_SRC_PATH }}/publish/daemon", "${{ env.DAEMON_SRC_PATH }}/publish/*.dll", "${{ env.DAEMON_SRC_PATH }}/publish/config.example.toml" -Destination rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
           gh release upload ${{ inputs.release_tag }} rc2-daemon-${{ inputs.release_tag }}-${{ matrix.runtime }}.zip
