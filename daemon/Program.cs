@@ -59,7 +59,7 @@ namespace netcore_cli
         }
 
         // Radio object
-        static Radio radio = null;
+        static rc2_core.Radio radio = null;
 
         // Main Program Entry
         static async Task<int> Main(string[] args)

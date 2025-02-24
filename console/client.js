@@ -105,6 +105,9 @@ const rtcConf = {
     // RTT (round-trip time) parameters for RTC connection
     rttLimit: 0.25,
     rttSize: 25,
+
+    // Periodic WebRTC latency check time (ms)
+    statCheckTime: 3000,
     
     // Whether to disable FEC and enable CBR (this actually causes more latency annoyingly)
     cbr: false
@@ -1684,7 +1687,7 @@ function checkRoundTripTime(idx) {
             })
             setTimeout(function() {
                 checkRoundTripTime(idx)
-            }, 1000);
+            }, rtcConf.statCheckTime);
         })
     } else {
         console.warn(`Peer connection closed, stopping RTT monitoring for radio ${idx}`);
@@ -1871,7 +1874,7 @@ function audioMeterCallback() {
         return;
     }
 
-    // Draw stuff
+    // Update meters
     radios.forEach((radio, idx) => {
         // Ignore radios with no connected audio
         if (radios[idx].audioSrc == null) {
@@ -2461,23 +2464,37 @@ function connectRadio(idx) {
  * @param {function} callback callback function to execute once connected
  */
 function waitForWebSockets(sockets, callback=null) {
-    setTimeout(
-        function() {
-            socketsReady = 0;
-            sockets.forEach((socket) => {
-                if (socket.readyState === 1)
-                {
-                    socketsReady++;
-                }
-            })
-            if (socketsReady === sockets.length)
-            {
-                callback();
-            } else {
+    // Starting variables
+    socketsReady = 0;
+    cancel = false;
+    // Iterate over each socket in our list
+    sockets.forEach((socket) => {
+        if (socket.readyState === WebSocket.OPEN)
+        {
+            socketsReady++;
+        }
+        // If any of our sockets closed or are closing, we cancel the wait
+        else if (socket.readyState == WebSocket.CLOSING || socket.readyState == WebSocket.CLOSED)
+        {
+            console.warn(`Websocket ${socket} closed, cancelling waitForWebsockets`);
+            cancel = true;
+        }
+    });
+    // Check if we should cancel listening
+    if (cancel) { return; }
+    // Check if all sockets are ready
+    if (socketsReady === sockets.length)
+    {
+        callback();
+    } 
+    else 
+    {
+        setTimeout(
+            function() {
                 waitForWebSockets(sockets, callback);
-            }
-        },
-    5); // 5 ms timeout
+            },
+        5 );
+    }
 }
 
 /**
@@ -2486,7 +2503,7 @@ function waitForWebSockets(sockets, callback=null) {
  */
 function onConnectWebsocket(idx) {
     //$("#navbar-status").html("Websocket connected");
-    console.log(`Websocket connected for radio ${radios[idx].name}`);
+    console.log(`Websockets connected for radio ${radios[idx].name}`);
     // Query radio status
     console.log(`Querying radio ${radios[idx].name} status`);
     radios[idx].wsConn.send(JSON.stringify(

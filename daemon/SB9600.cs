@@ -1,26 +1,16 @@
-﻿using System;
+﻿using netcore_cli;
+using Serilog;
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO.Ports;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.IO.Ports;
-using FFmpeg.AutoGen;
-using System.Collections.Concurrent;
-using System.Threading.Tasks.Dataflow;
-using Serilog;
-using Microsoft.VisualBasic;
-using Serilog.Debugging;
-using Org.BouncyCastle.Utilities;
-using WebSocketSharp;
-using Org.BouncyCastle.Crypto.Digests;
-using netcore_cli;
-using System.ComponentModel.DataAnnotations;
-using System.Data.SqlTypes;
-using System.Reflection.Emit;
-using Org.BouncyCastle.Math.EC.Rfc7748;
-using NAudio.Utils;
+using daemon;
+using rc2_core;
 
-namespace daemon
+namespace moto_sb9600
 {
     public static class ControlHeads
     {
@@ -34,9 +24,9 @@ namespace daemon
 
         public class Indicator
         {
-            public byte Code {get; set;}
-            public string Name {get; set;}
-            public IndicatorStates State {get; set;}
+            public byte Code { get; set; }
+            public string Name { get; set; }
+            public IndicatorStates State { get; set; }
 
             public Indicator(byte code, string name, IndicatorStates state)
             {
@@ -48,8 +38,8 @@ namespace daemon
 
         public class Button
         {
-            public byte Code {get; set;}
-            public string Name {get; set;}
+            public byte Code { get; set; }
+            public string Name { get; set; }
 
             public Button(byte code, string name)
             {
@@ -224,30 +214,54 @@ namespace daemon
 
     public class SB9600
     {
-        // Class Variables
+        /// <summary>
+        /// Serial port RX byte buffer size (in bytes)
+        /// </summary>
+        private static int RX_BUFFER_SIZE = 512;
+
+        /// <summary>
+        /// Serial port for SB9600 communication
+        /// </summary>
         public SerialPort Port { get; set; }
 
-        private byte[] rxBuffer = new byte[512];
+        /// <summary>
+        /// RX buffer for serial bytes
+        /// </summary>
+        private byte[] rxBuffer = new byte[RX_BUFFER_SIZE];
 
-        // Cancellation token for serial listener task
+        /// <summary>
+        /// Cancellation token objects for serial listener task
+        /// </summary>
         private CancellationTokenSource ts;
         private CancellationToken ct;
 
-        // Flags for SB9600
+        /// <summary>
+        /// Flag indicating if we're in SBEP mode
+        /// </summary>
         private bool inSbep = false;
 
-        // Queue for TX messages to send in infinite loop when free
+        /// <summary>
+        /// Queue for TX messages to send in serial task
+        /// </summary>
         private ConcurrentQueue<QueueMessage> msgQueue = new ConcurrentQueue<QueueMessage>();
 
-        // Delayed Message List
+        /// <summary>
+        /// Queue for delayed messages (messages to send after a specific timeout)
+        /// </summary>
         private List<DelayedMessage> delayedMessages = new List<DelayedMessage>();
 
-        // Head type
-        public HeadType Head { get; set; }
+        /// <summary>
+        /// Control Head Type
+        /// </summary>
+        public HeadType ControlHead { get; set; }
 
-        // Delegate callback to indicate new received status
+        /// <summary>
+        /// 
+        /// </summary>
         public delegate void Callback();
         public Callback StatusCallback { get; set; }
+
+        private Dictionary<string, Softkey> softkeyMappings;
 
         private bool newStatus = false;
 
@@ -258,16 +272,16 @@ namespace daemon
         /// <summary>
         /// Reference back to Radio state object for status updates
         /// </summary>
-        public RadioStatus radioStatus { get; set; }
+        private MotoSb9600Radio radio;
 
         private string displayText1 { get; set; } = "";
         private string displayText2 { get; set; } = "";
-        
+
         public enum HeadType
         {
-            W9,
-            M3,
-            O5
+            W9 = 0,
+            M3 = 1,
+            O5 = 2
         }
 
         private static readonly byte[] sb9600CrcTable =
@@ -292,45 +306,45 @@ namespace daemon
 
         private enum SB9600Addresses : byte
         {
-            BROADCAST   = 0x00,
-            RADIO       = 0x01,
-            DSP         = 0x02,
-            MPL         = 0x03,
-            INTOPTIONS  = 0x04,
-            FRONTPANEL  = 0x05,
-            REARPANEL   = 0x06,
-            EXTPANEL    = 0x07,
-            SIREN_PA    = 0x08,
-            SECURENET   = 0x09,
-            EMGCY_STAT  = 0x0A,
+            BROADCAST = 0x00,
+            RADIO = 0x01,
+            DSP = 0x02,
+            MPL = 0x03,
+            INTOPTIONS = 0x04,
+            FRONTPANEL = 0x05,
+            REARPANEL = 0x06,
+            EXTPANEL = 0x07,
+            SIREN_PA = 0x08,
+            SECURENET = 0x09,
+            EMGCY_STAT = 0x0A,
             MSG_SELCALL = 0x0B,
-            MDC600CALL  = 0x0C,
-            MVS         = 0x0D,
-            PHONE       = 0x0E,
-            DTMF        = 0x0F,
-            TRNK_SYS    = 0x10,
-            TRNK_OPT    = 0x11,
-            VRS         = 0x12,
-            SP_RPT      = 0x13,
-            SINGLETONE  = 0x14,
+            MDC600CALL = 0x0C,
+            MVS = 0x0D,
+            PHONE = 0x0E,
+            DTMF = 0x0F,
+            TRNK_SYS = 0x10,
+            TRNK_OPT = 0x11,
+            VRS = 0x12,
+            SP_RPT = 0x13,
+            SINGLETONE = 0x14,
             VEHICLE_LOC = 0x16,
-            KDT_TERM    = 0x17,
-            TRNK_DESK   = 0x18,
-            METROCOM    = 0x19,
-            CTRL_HOST   = 0x1A,
+            KDT_TERM = 0x17,
+            TRNK_DESK = 0x18,
+            METROCOM = 0x19,
+            CTRL_HOST = 0x1A,
             VEHICLE_ADP = 0x1B
         }
 
         private enum SB9600Opcodes : byte
         {
             // Broadcasts
-            EPREQ  = 0x06,  // Expanded protocol request (enter SBEP)
+            EPREQ = 0x06,  // Expanded protocol request (enter SBEP)
             SETBUT = 0x0A,  // Set button
             RADRDY = 0x15,  // Radio Ready
             OPTSTS = 0x16,  // Option Status Value
             RADKEY = 0x19,  // Radio Key
-            RXAUD  = 0x1A,  // RX audio routing
-            TXAUD  = 0x1B,  // TX audio routing
+            RXAUD = 0x1A,  // RX audio routing
+            TXAUD = 0x1B,  // TX audio routing
             AUDMUT = 0x1D,  // Audio muting
             SQLDET = 0x1E,  // Squelch detect
             ACTMDU = 0x1F,  // Active mode update
@@ -396,7 +410,7 @@ namespace daemon
                 Data[0] = data[1];
                 Data[1] = data[2];
                 Opcode = data[3];
-                    
+
                 // Verify CRC
                 if (data[4] != CalcCrc())
                 {
@@ -686,20 +700,14 @@ namespace daemon
             }
         }
 
-        public SB9600(SerialPort port, HeadType _head, bool rxLeds = false)
-        {
-            Port = port;
-            Port.BaudRate = 9600;
-            Head = _head;
-            RxLeds = rxLeds;
-        }
-
-        public SB9600(string portName, HeadType _head, bool rxLeds = false)
+        public SB9600(string portName, HeadType controlHead, Dictionary<string, Softkey> softkeyMappings, MotoSb9600Radio radio, bool rxLeds = false)
         {
             Port = new SerialPort(portName);
             Port.BaudRate = 9600;
-            Head = _head;
+            ControlHead = controlHead;
             RxLeds = rxLeds;
+            this.softkeyMappings = softkeyMappings;
+            this.radio = radio;
         }
 
         public void Start(bool noreset)
@@ -707,7 +715,7 @@ namespace daemon
             noReset = noreset;
             // Check if serial port exists first
             Log.Verbose("Available serial ports:");
-            foreach( var name in SerialPort.GetPortNames())
+            foreach (var name in SerialPort.GetPortNames())
             {
                 Log.Verbose(name);
             }
@@ -768,7 +776,8 @@ namespace daemon
         private bool sendSb9600(SB9600Msg msg, int attempts = 3)
         {
             // Wait for busy to drop
-            while (getBusy()) { 
+            while (getBusy())
+            {
                 Log.Debug("Waiting for BUSY to drop");
             }
             // Grab busy
@@ -861,7 +870,8 @@ namespace daemon
                                     inSbep = true;
                                     Log.Verbose("Entering SBEP at 9600 baud");
                                 }
-                            } else
+                            }
+                            else
                             {
                                 Log.Warning("Got EPREQ command for unknon protocol {EPREQProtocol}", protocol);
                             }
@@ -880,12 +890,12 @@ namespace daemon
                                 case 0x01:
                                     if (command == 0x01)
                                     {
-                                        radioStatus.Monitor = true;
+                                        radio.Status.Monitor = true;
                                         Log.Information("Radio monitor on");
                                     }
                                     else
                                     {
-                                        radioStatus.Monitor = false;
+                                        radio.Status.Monitor = false;
                                         Log.Information("Radio monitor off");
                                     }
                                     newStatus = true;
@@ -894,15 +904,15 @@ namespace daemon
                                 case 0x03:
                                     if (command == 0x01)
                                     {
-                                        if (radioStatus.State != RadioState.Transmitting)
+                                        if (radio.Status.State != RadioState.Transmitting)
                                         {
-                                            radioStatus.State = RadioState.Transmitting;
+                                            radio.Status.State = RadioState.Transmitting;
                                             newStatus = true;
                                             Log.Information("Radio now transmitting");
                                         }
-                                        else if (radioStatus.State != RadioState.Receiving && radioStatus.State != RadioState.Idle)
+                                        else if (radio.Status.State != RadioState.Receiving && radio.Status.State != RadioState.Idle)
                                         {
-                                            radioStatus.State = RadioState.Idle;
+                                            radio.Status.State = RadioState.Idle;
                                             newStatus = true;
                                             Log.Information("Radio no longer transmitting");
                                         }
@@ -931,7 +941,7 @@ namespace daemon
                         ///
                         /// 
                         /// 
-                        
+
                         ///
                         /// Handle any unknown codes with a warning
                         ///
@@ -954,9 +964,9 @@ namespace daemon
                         ///
                         case (byte)SB9600Opcodes.RADRDY:
                             // If we're not already in an idle state, we are now
-                            if (radioStatus.State != RadioState.Idle)
+                            if (radio.Status.State != RadioState.Idle)
                             {
-                                radioStatus.State = RadioState.Idle;
+                                radio.Status.State = RadioState.Idle;
                                 newStatus = true;
                             }
                             Log.Debug("Got RADRDY opcode. Data: {RadRdyData:X4}", msg.Data);
@@ -967,19 +977,19 @@ namespace daemon
                         case (byte)SB9600Opcodes.RADKEY:
                             if (msg.Data[1] == 0x01)
                             {
-                                if (radioStatus.State != RadioState.Transmitting)
+                                if (radio.Status.State != RadioState.Transmitting)
                                 {
                                     Log.Information("Radio now transmitting");
-                                    radioStatus.State = RadioState.Transmitting;
+                                    radio.Status.State = RadioState.Transmitting;
                                     newStatus = true;
                                 }
                             }
                             else
                             {
-                                if (radioStatus.State != RadioState.Receiving && radioStatus.State != RadioState.Idle)
+                                if (radio.Status.State != RadioState.Receiving && radio.Status.State != RadioState.Idle)
                                 {
                                     Log.Information("Radio no longer transmitting");
-                                    radioStatus.State = RadioState.Idle;
+                                    radio.Status.State = RadioState.Idle;
                                     newStatus = true;
                                 }
                             }
@@ -1008,18 +1018,18 @@ namespace daemon
                             // Channel Idle
                             if (msg.Data[1] == 0x00)
                             {
-                                if (radioStatus.State != RadioState.Idle && radioStatus.State != RadioState.Transmitting)
+                                if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
                                 {
-                                    radioStatus.State = RadioState.Idle;
+                                    radio.Status.State = RadioState.Idle;
                                     newStatus = true;
                                 }
                             }
                             // Channel RX
                             else if (msg.Data[1] == 0x03)
                             {
-                                if (radioStatus.State != RadioState.Receiving && radioStatus.State != RadioState.Transmitting)
+                                if (radio.Status.State != RadioState.Receiving && radio.Status.State != RadioState.Transmitting)
                                 {
-                                    radioStatus.State = RadioState.Receiving;
+                                    radio.Status.State = RadioState.Receiving;
                                     newStatus = true;
                                 }
                             }
@@ -1090,11 +1100,11 @@ namespace daemon
                         ///
                         case (byte)SB9600Opcodes.BUTCTL:
                             // Lookup the button
-                            string buttonName = ControlHeads.GetButton(Head, msg.Data[0]);
+                            string buttonName = ControlHeads.GetButton(ControlHead, msg.Data[0]);
                             // Ignore knobs for now
                             if (buttonName == null)
                             {
-                                Log.Warning("Unhandled button code {ButtonCode:X2} for control head {ControlHead}!", msg.Data[0], Head);
+                                Log.Warning("Unhandled button code {ButtonCode:X2} for control head {ControlHead}!", msg.Data[0], ControlHead);
                             }
                             else if (buttonName.Contains("knob")) { }
                             else
@@ -1164,13 +1174,13 @@ namespace daemon
                         byte chars = msg.Data[2];
                         byte srow = msg.Data[3];
                         byte scol = msg.Data[4];
-                        Log.Verbose("Got {Head} display update ({chars} chars) for row/col {StartingRow}/{StartingCol}", Head, chars, srow, scol);
+                        Log.Verbose("Got {Head} display update ({chars} chars) for row/col {StartingRow}/{StartingCol}", ControlHead, chars, srow, scol);
                         // Extract display characters
                         string text;
                         // We do this because GetString goes out of range on single-character strings
                         if (chars == 1)
                         {
-                            text = Encoding.ASCII.GetString(new[]{msg.Data[5]});
+                            text = Encoding.ASCII.GetString(new[] { msg.Data[5] });
                         }
                         else
                         {
@@ -1178,26 +1188,26 @@ namespace daemon
                         }
                         Log.Verbose("Got text string ({StringLen}) from SBEP: {String}", chars, text);
                         // Update head parameters depending on head type
-                        switch (Head)
+                        switch (ControlHead)
                         {
                             ///
                             /// W9 is a single-line display
                             /// so we extract both zone & channel text lookups from one display line
                             ///
                             case HeadType.W9:
-                                string newDisplay = displayText1[..scol] + text + displayText1[Math.Min((scol + chars),displayText1.Length)..];
+                                string newDisplay = displayText1[..scol] + text + displayText1[Math.Min((scol + chars), displayText1.Length)..];
                                 Log.Verbose("Got new display text: {NewDisplayText}", newDisplay);
                                 if (newDisplay != displayText1)
                                 {
                                     // Update our display text
                                     displayText1 = newDisplay;
                                     // By default we use the full display as the radio's channel text
-                                    radioStatus.ChannelName = displayText1;
+                                    radio.Status.ChannelName = displayText1;
                                     // Flag that we've got a new status
-                                    if (radioStatus.ChannelName != "")
-                                        Log.Information("Got new channel name: {ChanText}", radioStatus.ChannelName);
-                                    if (radioStatus.ZoneName != "")
-                                        Log.Information("Got new zone name: {ZoneText}", radioStatus.ZoneName);
+                                    if (radio.Status.ChannelName != "")
+                                        Log.Information("Got new channel name: {ChanText}", radio.Status.ChannelName);
+                                    if (radio.Status.ZoneName != "")
+                                        Log.Information("Got new zone name: {ZoneText}", radio.Status.ZoneName);
                                     newStatus = true;
                                 }
                                 break;
@@ -1217,8 +1227,8 @@ namespace daemon
                                     // Verify that the new text is not an ignored string
                                     if (ControlHeads.M3.IgnoredStrings.IndexOf(displayText1) == -1)
                                     {
-                                        radioStatus.ZoneName = displayText1;
-                                        Log.Verbose("Got new zone text for radio: {ZoneName}", radioStatus.ZoneName);
+                                        radio.Status.ZoneName = displayText1;
+                                        Log.Verbose("Got new zone text for radio: {ZoneName}", radio.Status.ZoneName);
                                         // Set flag
                                         newStatus = true;
                                     }
@@ -1234,8 +1244,8 @@ namespace daemon
                                     // Verify that it's not an ignored string
                                     if (ControlHeads.M3.IgnoredStrings.IndexOf(displayText2) == -1)
                                     {
-                                        radioStatus.ChannelName = displayText2;
-                                        Log.Verbose("Got new channel text for radio: {ChannelName}", radioStatus.ChannelName);
+                                        radio.Status.ChannelName = displayText2;
+                                        Log.Verbose("Got new channel text for radio: {ChannelName}", radio.Status.ChannelName);
                                         // Set flag
                                         newStatus = true;
                                     }
@@ -1243,10 +1253,10 @@ namespace daemon
                                 if (newStatus)
                                 {
                                     // Flag that we've got a new status
-                                    if (radioStatus.ChannelName != "")
-                                        Log.Information("Got new channel name: {ChanText}", radioStatus.ChannelName);
-                                    if (radioStatus.ZoneName != "")
-                                        Log.Information("Got new zone name: {ZoneText}", radioStatus.ZoneName);
+                                    if (radio.Status.ChannelName != "")
+                                        Log.Information("Got new channel name: {ChanText}", radio.Status.ChannelName);
+                                    if (radio.Status.ZoneName != "")
+                                        Log.Information("Got new zone name: {ZoneText}", radio.Status.ZoneName);
                                 }
                                 break;
                         }
@@ -1265,12 +1275,12 @@ namespace daemon
                         Log.Debug("Got SBEP indicator update");
                         int count = msg.Data[0];
                         Log.Verbose("Got {count} indicator update(s)", count);
-                        byte[] codes = msg.Data[1..(1+count)];
+                        byte[] codes = msg.Data[1..(1 + count)];
                         Log.Verbose("Codes: {codes}", codes);
-                        byte[] states = msg.Data[(1+count)..(1+(2*count))];
+                        byte[] states = msg.Data[(1 + count)..(1 + (2 * count))];
                         Log.Verbose("States: {states}", states);
                         // Iterate through each indicator and get its state and name
-                        for (int i=0; i<count; i++)
+                        for (int i = 0; i < count; i++)
                         {
                             // ignore the "all indicator" reset state
                             if (codes[i] == 0xFF)
@@ -1279,7 +1289,7 @@ namespace daemon
                                 continue;
                             }
                             // Get the name & state
-                            ControlHeads.Indicator indicator = ControlHeads.GetIndicator(Head, codes[i]);
+                            ControlHeads.Indicator indicator = ControlHeads.GetIndicator(ControlHead, codes[i]);
                             indicator.State = (ControlHeads.IndicatorStates)states[i];
                             Log.Verbose("Indicator {indicator} ({code}) state is now {state}", indicator.Name, indicator.Code, indicator.State);
 
@@ -1290,25 +1300,25 @@ namespace daemon
                                 {
                                     if (indicator.State != ControlHeads.IndicatorStates.OFF)
                                     {
-                                        if (radioStatus.State != RadioState.Receiving)
+                                        if (radio.Status.State != RadioState.Receiving)
                                         {
                                             Log.Information("Radio now receiving, source: {indicator name}", indicator.Name.ToString());
-                                            radioStatus.State = RadioState.Receiving;
+                                            radio.Status.State = RadioState.Receiving;
                                         }
                                     }
                                     else
                                     {
-                                        if (radioStatus.State != RadioState.Idle && radioStatus.State != RadioState.Transmitting)
+                                        if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
                                         {
                                             Log.Information("Radio no longer receiving, source: {indicator name}", indicator.Name.ToString());
-                                            radioStatus.State = RadioState.Idle;
+                                            radio.Status.State = RadioState.Idle;
                                         }
                                     }
                                 }
                             }
-                            
+
                             // For M3 we update certain statuses based on the screen indicators
-                            if (Head == HeadType.M3)
+                            if (ControlHead == HeadType.M3)
                             {
                                 switch (indicator.Name)
                                 {
@@ -1316,61 +1326,61 @@ namespace daemon
                                     case "scan":
                                         Log.Verbose("Got new scanning state: {scanState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radioStatus.ScanState = ScanState.Scanning;
+                                            radio.Status.ScanState = ScanState.Scanning;
                                         else if (indicator.State == ControlHeads.IndicatorStates.OFF)
-                                            radioStatus.ScanState = ScanState.NotScanning;
+                                            radio.Status.ScanState = ScanState.NotScanning;
                                         break;
                                     // Scan priority dot (Z.)
                                     case "scan_pri":
                                         Log.Verbose("Got new scan priority state: {priState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radioStatus.PriorityState = PriorityState.Priority1;
+                                            radio.Status.PriorityState = PriorityState.Priority1;
                                         else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1)
-                                            radioStatus.PriorityState = PriorityState.Priority2;
+                                            radio.Status.PriorityState = PriorityState.Priority2;
                                         else if (indicator.State == ControlHeads.IndicatorStates.OFF)
-                                            radioStatus.PriorityState = PriorityState.NoPriority;
+                                            radio.Status.PriorityState = PriorityState.NoPriority;
                                         break;
                                     // Low power L icon
                                     case "low_power":
                                         Log.Verbose("Got new low power state: {lpState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radioStatus.PowerState = PowerState.LowPower;
+                                            radio.Status.PowerState = PowerState.LowPower;
                                         else
-                                            radioStatus.PowerState = PowerState.HighPower;
+                                            radio.Status.PowerState = PowerState.HighPower;
                                         break;
                                     // Monitor Icon (the speaker)
                                     case "monitor":
                                         Log.Verbose("Got new monitor state: {monState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radioStatus.Monitor = true;
+                                            radio.Status.Monitor = true;
                                         else
-                                            radioStatus.Monitor = false;
+                                            radio.Status.Monitor = false;
                                         break;
                                     // Talkaround Icon
                                     case "direct":
                                         Log.Verbose("Got new direct state: {state}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radioStatus.Direct = true;
+                                            radio.Status.Direct = true;
                                         else
-                                            radioStatus.Direct = false;
+                                            radio.Status.Direct = false;
                                         break;
                                     // Amber icon - we use this as a fallback for detecting RX state if the status message doesn't work for whatever reason
                                     case "led_amber":
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                         {
-                                            if (radioStatus.State != RadioState.Receiving)
+                                            if (radio.Status.State != RadioState.Receiving)
                                             {
                                                 Log.Information("Radio now receiving, source: amber LED");
-                                                radioStatus.State = RadioState.Receiving;
+                                                radio.Status.State = RadioState.Receiving;
                                                 newStatus = true;
                                             }
                                         }
                                         else if (indicator.State == ControlHeads.IndicatorStates.OFF)
                                         {
-                                            if (radioStatus.State != RadioState.Idle && radioStatus.State != RadioState.Transmitting)
+                                            if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
                                             {
                                                 Log.Information("Radio now idle, source: amber LED");
-                                                radioStatus.State = RadioState.Idle;
+                                                radio.Status.State = RadioState.Idle;
                                                 newStatus = true;
                                             }
                                         }
@@ -1379,49 +1389,54 @@ namespace daemon
                             }
 
                             // W9 and M3 can get softkey statuses from the top & bottom indicators, respectively
-                            if ((Head == HeadType.W9 && indicator.Name.Contains("ind_top_")) || (Head == HeadType.M3 && indicator.Name.Contains("ind_bot_")))
+                            if ((ControlHead == HeadType.W9 && indicator.Name.Contains("ind_top_")) || (ControlHead == HeadType.M3 && indicator.Name.Contains("ind_bot_")))
                             {
                                 // Get the button name from the indicator name
-                                string btnName = indicator.Name.Replace("ind","btn");
-                                // We check our button bindings to see if any of the indicators map to states
-                                for (int j=0; j<radioStatus.Softkeys.Count; j++)
+                                string btnName = indicator.Name.Replace("ind", "btn");
+
+                                // See if this button is present in our button bindings
+                                if (softkeyMappings.ContainsKey(btnName))
                                 {
-                                    Softkey key = radioStatus.Softkeys[j];
-                                    if (key.Button.Name == btnName)
+                                    // Get the softkey from our mapping list
+                                    Softkey mappedKey = softkeyMappings[btnName];
+                                    // Find the softkey in the radio's softkey list and update its state accordingly
+                                    if (radio.Status.Softkeys.Contains(mappedKey))
                                     {
-                                        // Update state of the softkey in our list
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radioStatus.Softkeys[j].State = SoftkeyState.On;
-                                        else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1 || indicator.State == ControlHeads.IndicatorStates.FLASHING_2)
-                                            radioStatus.Softkeys[j].State = SoftkeyState.Flashing;
-                                        else
-                                            radioStatus.Softkeys[j].State = SoftkeyState.Off;
-                                        // Additional Lookup for global states depending on key name
-                                        switch (key.Name)
+                                        foreach ( Softkey softkey in radio.Status.Softkeys.Where(k => k.Name == mappedKey.Name))
                                         {
-                                            // Scan softkey maps to scan state
-                                            case SoftkeyName.SCAN:
-                                                Log.Debug("Got new scan state from indicator {ind}", indicator.Name);
-                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                                    radioStatus.ScanState = ScanState.Scanning;
-                                                else if (indicator.State == ControlHeads.IndicatorStates.OFF)
-                                                    radioStatus.ScanState = ScanState.NotScanning;
-                                                break;
-                                            case SoftkeyName.LPWR:
-                                                Log.Debug("Got new low power state from indicator {ind}", indicator.Name);
-                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                                    radioStatus.PowerState = PowerState.LowPower;
-                                                else if (indicator.State == ControlHeads.IndicatorStates.OFF)
-                                                    radioStatus.PowerState = PowerState.HighPower;
-                                                break;
-                                            case SoftkeyName.DIR:
-                                                Log.Debug("Got new direct state from indicator {ind}", indicator.Name);
-                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                                    radioStatus.Direct = true;
-                                                else
-                                                    radioStatus.Direct = false;
-                                                break;
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                softkey.State = SoftkeyState.On;
+                                            else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1 || indicator.State == ControlHeads.IndicatorStates.FLASHING_2)
+                                                softkey.State = SoftkeyState.Flashing;
+                                            else
+                                                softkey.State = SoftkeyState.Off;
                                         }
+                                    }
+                                    // Update non-softkey radio states (SCAN, MON, etc) based on softkey name
+                                    switch (mappedKey.Name)
+                                    {
+                                        // Scan softkey maps to scan state
+                                        case SoftkeyName.SCAN:
+                                            Log.Debug("Got new scan state from indicator {ind}", indicator.Name);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.ScanState = ScanState.Scanning;
+                                            else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                                radio.Status.ScanState = ScanState.NotScanning;
+                                            break;
+                                        case SoftkeyName.LPWR:
+                                            Log.Debug("Got new low power state from indicator {ind}", indicator.Name);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.PowerState = PowerState.LowPower;
+                                            else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                                radio.Status.PowerState = PowerState.HighPower;
+                                            break;
+                                        case SoftkeyName.DIR:
+                                            Log.Debug("Got new direct state from indicator {ind}", indicator.Name);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.Direct = true;
+                                            else
+                                                radio.Status.Direct = false;
+                                            break;
                                     }
                                 }
                             }
@@ -1504,7 +1519,7 @@ namespace daemon
         /// <param name="_token"></param>
         private void serialLoop(object _token)
         {
-            var token = (CancellationToken) _token;
+            var token = (CancellationToken)_token;
 
             // Open the serial port.
             Log.Verbose("Opening port...");
@@ -1575,7 +1590,7 @@ namespace daemon
                         inSbep = false;
                         Log.Verbose("Exiting SBEP");
                     }
-                    
+
                     // Next, handle SB9600
                     else
                     {
@@ -1648,9 +1663,39 @@ namespace daemon
                 {
                     Log.Error(ex, "Got exception in SB9600 thread");
                     Stop();
-                    WebRTC.Stop("SB9600 thread encountered an error!");
+                    //radio.WebRTC.Stop("SB9600 thread encountered an error!");
+                    radio.Stop();
                 }
             }
+        }
+
+        /// <summary>
+        /// Get an SB9600 button opcode from a softkey name using the softkey mapping
+        /// </summary>
+        /// <param name="softkey">Softkey to lookup</param>
+        /// <returns>byte opcode for the SB9600 button based on the control head</returns>
+        /// <exception cref="ArgumentException"></exception>
+        private byte getButtonCodeFromSoftkeyMapping(Softkey softkey)
+        {
+            // Identify button name based on softkey name & mapping
+            if (softkeyMappings.ContainsValue(softkey))
+            {
+                // Get button name from softkey
+                string buttonName = softkeyMappings.First(mapping => mapping.Value == softkey).Key;
+                // Get button code from button name based on head type
+                switch (ControlHead)
+                {
+                    case HeadType.W9:
+                        return ControlHeads.W9.Buttons[buttonName];
+                    case HeadType.M3:
+                        return ControlHeads.M3.Buttons[buttonName];
+                    case HeadType.O5:
+                        // O5 is special since we only have softkeys
+                        // TODO: this
+                        break;
+                }
+            }
+            throw new ArgumentException($"Softkey {softkey.Name} is not mapped in softkey list!");
         }
 
         public void SendButton(byte code, byte value)
@@ -1684,7 +1729,7 @@ namespace daemon
         public bool SetTransmit(bool tx)
         {
             byte btnVal = (byte)(tx ? 0x01 : 0x00);
-            switch (Head)
+            switch (ControlHead)
             {
                 case HeadType.W9:
                     SendButton(ControlHeads.W9.Buttons["ptt"], btnVal);
@@ -1696,7 +1741,7 @@ namespace daemon
                     //SendButton(ControlHeads.O5.Buttons["ptt"], 0x01);
                     break;
                 default:
-                    Log.Error("Transmit not defined for headtype {Head}", Head);
+                    Log.Error("Transmit not defined for headtype {Head}", ControlHead);
                     return false;
             }
             return true;
@@ -1709,24 +1754,24 @@ namespace daemon
         /// <returns></returns>
         public bool ChangeChannel(bool down)
         {
-            switch (Head)
+            switch (ControlHead)
             {
                 case HeadType.W9:
                     string btn = down ? "btn_mode_down" : "btn_mode_up";
                     ToggleButton(ControlHeads.W9.Buttons[btn]);
                     break;
                 case HeadType.M3:
-                    // M3 channel up/down is defined by programming
+                    // M3 channel up/down is defined by programming, so we first idenfity the softkey name and then find it in the mapping list
                     SoftkeyName name = down ? SoftkeyName.CHDN : SoftkeyName.CHUP;
-                    Softkey key = radioStatus.Softkeys.Find(s => s.Name == name);
-                    ToggleButton(key.Button.Code);
+                    Softkey key = radio.Status.Softkeys.Find(s => s.Name == name);
+                    ToggleButton(getButtonCodeFromSoftkeyMapping(key));
                     break;
                 case HeadType.O5:
                     byte steps = (byte)(down ? 0xFF : 0x01);
                     //SendButton(ControlHeads.O5.Buttons["knob_chan"], steps);
                     break;
                 default:
-                    Log.Error("ChangeChannel not defined for headtype {Head}", Head);
+                    Log.Error("ChangeChannel not defined for headtype {Head}", ControlHead);
                     return false;
             }
             return true;
@@ -1735,18 +1780,18 @@ namespace daemon
         public bool PressButton(SoftkeyName name)
         {
             // Find the true button name based on the mapping
-            Softkey key = radioStatus.Softkeys.Find(s => s.Name == name);
+            Softkey key = radio.Status.Softkeys.Find(s => s.Name == name);
             // Send the button command for the mapped button
-            SendButton(key.Button.Code, 0x01);
+            SendButton(getButtonCodeFromSoftkeyMapping(key), 0x01);
             return true;
         }
-        
+
         public bool ReleaseButton(SoftkeyName name)
         {
             // Find the true button name based on the mapping
-            Softkey key = radioStatus.Softkeys.Find(s => s.Name == name);
+            Softkey key = radio.Status.Softkeys.Find(s => s.Name == name);
             // Send the button command for the mapped button
-            SendButton(key.Button.Code, 0x00);
+            SendButton(getButtonCodeFromSoftkeyMapping(key), 0x00);
             return true;
         }
     }
