@@ -21,8 +21,11 @@ on:
 jobs:
   # Build the windows client
   build-client:
-    name: Build console client on Windows
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        runtime: [ubuntu-latest, windows-latest]
+    name: Build console client on ${{ matrix.arch }}
+    runs-on: ${{ matrix.arch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,30 +48,48 @@ jobs:
           pnpm install
           pnpm dist
 
-      # Non-release console artifact upload
-      - name: Upload Console Artifact
-        if: ${{ !(inputs.release) }}
+      # Non-release console artifact upload for windows
+      - name: Upload Console Artifact for ${{ matrix.arch }}
+        if: ${{ !(inputs.release) && (matrix.arch == 'windows-latest') }}
         uses: actions/upload-artifact@v4
         with: 
           name: rc2-console-win
           path: console/output/rc2-console.exe
           if-no-files-found: error
 
-      # Release upload
-      - name: Upload Console Release Artifact
-        if: ${{ inputs.release }}
+      # Non-release console artifact upload for linux
+      - name: Upload Console Artifact for ${{ matrix.arch }}
+        if: ${{ !(inputs.release) && (matrix.arch == 'ubuntu-latest') }}
+        uses: actions/upload-artifact@v4
+        with: 
+          name: rc2-console-lin
+          path: console/output/RadioConsole2*.AppImage
+          if-no-files-found: error
+
+      # Release upload for windows
+      - name: Upload Console Release Artifact for ${{ matrix.arch }}
+        if: ${{ inputs.release && (matrix.arch == 'windows-latest') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mv console/output/rc2-console.exe ./rc2-console-${{ inputs.release_tag }}.exe
           gh release upload ${{ inputs.release_tag }} ./rc2-console-${{ inputs.release_tag }}.exe
 
+      # Release upload for linux
+      - name: Upload Console Release Artifact for ${{ matrix.arch }}
+        if: ${{ inputs.release && (matrix.arch == 'ubuntu-latest') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -tr console/output/RadioConsole2*.AppImage | tail -n 1 | xargs -I % mv -- % ./rc2-console-${{ inputs.release_tag }}.AppImage
+          gh release upload ${{ inputs.release_tag }} ./rc2-console-${{ inputs.release_tag }}.AppImage
+
   # Build the daemon for windows/linux
   build-daemon:
     name: Build Daemon on ${{ matrix.runtime }}
     strategy:
       matrix:
-        runtime: [linux-x64, win-x64]
+        runtime: [linux-x64, win-x64, linux-arm64]
     runs-on: ubuntu-latest
     env:
       DAEMON_SRC_PATH: ./daemon
@@ -120,7 +141,7 @@ jobs:
 
       # Upload linux release tar
       - name: Upload linux-x64 release tar
-        if: ${{ (matrix.runtime == 'linux-x64') && (inputs.release) }}
+        if: ${{ ((matrix.runtime == 'linux-x64') || (matrix.runtime == 'linux-arm64')) && (inputs.release) }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
