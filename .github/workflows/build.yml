@@ -23,7 +23,7 @@ jobs:
   build-client:
     strategy:
       matrix:
-        runtime: [ubuntu-latest, windows-latest]
+        arch: [ubuntu-latest, windows-latest]
     name: Build console client on ${{ matrix.arch }}
     runs-on: ${{ matrix.arch }}
     steps:
