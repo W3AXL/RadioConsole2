@@ -5,3 +5,4 @@
 [submodule "daemon/rc2-core"]
 	path = daemon/rc2-core
 	url = https://github.com/W3AXL/rc2-core
+	branch = main
