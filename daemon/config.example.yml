@@ -35,46 +35,36 @@ control:
         controlHeadType: 0
         # Softkey button binding (maps SB9600 buttons to configured softkeys below)
         softkeyBindings:
-            # Each list entry is in the format [ sb9600 button name, softkey name ]
+            # Each entry is in the format sb9600 button name: softkey name
             #   valid SB9600 buttons can be found in the configuration documentation
-            - [ "btn_top_1", "MON" ]
-            - [ "btn_top_2", "LPWR" ]
-            - [ "btn_top_3", "SCAN" ]
-            - [ "btn_top_4", "DIR" ]
-            - [ "btn_top_5", "SEC" ]
-            - [ "btn_top_6", "" ]
-            - [ "btn_kp_1", "CALL" ]
-            - [ "btn_kp_2", "PAGE" ]
-            - [ "btn_kp_3", "TGRP" ]
-            - [ "btn_kp_4", "" ]
-            - [ "btn_kp_5", "" ]
-            - [ "btn_kp_6", "" ]
-            - [ "btn_kp_7", "" ]
-            - [ "btn_kp_8", "" ]
-            - [ "btn_kp_9", "" ]
-            - [ "btn_kp_*", "RCL" ]
-            - [ "btn_kp_0", "" ]
-            - [ "btn_kp_#", "DEL" ]
-            - [ "btn_home", "HOME" ]
-            - [ "btn_sel", "SEL" ]
+            btn_top_1: MON
+            btn_top_2: LPWR
+            btn_top_3: SCAN
+            btn_top_4: DIR
+            btn_top_5: SEC
+            btn_top_6: 
+            btn_kp_1: CALL
+            btn_kp_2: PAGE
+            btn_kp_3: TGRP
+            btn_kp_4: 
+            btn_kp_5: 
+            btn_kp_6: 
+            btn_kp_7: 
+            btn_kp_8: 
+            btn_kp_9: 
+            btn_kp_s: RCL
+            btn_kp_0: 
+            btn_kp_p: DEL
+            btn_home: HOME
+            btn_sel: SEL
 
 # Audio settings for radio TX/RX audio
 # Run `daemon list-audio` to get valid names for tx/rx devices
 audio:
     # TX audio device (speaker)
     txDevice: "C-Media USB Headphone Set, USB Audio"
-    # TX audio (linear value, 1.0 = no gain/attenuation)
-    txGain: 1.0
     # RX audio device (microphone)
     rxDevice: "C-Media USB Headphone Set, USB Audio"
-    # RX audio gain
-    rxGain: 1.0
-    # Settings for audio recording
-    recording:
-        # Whether audio recording is enabled
-        enabled: false
-        # Path for recordings:
-        recPath: .
 
 # Text lookups for Zone/Channel text replacement with single-line displays
 textLookups:

@@ -53,6 +53,10 @@ namespace daemon
         /// </summary>
         public RadioControlMode ControlMode = RadioControlMode.SB9600;
         /// <summary>
+        /// Whether the radio is RX only (TX disabled)
+        /// </summary>
+        public bool RxOnly = false;
+        /// <summary>
         /// Config for motorola SB9600
         /// </summary>
         public MotoSb9600Config Sb9600 = new MotoSb9600Config();
@@ -68,17 +72,9 @@ namespace daemon
         /// </summary>
         public string TxDevice = "";
         /// <summary>
-        /// TX gain for audio (1.0 = no gain/attenuation)
-        /// </summary>
-        public float TxGain = 1.0f;
-        /// <summary>
         /// RX audio device for radio (microphone)
         /// </summary>
         public string RxDevice = "";
-        /// <summary>
-        /// RX gain for audio
-        /// </summary>
-        public float RxGain = 1.0f;
     }
 
     public class TextLookupConfig
@@ -109,6 +105,6 @@ namespace daemon
         /// <summary>
         /// Softkey list
         /// </summary>
-        public List<rc2_core.Softkey> Softkeys = new List<rc2_core.Softkey>();
+        public List<rc2_core.SoftkeyName> Softkeys = new List<rc2_core.SoftkeyName>();
     }
 }

@@ -25,10 +25,10 @@ namespace moto_sb9600
         public class Indicator
         {
             public byte Code { get; set; }
-            public string Name { get; set; }
+            public IndicatorName Name { get; set; }
             public IndicatorStates State { get; set; }
 
-            public Indicator(byte code, string name, IndicatorStates state)
+            public Indicator(byte code, IndicatorName name, IndicatorStates state)
             {
                 Code = code;
                 Name = name;
@@ -48,55 +48,140 @@ namespace moto_sb9600
             }
         }
 
+        /// <summary>
+        /// Valid button names for the supported control heads
+        /// </summary>
+        public enum ButtonName
+        {
+            ptt,
+            knob_vol,
+            vip_1,
+            vip_2,
+            radio_sel,
+            rssi,
+            spkr_routing,
+            btn_kp_1,
+            btn_kp_2,
+            btn_kp_3,
+            btn_kp_4,
+            btn_kp_5,
+            btn_kp_6,
+            btn_kp_7,
+            btn_kp_8,
+            btn_kp_9,
+            btn_kp_s,
+            btn_kp_0,
+            btn_kp_p,
+            btn_mode_down,
+            btn_mode_up,
+            btn_vol_down,
+            btn_vol_up,
+            btn_sel,
+            btn_home,
+            btn_dim,
+            btn_top_1,
+            btn_top_2,
+            btn_top_3,
+            btn_top_4,
+            btn_top_5,
+            btn_top_6,
+            btn_left_top,
+            btn_left_mid,
+            btn_left_bot,
+            btn_bot_1,
+            btn_bot_2,
+            btn_bot_3,
+            btn_bot_4,
+            btn_bot_5,
+            btn_bot_6,
+            btn_kp_a,
+            btn_kp_b,
+            btn_kp_c,
+            btn_kp_d
+        }
+
+        public enum IndicatorName
+        {
+            monitor,
+            scan,
+            scan_pri,
+            direct,
+            busy,
+            pri,
+            non_pri,
+            transmit,
+            top_1,
+            top_2,
+            top_3,
+            top_4,
+            top_5,
+            top_6,
+            bot_1,
+            bot_2,
+            bot_3,
+            bot_4,
+            bot_5,
+            bot_6
+        }
+
         public static class M3
         {
-            public static readonly Dictionary<string, byte> Buttons = new Dictionary<string, byte>()
+            /// <summary>
+            /// SB9600 opcode mappings for M3 control head buttons
+            /// </summary>
+            public static readonly Dictionary<ButtonName, byte> Buttons = new Dictionary<ButtonName, byte>()
             {
-                { "ptt", 0x01 },
-                { "knob_vol", 0x02 },
-                { "btn_left_top", 0x60 },
-                { "btn_left_mid", 0x61 },
-                { "btn_left_bot", 0x62 },
-                { "btn_bot_1", 0x63 },
-                { "btn_bot_2", 0x64 },
-                { "btn_bot_3", 0x65 },
-                { "btn_bot_4", 0x66 },
-                { "btn_bot_5", 0x67 },
-                { "btn_bot_6", 0x68 },
-                { "btn_kp_1", 0x31 },
-                { "btn_kp_2", 0x32 },
-                { "btn_kp_3", 0x33 },
-                { "btn_kp_4", 0x34 },
-                { "btn_kp_5", 0x35 },
-                { "btn_kp_6", 0x36 },
-                { "btn_kp_7", 0x37 },
-                { "btn_kp_8", 0x38 },
-                { "btn_kp_9", 0x39 },
-                { "btn_kp_*", 0x3A },
-                { "btn_kp_0", 0x30 },
-                { "btn_kp_#", 0x3B },
-                { "btn_kp_a", 0x69 },
-                { "btn_kp_b", 0x6A },
-                { "btn_kp_c", 0x6B },
-                { "btn_kp_d", 0x6D },
+                { ButtonName.ptt, 0x01 },
+                { ButtonName.knob_vol, 0x02 },
+                { ButtonName.btn_left_top, 0x60 },
+                { ButtonName.btn_left_mid, 0x61 },
+                { ButtonName.btn_left_bot, 0x62 },
+                { ButtonName.btn_bot_1, 0x63 },
+                { ButtonName.btn_bot_2, 0x64 },
+                { ButtonName.btn_bot_3, 0x65 },
+                { ButtonName.btn_bot_4, 0x66 },
+                { ButtonName.btn_bot_5, 0x67 },
+                { ButtonName.btn_bot_6, 0x68 },
+                { ButtonName.btn_kp_1, 0x31 },
+                { ButtonName.btn_kp_2, 0x32 },
+                { ButtonName.btn_kp_3, 0x33 },
+                { ButtonName.btn_kp_4, 0x34 },
+                { ButtonName.btn_kp_5, 0x35 },
+                { ButtonName.btn_kp_6, 0x36 },
+                { ButtonName.btn_kp_7, 0x37 },
+                { ButtonName.btn_kp_8, 0x38 },
+                { ButtonName.btn_kp_9, 0x39 },
+                { ButtonName.btn_kp_s, 0x3A },
+                { ButtonName.btn_kp_0, 0x30 },
+                { ButtonName.btn_kp_p, 0x3B },
+                { ButtonName.btn_kp_a, 0x69 },
+                { ButtonName.btn_kp_b, 0x6A },
+                { ButtonName.btn_kp_c, 0x6B },
+                { ButtonName.btn_kp_d, 0x6D },
             };
 
-            public static readonly Dictionary<string, byte> Indicators = new Dictionary<string, byte>()
+            /// <summary>
+            /// SB9600 opcode mappings for M3 control head indicators
+            /// </summary>
+            public static readonly Dictionary<IndicatorName, byte> Indicators = new Dictionary<IndicatorName, byte>()
             {
-                { "monitor", 0x01 },
-                { "scan", 0x04 },
-                { "scan_pri", 0x05 },
-                { "direct", 0x07 },
-                { "led_amber", 0x0D },
-                { "led_red", 0x0B },
-                { "ind_bot_1", 0x14 },
-                { "ind_bot_2", 0x15 },
-                { "ind_bot_3", 0x16 },
-                { "ind_bot_4", 0x17 },
-                { "ind_bot_5", 0x18 },
-                { "ind_bot_6", 0x19 },
+                { IndicatorName.monitor, 0x01 },
+                { IndicatorName.scan, 0x04 },
+                { IndicatorName.scan_pri, 0x05 },
+                { IndicatorName.direct, 0x07 },
+                { IndicatorName.busy, 0x0D },
+                { IndicatorName.transmit, 0x0B },
+                { IndicatorName.bot_1, 0x14 },
+                { IndicatorName.bot_2, 0x15 },
+                { IndicatorName.bot_3, 0x16 },
+                { IndicatorName.bot_4, 0x17 },
+                { IndicatorName.bot_5, 0x18 },
+                { IndicatorName.bot_6, 0x19 },
             };
 
+            /// <summary>
+            /// Strings which are ignored on the M3 control head screen text
+            /// </summary>
             public static readonly List<string> IgnoredStrings = new List<string>()
             {
                 "SELF TEST",
@@ -106,53 +191,59 @@ namespace moto_sb9600
 
         public static class W9
         {
-            public static readonly Dictionary<string, byte> Buttons = new Dictionary<string, byte>()
+            /// <summary>
+            /// SB9600 opcode mappings for W9 control head buttons
+            /// </summary>
+            public static readonly Dictionary<ButtonName, byte> Buttons = new Dictionary<ButtonName, byte>()
             {
-                { "ptt", 0x01 },
-                { "vip_1", 0x06 },
-                { "vip_2", 0x07 },
-                { "radio_sel", 0x10 },
-                { "rssi", 0x11 },
-                { "spkr_routing", 0x12 },
-                { "btn_kp_1", 0x31 },
-                { "btn_kp_2", 0x32 },
-                { "btn_kp_3", 0x33 },
-                { "btn_kp_4", 0x34 },
-                { "btn_kp_5", 0x35 },
-                { "btn_kp_6", 0x36 },
-                { "btn_kp_7", 0x37 },
-                { "btn_kp_8", 0x38 },
-                { "btn_kp_9", 0x39 },
-                { "btn_kp_*", 0x3A },
-                { "btn_kp_0", 0x30 },
-                { "btn_kp_#", 0x3B },
-                { "btn_mode_down", 0x50 },
-                { "btn_mode_up", 0x51 },
-                { "btn_vol_down", 0x52 },
-                { "btn_vol_up", 0x53 },
-                { "btn_sel", 0x60 },
-                { "btn_home", 0x61 },
-                { "btn_dim", 0x62 },
-                { "btn_top_1", 0x63 },
-                { "btn_top_2", 0x64 },
-                { "btn_top_3", 0x65 },
-                { "btn_top_4", 0x66 },
-                { "btn_top_5", 0x67 },
-                { "btn_top_6", 0x68 },
+                { ButtonName.ptt, 0x01 },
+                { ButtonName.vip_1, 0x06 },
+                { ButtonName.vip_2, 0x07 },
+                { ButtonName.radio_sel, 0x10 },
+                { ButtonName.rssi, 0x11 },
+                { ButtonName.spkr_routing, 0x12 },
+                { ButtonName.btn_kp_1, 0x31 },
+                { ButtonName.btn_kp_2, 0x32 },
+                { ButtonName.btn_kp_3, 0x33 },
+                { ButtonName.btn_kp_4, 0x34 },
+                { ButtonName.btn_kp_5, 0x35 },
+                { ButtonName.btn_kp_6, 0x36 },
+                { ButtonName.btn_kp_7, 0x37 },
+                { ButtonName.btn_kp_8, 0x38 },
+                { ButtonName.btn_kp_9, 0x39 },
+                { ButtonName.btn_kp_s, 0x3A },
+                { ButtonName.btn_kp_0, 0x30 },
+                { ButtonName.btn_kp_p, 0x3B },
+                { ButtonName.btn_mode_down, 0x50 },
+                { ButtonName.btn_mode_up, 0x51 },
+                { ButtonName.btn_vol_down, 0x52 },
+                { ButtonName.btn_vol_up, 0x53 },
+                { ButtonName.btn_sel, 0x60 },
+                { ButtonName.btn_home, 0x61 },
+                { ButtonName.btn_dim, 0x62 },
+                { ButtonName.btn_top_1, 0x63 },
+                { ButtonName.btn_top_2, 0x64 },
+                { ButtonName.btn_top_3, 0x65 },
+                { ButtonName.btn_top_4, 0x66 },
+                { ButtonName.btn_top_5, 0x67 },
+                { ButtonName.btn_top_6, 0x68 },
             };
 
-            public static readonly Dictionary<string, byte> Indicators = new Dictionary<string, byte>()
+            /// <summary>
+            /// SB9600 opcode mappings for W9 control head indicators
+            /// </summary>
+            public static readonly Dictionary<IndicatorName, byte> Indicators = new Dictionary<IndicatorName, byte>()
             {
-                { "ind_top_1", 0x07 },
-                { "ind_top_2", 0x08 },
-                { "ind_top_3", 0x09 },
-                { "ind_top_4", 0x0A },
-                { "ind_top_5", 0x0B },
-                { "ind_top_6", 0x0C },
-                { "ind_pri", 0x0D },
-                { "ind_nonpri", 0x0E },
-                { "ind_busy", 0x0F },
-                { "ind_xmit", 0x10 },
+                { IndicatorName.top_1, 0x07 },
+                { IndicatorName.top_2, 0x08 },
+                { IndicatorName.top_3, 0x09 },
+                { IndicatorName.top_4, 0x0A },
+                { IndicatorName.top_5, 0x0B },
+                { IndicatorName.top_6, 0x0C },
+                { IndicatorName.pri, 0x0D },
+                { IndicatorName.non_pri, 0x0E },
+                { IndicatorName.busy, 0x0F },
+                { IndicatorName.transmit, 0x10 },
             };
         }
 
@@ -162,24 +253,24 @@ namespace moto_sb9600
         /// <param name="head"></param>
         /// <param name="code"></param>
         /// <returns></returns>
-        public static string GetButton(SB9600.HeadType head, byte code)
+        public static ButtonName GetButton(SB9600.HeadType head, byte code)
         {
-            Dictionary<string, byte> buttons;
+            Dictionary<ButtonName, byte> buttons;
             if (head == SB9600.HeadType.M3)
                 buttons = M3.Buttons;
             else if (head == SB9600.HeadType.W9)
                 buttons = W9.Buttons;
             else
-                return null;
+                throw new NotImplementedException($"Head type {head} is not implemented!");
 
-            foreach (KeyValuePair<string, byte> button in buttons)
+            foreach (KeyValuePair<ButtonName, byte> button in buttons)
             {
                 if (button.Value == code)
                 {
                     return button.Key;
                 }
             }
-            return null;
+            throw new ArgumentException($"Button code {code} is not defined for control head type {head}");
         }
 
         /// <summary>
@@ -190,15 +281,15 @@ namespace moto_sb9600
         /// <returns></returns>
         public static Indicator GetIndicator(SB9600.HeadType head, byte code)
         {
-            Dictionary<string, byte> indicators;
+            Dictionary<IndicatorName, byte> indicators;
             if (head == SB9600.HeadType.M3)
                 indicators = M3.Indicators;
             else if (head == SB9600.HeadType.W9)
                 indicators = W9.Indicators;
             else
-                return null;
+                throw new NotImplementedException($"Control head type {head} is not yet implemented!");
 
-            foreach (KeyValuePair<string, byte> indicator in indicators)
+            foreach (KeyValuePair<IndicatorName, byte> indicator in indicators)
             {
                 if (indicator.Value == code)
                 {
@@ -207,8 +298,7 @@ namespace moto_sb9600
                     return ind;
                 }
             }
-            Log.Warning("Could not find matching indidactor for code {code:X2}", code);
-            return null;
+            throw new ArgumentException($"Inidicator code {code} is not defined for control head type {head}");
         }
     }
 
@@ -261,7 +351,7 @@ namespace moto_sb9600
         public delegate void Callback();
         public Callback StatusCallback { get; set; }
 
-        private Dictionary<string, Softkey> softkeyMappings;
+        private Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings;
 
         private bool newStatus = false;
 
@@ -281,7 +371,6 @@ namespace moto_sb9600
         {
             W9 = 0,
             M3 = 1,
-            O5 = 2
         }
 
         private static readonly byte[] sb9600CrcTable =
@@ -700,13 +789,13 @@ namespace moto_sb9600
             }
         }
 
-        public SB9600(string portName, HeadType controlHead, Dictionary<string, Softkey> softkeyMappings, MotoSb9600Radio radio, bool rxLeds = false)
+        public SB9600(string portName, HeadType controlHead, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings, MotoSb9600Radio radio, bool rxLeds = false)
         {
             Port = new SerialPort(portName);
             Port.BaudRate = 9600;
             ControlHead = controlHead;
             RxLeds = rxLeds;
-            this.softkeyMappings = softkeyMappings;
+            this.softkeyBindings = softkeyBindings;
             this.radio = radio;
         }
 
@@ -1100,13 +1189,9 @@ namespace moto_sb9600
                         ///
                         case (byte)SB9600Opcodes.BUTCTL:
                             // Lookup the button
-                            string buttonName = ControlHeads.GetButton(ControlHead, msg.Data[0]);
+                            ControlHeads.ButtonName buttonName = ControlHeads.GetButton(ControlHead, msg.Data[0]);
                             // Ignore knobs for now
-                            if (buttonName == null)
-                            {
-                                Log.Warning("Unhandled button code {ButtonCode:X2} for control head {ControlHead}!", msg.Data[0], ControlHead);
-                            }
-                            else if (buttonName.Contains("knob")) { }
+                            if (buttonName == ControlHeads.ButtonName.knob_vol) { }
                             else
                             {
                                 if (msg.Data[1] == 0x01)
@@ -1296,7 +1381,8 @@ namespace moto_sb9600
                             // Check for RX state by indicator state, if enabled
                             if (RxLeds)
                             {
-                                if (indicator.Name.Contains("ind_nonpri") || indicator.Name.Contains("ind_pri"))
+                                // Detect RX state from W9 head using pri/non-pri LEDs
+                                if (indicator.Name == ControlHeads.IndicatorName.non_pri || indicator.Name == ControlHeads.IndicatorName.pri)
                                 {
                                     if (indicator.State != ControlHeads.IndicatorStates.OFF)
                                     {
@@ -1323,7 +1409,7 @@ namespace moto_sb9600
                                 switch (indicator.Name)
                                 {
                                     // Scanning Icon (the "Z")
-                                    case "scan":
+                                    case ControlHeads.IndicatorName.scan:
                                         Log.Verbose("Got new scanning state: {scanState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                             radio.Status.ScanState = ScanState.Scanning;
@@ -1331,7 +1417,7 @@ namespace moto_sb9600
                                             radio.Status.ScanState = ScanState.NotScanning;
                                         break;
                                     // Scan priority dot (Z.)
-                                    case "scan_pri":
+                                    case ControlHeads.IndicatorName.scan_pri:
                                         Log.Verbose("Got new scan priority state: {priState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                             radio.Status.PriorityState = PriorityState.Priority1;
@@ -1341,15 +1427,17 @@ namespace moto_sb9600
                                             radio.Status.PriorityState = PriorityState.NoPriority;
                                         break;
                                     // Low power L icon
-                                    case "low_power":
+                                    // TODO: implement this
+                                    /*
+                                    case ControlHeads.IndicatorName.:
                                         Log.Verbose("Got new low power state: {lpState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                             radio.Status.PowerState = PowerState.LowPower;
                                         else
                                             radio.Status.PowerState = PowerState.HighPower;
-                                        break;
+                                        break;*/
                                     // Monitor Icon (the speaker)
-                                    case "monitor":
+                                    case ControlHeads.IndicatorName.monitor:
                                         Log.Verbose("Got new monitor state: {monState}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                             radio.Status.Monitor = true;
@@ -1357,20 +1445,20 @@ namespace moto_sb9600
                                             radio.Status.Monitor = false;
                                         break;
                                     // Talkaround Icon
-                                    case "direct":
+                                    case ControlHeads.IndicatorName.direct:
                                         Log.Verbose("Got new direct state: {state}", indicator.State);
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                             radio.Status.Direct = true;
                                         else
                                             radio.Status.Direct = false;
                                         break;
-                                    // Amber icon - we use this as a fallback for detecting RX state if the status message doesn't work for whatever reason
-                                    case "led_amber":
+                                    // Amber LED/busy icon - we use this as a fallback for detecting RX state if the status message doesn't work for whatever reason
+                                    case ControlHeads.IndicatorName.busy:
                                         if (indicator.State == ControlHeads.IndicatorStates.ON)
                                         {
                                             if (radio.Status.State != RadioState.Receiving)
                                             {
-                                                Log.Information("Radio now receiving, source: amber LED");
+                                                Log.Information("Radio now receiving, source: busy indicator");
                                                 radio.Status.State = RadioState.Receiving;
                                                 newStatus = true;
                                             }
@@ -1379,7 +1467,7 @@ namespace moto_sb9600
                                         {
                                             if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
                                             {
-                                                Log.Information("Radio now idle, source: amber LED");
+                                                Log.Information("Radio now idle, source: busy indicator");
                                                 radio.Status.State = RadioState.Idle;
                                                 newStatus = true;
                                             }
@@ -1389,20 +1477,28 @@ namespace moto_sb9600
                             }
 
                             // W9 and M3 can get softkey statuses from the top & bottom indicators, respectively
-                            if ((ControlHead == HeadType.W9 && indicator.Name.Contains("ind_top_")) || (ControlHead == HeadType.M3 && indicator.Name.Contains("ind_bot_")))
+                            string indicatorNameString = Enum.GetName(typeof(ControlHeads.IndicatorName), indicator.Name);
+                            if ((ControlHead == HeadType.W9 && indicatorNameString.Contains("top_")) || (ControlHead == HeadType.M3 && indicatorNameString.Contains("bot_")))
                             {
-                                // Get the button name from the indicator name
-                                string btnName = indicator.Name.Replace("ind", "btn");
+                                // Append btn_ to get the corresponding button name
+                                string btnNameString = "btn_" + indicatorNameString;
+
+                                // Convert to button name
+                                ControlHeads.ButtonName btnName;
+                                if (!Enum.TryParse(btnNameString, out btnName))
+                                {
+                                    throw new ArgumentException($"Button name {btnNameString} is not valid!");
+                                }
 
                                 // See if this button is present in our button bindings
-                                if (softkeyMappings.ContainsKey(btnName))
+                                if (softkeyBindings.ContainsKey(btnName))
                                 {
-                                    // Get the softkey from our mapping list
-                                    Softkey mappedKey = softkeyMappings[btnName];
+                                    // Get the softkey name from our mapping list
+                                    SoftkeyName mappedKeyName = softkeyBindings[btnName];
                                     // Find the softkey in the radio's softkey list and update its state accordingly
-                                    if (radio.Status.Softkeys.Contains(mappedKey))
+                                    if (radio.Status.Softkeys.Any(c => c.Name == mappedKeyName))
                                     {
-                                        foreach ( Softkey softkey in radio.Status.Softkeys.Where(k => k.Name == mappedKey.Name))
+                                        foreach ( Softkey softkey in radio.Status.Softkeys.Where(k => k.Name == mappedKeyName))
                                         {
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 softkey.State = SoftkeyState.On;
@@ -1413,7 +1509,7 @@ namespace moto_sb9600
                                         }
                                     }
                                     // Update non-softkey radio states (SCAN, MON, etc) based on softkey name
-                                    switch (mappedKey.Name)
+                                    switch (mappedKeyName)
                                     {
                                         // Scan softkey maps to scan state
                                         case SoftkeyName.SCAN:
@@ -1539,7 +1635,7 @@ namespace moto_sb9600
                 if (!Reset())
                 {
                     Log.Error("Failed to reset the radio! Exiting...");
-                    Daemon.Shutdown();
+                    radio.Stop();
                     return;
                 }
             }
@@ -1672,16 +1768,16 @@ namespace moto_sb9600
         /// <summary>
         /// Get an SB9600 button opcode from a softkey name using the softkey mapping
         /// </summary>
-        /// <param name="softkey">Softkey to lookup</param>
+        /// <param name="SoftkeyName">Softkey name to lookup</param>
         /// <returns>byte opcode for the SB9600 button based on the control head</returns>
         /// <exception cref="ArgumentException"></exception>
-        private byte getButtonCodeFromSoftkeyMapping(Softkey softkey)
+        private byte getButtonCodeFromSoftkeyBinding(SoftkeyName name)
         {
             // Identify button name based on softkey name & mapping
-            if (softkeyMappings.ContainsValue(softkey))
+            if (softkeyBindings.ContainsValue(name))
             {
                 // Get button name from softkey
-                string buttonName = softkeyMappings.First(mapping => mapping.Value == softkey).Key;
+                ControlHeads.ButtonName buttonName = softkeyBindings.First(mapping => mapping.Value == name).Key;
                 // Get button code from button name based on head type
                 switch (ControlHead)
                 {
@@ -1689,13 +1785,9 @@ namespace moto_sb9600
                         return ControlHeads.W9.Buttons[buttonName];
                     case HeadType.M3:
                         return ControlHeads.M3.Buttons[buttonName];
-                    case HeadType.O5:
-                        // O5 is special since we only have softkeys
-                        // TODO: this
-                        break;
                 }
             }
-            throw new ArgumentException($"Softkey {softkey.Name} is not mapped in softkey list!");
+            throw new ArgumentException($"Softkey {name} is not mapped in softkey list!");
         }
 
         public void SendButton(byte code, byte value)
@@ -1732,13 +1824,10 @@ namespace moto_sb9600
             switch (ControlHead)
             {
                 case HeadType.W9:
-                    SendButton(ControlHeads.W9.Buttons["ptt"], btnVal);
+                    SendButton(ControlHeads.W9.Buttons[ControlHeads.ButtonName.ptt], btnVal);
                     break;
                 case HeadType.M3:
-                    SendButton(ControlHeads.M3.Buttons["ptt"], btnVal);
-                    break;
-                case HeadType.O5:
-                    //SendButton(ControlHeads.O5.Buttons["ptt"], 0x01);
+                    SendButton(ControlHeads.M3.Buttons[ControlHeads.ButtonName.ptt], btnVal);
                     break;
                 default:
                     Log.Error("Transmit not defined for headtype {Head}", ControlHead);
@@ -1757,18 +1846,13 @@ namespace moto_sb9600
             switch (ControlHead)
             {
                 case HeadType.W9:
-                    string btn = down ? "btn_mode_down" : "btn_mode_up";
-                    ToggleButton(ControlHeads.W9.Buttons[btn]);
+                    ControlHeads.ButtonName btnName = down ? ControlHeads.ButtonName.btn_mode_down : ControlHeads.ButtonName.btn_mode_up;
+                    ToggleButton(ControlHeads.W9.Buttons[btnName]);
                     break;
                 case HeadType.M3:
                     // M3 channel up/down is defined by programming, so we first idenfity the softkey name and then find it in the mapping list
                     SoftkeyName name = down ? SoftkeyName.CHDN : SoftkeyName.CHUP;
-                    Softkey key = radio.Status.Softkeys.Find(s => s.Name == name);
-                    ToggleButton(getButtonCodeFromSoftkeyMapping(key));
-                    break;
-                case HeadType.O5:
-                    byte steps = (byte)(down ? 0xFF : 0x01);
-                    //SendButton(ControlHeads.O5.Buttons["knob_chan"], steps);
+                    ToggleButton(getButtonCodeFromSoftkeyBinding(name));
                     break;
                 default:
                     Log.Error("ChangeChannel not defined for headtype {Head}", ControlHead);
@@ -1779,19 +1863,15 @@ namespace moto_sb9600
 
         public bool PressButton(SoftkeyName name)
         {
-            // Find the true button name based on the mapping
-            Softkey key = radio.Status.Softkeys.Find(s => s.Name == name);
             // Send the button command for the mapped button
-            SendButton(getButtonCodeFromSoftkeyMapping(key), 0x01);
+            SendButton(getButtonCodeFromSoftkeyBinding(name), 0x01);
             return true;
         }
 
         public bool ReleaseButton(SoftkeyName name)
         {
-            // Find the true button name based on the mapping
-            Softkey key = radio.Status.Softkeys.Find(s => s.Name == name);
             // Send the button command for the mapped button
-            SendButton(getButtonCodeFromSoftkeyMapping(key), 0x00);
+            SendButton(getButtonCodeFromSoftkeyBinding(name), 0x00);
             return true;
         }
     }

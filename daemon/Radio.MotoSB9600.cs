@@ -25,16 +25,20 @@ namespace moto_sb9600
         /// </summary>
         public SB9600.HeadType ControlHeadType = SB9600.HeadType.W9;
         /// <summary>
+        /// Whether to use RX LEDs as an additional RX state trigger
+        /// </summary>
+        public bool RxLeds = false;
+        /// <summary>
         /// Softkey binding dictionary
         /// </summary>
-        public Dictionary<string, Softkey> SoftkeyBindings;
+        public Dictionary<ControlHeads.ButtonName, SoftkeyName> SoftkeyBindings;
     }
 
     public class MotoSb9600Radio : rc2_core.Radio
     {
         private SB9600 sb9600;
 
-        private Dictionary<string, Softkey> softkeyBindings;
+        private Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings;
 
         /// <summary>
         /// Initialize a new Motorola SB9600 radio
@@ -55,9 +59,9 @@ namespace moto_sb9600
         public MotoSb9600Radio(
             string name, string desc, bool rxOnly,
             IPAddress listenAddress, int listenPort,
-            string serialPortName, SB9600.HeadType headType, bool rxLeds, Dictionary<string, Softkey> softkeyBindings,
+            string serialPortName, SB9600.HeadType headType, bool rxLeds, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings,
             Action<short[]> txAudioCallback, int txAudioSampleRate,
-            List<rc2_core.Softkey> softkeys,
+            List<rc2_core.SoftkeyName> softkeys,
             List<rc2_core.TextLookup> zoneLookups = null, List<rc2_core.TextLookup> chanLookups = null
             ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate)
         {
@@ -65,14 +69,18 @@ namespace moto_sb9600
             this.softkeyBindings = softkeyBindings;
             // Init SB9600
             sb9600 = new SB9600(serialPortName, headType, this.softkeyBindings, this, rxLeds);
+            sb9600.StatusCallback += () => {
+                this.RadioStatusCallback();
+            };
         }
 
         /// <summary>
         /// Start the base radio as well as the SB9600 services
         /// </summary>
         /// <param name="reset"></param>
-        public new void Start(bool reset = false)
+        public override void Start(bool reset = false)
         {
+            Log.Information($"Starting new Motorola SB9600 radio instance");
             base.Start(reset);
             sb9600.Start(reset);
         }

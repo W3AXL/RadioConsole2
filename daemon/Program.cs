@@ -22,8 +22,8 @@ using Serilog.Core;
 using Serilog.Events;
 using Serilog.Sinks.File;
 
-using Tomlyn;
-using Tomlyn.Model;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
@@ -35,6 +35,8 @@ using daemon;
 using System.Runtime;
 using DirectShowLib;
 using MathNet.Numerics;
+using rc2_core;
+using moto_sb9600;
 
 namespace netcore_cli
 {
@@ -43,20 +45,11 @@ namespace netcore_cli
         // Log Level Switch
         static LoggingLevelSwitch loggerSwitch = new LoggingLevelSwitch();
 
-        private static bool shutdown = false;
-        
-        // Global Config Variables for the Daemon
-        public class Config
-        {
-            public static string DaemonName { get; set; }
-            public static string DaemonDesc { get; set; }
-            public static IPAddress DaemonIP { get; set; }
-            public static int DaemonPort { get; set; }
-            public static string TxAudioDevice { get; set; }
-            public static int TxAudioDeviceIdx { get; set; }
-            public static string RxAudioDevice { get; set; }
-            public static int RxAudioDeviceIdx { get; set; }
-        }
+        // Config Object (read in from config.yml)
+        static ConfigObject Config;
+
+        // Local audio object
+        static LocalAudio localAudio;
 
         // Radio object
         static rc2_core.Radio radio = null;
@@ -101,11 +94,10 @@ namespace netcore_cli
             cmdRoot.AddCommand(cmdGetAudio);
 
             // Define arguments
-            var optConfigFile = new Option<FileInfo>(new[] { "--config", "-c" }, "TOML daemon config file");
+            var optConfigFile = new Option<FileInfo>(new[] { "--config", "-c" }, "YAML daemon config file");
             var optDebug = new Option<bool>(new[] { "--debug", "-d" }, "enable debug logging");
             var optVerbose = new Option<bool>(new[] { "--verbose", "-v" }, "enable verbose logging (lots of prints)");
             var optNoReset = new Option<bool>(new[] { "--no-reset", "-nr" }, "don't reset radio on startup");
-            var optCodec = new Option<string>(new[] { "--codec" }, "(debug) codec to use for WebRTC audio, default is G722");
             var optLogging = new Option<bool>(new[] { "--log", "-l" }, "log console output to file");
 
             // Add arguments
@@ -113,11 +105,10 @@ namespace netcore_cli
             cmdRoot.AddOption(optVerbose);
             cmdRoot.AddOption(optDebug);
             cmdRoot.AddOption(optNoReset);
-            cmdRoot.AddOption(optCodec);
             cmdRoot.AddOption(optLogging);
 
             // Main Runtime Handler
-            cmdRoot.SetHandler((context) =>
+            cmdRoot.SetHandler(async (context) =>
             {
                 // Make sure a config file was specified
                 if (context.ParseResult.GetValueForOption(optConfigFile) == null)
@@ -131,21 +122,21 @@ namespace netcore_cli
                     bool debug = context.ParseResult.GetValueForOption(optDebug);
                     bool verbose = context.ParseResult.GetValueForOption(optVerbose);
                     bool noreset = context.ParseResult.GetValueForOption(optNoReset);
-                    string codec = context.ParseResult.GetValueForOption(optCodec);
                     bool log = context.ParseResult.GetValueForOption(optLogging);
-                    int result = Startup(configFile, debug, verbose, noreset, log, codec);
-                    context.ExitCode = result;
+                    await Startup(configFile, debug, verbose, noreset, log);
                 }
             });
 
             return await cmdRoot.InvokeAsync(args);
         }
 
-        static int Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, bool log, string codec = null)
+        static async Task Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, bool log)
         {
             // Add handler for SIGINT
-            Console.CancelKeyPress += delegate {
-                Shutdown();
+            ManualResetEvent startShutdown = new ManualResetEvent(false);
+            Console.CancelKeyPress += (sender, args) => {
+                args.Cancel = true;
+                startShutdown.Set();
             };
 
             // Logging setup
@@ -160,17 +151,8 @@ namespace netcore_cli
                 Log.Verbose("Verbose logging enabled");
             }
 
-            if (codec != null)
-            {
-                WebRTC.Codec = codec;
-            }
-
             // Read config from toml
-            int result = ReadConfig(configFile);
-            if (result != 0)
-            {
-                return result;
-            }
+            ReadConfig(configFile);
 
             // Set up file logging (we do this after config reading)
             if (log)
@@ -179,194 +161,97 @@ namespace netcore_cli
                 System.IO.Directory.CreateDirectory("logs");
                 // Get the timestamp
                 string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
-                Log.Information("Logging to file: {Name}_{timestamp}.log", Config.DaemonName, timestamp);
+                Log.Information("Logging to file: {Name}_{timestamp}.log", Config.Daemon.Name, timestamp);
                 // We append the file logger to the original created logger
                 Log.Logger = new LoggerConfiguration()
                     .WriteTo.Logger(Log.Logger)
-                    .WriteTo.File($"logs/{Config.DaemonName.Replace(" ", "_")}_{timestamp}.log")
+                    .WriteTo.File($"logs/{Config.Daemon.Name.Replace(" ", "_")}_{timestamp}.log")
                     .MinimumLevel.ControlledBy(loggerSwitch)
                     .CreateLogger();
             }
 
-            // Start websocket server
-            DaemonWebsocket.StartWsServer();
+            // Setup Audio Devices
+            localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, radio, Config.Control.RxOnly);
+
+            // Switch based on control mode
+            switch(Config.Control.ControlMode)
+            {
+                case RadioControlMode.SB9600:
+                {
+                    radio = new MotoSb9600Radio(
+                        Config.Daemon.Name,
+                        Config.Daemon.Desc,
+                        Config.Control.RxOnly,
+                        Config.Daemon.ListenAddress,
+                        Config.Daemon.ListenPort,
+                        Config.Control.Sb9600.SerialPort,
+                        Config.Control.Sb9600.ControlHeadType,
+                        Config.Control.Sb9600.RxLeds,
+                        Config.Control.Sb9600.SoftkeyBindings,
+                        localAudio.TxAudioCallback,
+                        8000,
+                        Config.Softkeys,
+                        Config.TextLookups.Zone,
+                        Config.TextLookups.Channel
+                    );
+                }
+                break;
+                default:
+                {
+                    Log.Error("Control mode {mode} not yet implemented!", Config.Control.ControlMode.ToString());
+                    Environment.Exit((int)ERRNO.EBADCONFIG);
+                }
+                break;
+            }
+
+            // Setup RX audio callback
+            localAudio.RxSampleCallback += radio.RxSendPCM16Samples;
+
             // Start radio
             radio.Start(noreset);
-            // Infinite loop (with a sleep to give CPU a break
-            while (!shutdown) 
-            {
-                Thread.Sleep(100);
-            }
-            return 0;
+
+            // Start audio
+            await localAudio.Start();
+            
+            // Wait for shutdown trigger
+            startShutdown.WaitOne();
+
+            // Stop radio
+            Log.Information("Shutting down...");
+            radio.Stop();
+            await localAudio.Stop();
+            Log.CloseAndFlush();
+
+            Environment.Exit(0);
         }
 
-        internal static int ReadConfig(FileInfo configFile)
+        internal static void ReadConfig(FileInfo configFile)
         {
             Log.Debug("Reading config file {ConfigFilePath}", configFile);
-            // Read file
-            string toml = File.ReadAllText(configFile.FullName);
-            // Parse TOML
-            var config = Toml.ToModel(toml);
-            // Daemon Info
-            var info = (TomlTable)config["info"];
-            Config.DaemonName = (string)info["name"];
-            Config.DaemonDesc = (string)info["desc"];
-            Log.Debug("         Name: {DaemonName}", Config.DaemonName);
-            Log.Debug("         Desc: {DaemonDesc}", Config.DaemonDesc);
-            // Daemon Network Config
-            var net = (TomlTable)config["network"];
-            Config.DaemonIP = IPAddress.Parse((string)net["ip"]);
-            Config.DaemonPort = (int)(long)net["port"];
-            Log.Debug("      Address: {IP}:{Port}", Config.DaemonIP, Config.DaemonPort);
-            // Audio config
-            var audio = (TomlTable)config["audio"];
-            Config.TxAudioDevice = (string)audio["txDevice"];
-            Config.RxAudioDevice = (string)audio["rxDevice"];
-            Log.Debug("    TX device: {TxDevice}", Config.TxAudioDevice);
-            Log.Debug("    RX device: {RxDevice}", Config.RxAudioDevice);
-            // Lookups
-            List<TextLookup> zoneLookups = new List<TextLookup>();
-            List<TextLookup> chanLookups = new List<TextLookup>();
-            var lookupCfg = (TomlTable)config["lookups"];
-            var cfgZoneLookups = (TomlArray)lookupCfg["zoneLookup"];
-            var cfgChanLookups = (TomlArray)lookupCfg["chanLookup"];
-            foreach ( TomlArray lookup in cfgZoneLookups )
-            {
-                zoneLookups.Add(new TextLookup((string)lookup[0], (string)lookup[1]));
-            }
-            foreach ( TomlArray lookup in cfgChanLookups )
-            {
-                chanLookups.Add(new TextLookup((string)lookup[0], (string)lookup[1]));
-            }
-            Log.Debug("Loaded zone text lookups: {ZoneLookups}", zoneLookups);
-            Log.Debug("Loaded channel text lookups: {ChannelLookups}", chanLookups);
-            // Control Config
-            var radioCfg = (TomlTable)config["radio"];
-            string controlType = (string)radioCfg["type"];
-            bool rxOnly = (bool)radioCfg["rxOnly"];
-            WebRTC.RxOnly = rxOnly;
-            ///
-            /// None Control Type (aka non-controlled RX only radio)
-            ///
-            if (controlType == "none")
-            {
-                var noneConfig = (TomlTable)config["none"];
-                string zoneName = (string)noneConfig["zone"];
-                string chanName = (string)noneConfig["chan"];
-                Log.Debug("      Control: Non-controlled radio");
-                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.ListenOnly, zoneName, chanName);
-                // Update websocket radio object
-                DaemonWebsocket.radio = radio;
-            }
-            ///
-            /// Motorola SB9600 control
-            ///
-            else if (controlType == "sb9600")
-            {
-                // Parse the SB9600 config options
-                var sb9600config = (TomlTable)config["sb9600"];
-                SB9600.HeadType head = (SB9600.HeadType)Enum.Parse(typeof(SB9600.HeadType), (string)sb9600config["head"]);
-                string port = (string)sb9600config["port"];
-                Log.Debug("      Control: {HeadType}-head SB9600 radio on port {SerialPort}", head, port);
-                
-                // Parse softkeys and button bindings
-                List<Softkey> softkeys = new List<Softkey>();
-                var cfgSoftkeys = (TomlTable)config["softkeys"];
-                // We convert the button bindings to a more parsable array
-                var cfgButtonBinding = (TomlArray)cfgSoftkeys["buttonBinding"];
-                List<string[]> btnBindings = new List<string[]>();
-                foreach ( TomlArray binding in cfgButtonBinding )
-                {
-                    btnBindings.Add([(string)binding[0], (string)binding[1]]);
-                }
-                // Make sure we have button bindings
-                if (btnBindings == null)
-                {
-                    Log.Error("No button bindings defined!");
-                    return 1;
-                }
-                Log.Debug("Loaded button bindings: {buttonBindings}", btnBindings);
-                // We iterate over each softkey entry
-                var cfgSoftkeyList = (TomlArray)cfgSoftkeys["softkeyList"];
-                foreach ( string softkey in cfgSoftkeyList )
-                {
-                    Softkey key = new Softkey();
-                    // Make sure the softkey name is valid
-                    if (!Enum.IsDefined(typeof(SoftkeyName), softkey))
-                    {
-                        Log.Error("Softkey name {name} is not defined!", softkey);
-                        return 1;
-                    }
-                    key.Name = (SoftkeyName)Enum.Parse(typeof(SoftkeyName), softkey);
-                    // Make sure that there's a valid binding for this softkey
-                    string btnName = btnBindings.Find(b => b[1] == key.Name.ToString())[0];
-                    if (btnName == null)
-                    {
-                        Log.Error("Softkey name {name} not found in button binding map!", key.Name);
-                        return 1;
-                    }
-                    // Create the button and assign it to the softkey
-                    byte btnCode;
-                    if (head == SB9600.HeadType.W9)
-                        btnCode = ControlHeads.W9.Buttons[btnName];
-                    else if (head == SB9600.HeadType.M3)
-                        btnCode = ControlHeads.M3.Buttons[btnName];
-                    else
-                    {
-                        Log.Error("Head type {Head} does not support button bindings!", head);
-                        return 1;
-                    }
-                    key.Button = new ControlHeads.Button(btnCode, btnName);
-                    // Add the softkey to the list
-                    softkeys.Add(key);
-                }
-
-                // Parse using LEDs for RX states
-                bool rxLeds = false;
-                if (sb9600config.ContainsKey("useLedsForRx"))
-                    rxLeds = (bool)sb9600config["useLedsForRx"];
-                Log.Information("Using RX LEDs for RX state");
-
-                // Create SB9600 radio object
-                radio = new Radio(Config.DaemonName, Config.DaemonDesc, RadioType.SB9600, head, port, rxOnly, zoneLookups, chanLookups, softkeys, rxLeds);
-                radio.StatusCallback = DaemonWebsocket.SendRadioStatus;
-                
-                // Update websocket radio object
-                DaemonWebsocket.radio = radio;
-            }
-            ///
-            /// CM108 single-channel PTT controlled radio
-            ///
-            else if (controlType == "cm108")
-            {
-                // TODO: Implement this lol
-            }
-            else
-            {
-                Log.Error("Unknown radio control type specified: {InvalidControlType}", controlType);
-                return 1;
-            }
-
-            // Audio Recording Config (optional)
-            if (config.ContainsKey("recording"))
-            {
-                var recCfg = (TomlTable)config["recording"];
-                bool record = (bool)recCfg["enabled"];
-                WebRTC.Record = record;
-                if (record)
-                {
-                    string recPath = (string)recCfg["path"];
-                    WebRTC.RecPath = recPath;
-                    double recRxGain = (double)recCfg["rxGain"];
-                    double recTxGain = (double)recCfg["txGain"];
-                    WebRTC.SetRecGains(recRxGain, recTxGain);
-                    int recTimeout = Convert.ToInt32(recCfg["timeout"]);
-                    radio.RecTimeout = recTimeout;
-                    Log.Information("Recording enabled, path {recPath}, RX Gain {rxGain}, TX Gain {txGain}, Timeout {timeout}", recPath, recRxGain, recTxGain, recTimeout);
-                }
-            }
             
-            return 0;
+            try
+            {
+                using (FileStream stream = new FileStream(configFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    using (TextReader reader = new StreamReader(stream))
+                    {
+                        // Read all yaml
+                        string yml = reader.ReadToEnd();
+
+                        // Parse to object
+                        IDeserializer ymlDeserializer = new DeserializerBuilder()
+                            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                            .Build();
+
+                        Config = ymlDeserializer.Deserialize<ConfigObject>(yml);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to read configuration file {configFile}", configFile);
+                Environment.Exit((int)rc2_core.ERRNO.ENOCONFIG);
+            }
         }
 
         static void ListAudioDeices()
@@ -424,19 +309,6 @@ namespace netcore_cli
                 Log.Information("        {codec}", codec.FormatName);
             }
             SDL2Helper.QuitSDL();
-        }
-
-        /// <summary>
-        /// Shutdown the daemon
-        /// Accessible publicly so any task can initiate shutdown
-        /// </summary>
-        public static void Shutdown()
-        {
-            Log.Warning("Caught SIGINT, shutting down");
-            radio.Stop();
-            DaemonWebsocket.StopWsServer();
-            Log.CloseAndFlush();
-            shutdown = true;
         }
     }
 }
