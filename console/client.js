@@ -886,6 +886,8 @@ function dialNumber(radioId, number, digitTime, delayTime) {
 function startAlert(mode) {
     // Start PTT
     startPtt(false);
+    // Ensure mic doesn't unmute (should be covered by the above false but it gets weird sometimes)
+    txUnmuteMic = false;
     // Set and start tone gen
     switch (mode) {
         case 1:
@@ -910,6 +912,8 @@ function sendAlert() {
             sendAlert();
         }, 50);
     } else {
+        // Ensure mic is muted
+        muteMic();
         console.debug("Radio transmitting, starting alert tone");
         audio.tones.start();
     }
