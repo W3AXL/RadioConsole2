@@ -57,7 +57,7 @@ namespace daemon
         private rc2_core.Radio radio;
 
         // RX audio callback action
-        public Action<short[], uint> RxSampleCallback;
+        public Action<uint, byte[]> RxEncodedSampleCallback;
 
         public LocalAudio(string rxDevice, string txDevice, rc2_core.Radio radio, bool rxOnly = false)
         {
@@ -76,11 +76,11 @@ namespace daemon
                 Log.Error("Got RX audio error: {error}", e);
             };
             // Setup RX sample callback
-            rxSource.OnAudioSourceRawSample += (AudioSamplingRatesEnum sampleRate, uint durationMs, short[] samples) => {
-                RxSampleCallback(samples, (uint)sampleRate);
+            rxSource.OnAudioSourceEncodedSample += (uint durationRtpUnits, byte[] samples) => {
+                //Log.Verbose("Got {count} encoded RX samples", samples.Length);
+                RxEncodedSampleCallback(durationRtpUnits, samples);
             };
             Log.Information("    RX: {rxDevice}", rxDevice);
-
             // Setup TX audio devices if we aren't rx-only
             if (!rxOnly) {
                 txEncoder = new AudioEncoder();
@@ -92,14 +92,18 @@ namespace daemon
             Log.Information("    TX: {txDevice}", txDevice);
         }
 
-        public async Task Start()
+        public void Start(AudioFormat audioFormat)
         {
-            await rxSource.StartAudio();
+            // Set audio formats
+            rxSource.SetAudioSourceFormat(audioFormat);
+            txEndpoint.SetAudioSinkFormat(audioFormat);
+            // Start!
+            rxSource.StartAudio();
             if (txEndpoint != null)
             {
-                await txEndpoint.StartAudioSink();
+                txEndpoint.StartAudioSink();
             }
-            Log.Debug("Audio devices started");
+            Log.Debug("Audio devices started using format {format}/{rate}/{chans}", audioFormat.FormatName, audioFormat.ClockRate, audioFormat.ChannelCount);
         }
 
         public async Task Stop()
@@ -116,12 +120,6 @@ namespace daemon
 
         public void TxAudioCallback(short[] pcm16Samples)
         {
-            // Ignore if we're not transmitting
-            if (radio.Status.State != rc2_core.RadioState.Transmitting)
-            {
-                return;
-            }
-
             // Convert the short[] samples into byte[] samples
             byte[] pcm16Bytes = new byte[pcm16Samples.Length * 2];
             Buffer.BlockCopy(pcm16Samples, 0, pcm16Bytes, 0, pcm16Samples.Length * 2);

@@ -997,14 +997,13 @@ namespace moto_sb9600
                                         {
                                             radio.Status.State = RadioState.Transmitting;
                                             newStatus = true;
-                                            Log.Information("Radio now transmitting");
                                         }
                                         else if (radio.Status.State != RadioState.Receiving && radio.Status.State != RadioState.Idle)
                                         {
                                             radio.Status.State = RadioState.Idle;
                                             newStatus = true;
-                                            Log.Information("Radio no longer transmitting");
                                         }
+                                        Log.Information("Radio state now {state}", radio.Status.State);
                                     }
                                     break;
                                 default:

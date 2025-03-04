@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using SIPSorceryMedia.Abstractions;
 
 namespace moto_sb9600
 {
@@ -60,10 +61,10 @@ namespace moto_sb9600
             string name, string desc, bool rxOnly,
             IPAddress listenAddress, int listenPort,
             string serialPortName, SB9600.HeadType headType, bool rxLeds, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings,
-            Action<short[]> txAudioCallback, int txAudioSampleRate,
+            Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
             List<rc2_core.SoftkeyName> softkeys,
             List<rc2_core.TextLookup> zoneLookups = null, List<rc2_core.TextLookup> chanLookups = null
-            ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate)
+            ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
         {
             // Save softkey lookups
             this.softkeyBindings = softkeyBindings;

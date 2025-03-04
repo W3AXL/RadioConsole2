@@ -189,7 +189,8 @@ namespace netcore_cli
                         Config.Control.Sb9600.RxLeds,
                         Config.Control.Sb9600.SoftkeyBindings,
                         localAudio.TxAudioCallback,
-                        8000,
+                        16000,
+                        localAudio.Start,
                         Config.Softkeys,
                         Config.TextLookups.Zone,
                         Config.TextLookups.Channel
@@ -205,13 +206,10 @@ namespace netcore_cli
             }
 
             // Setup RX audio callback
-            localAudio.RxSampleCallback += radio.RxSendPCM16Samples;
+            localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
 
             // Start radio
             radio.Start(noreset);
-
-            // Start audio
-            await localAudio.Start();
             
             // Wait for shutdown trigger
             startShutdown.WaitOne();
