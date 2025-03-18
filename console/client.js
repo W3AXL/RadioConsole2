@@ -116,6 +116,9 @@ var audio_playing = false;
 // Flag to unmute the mic on receipt of a startTx ACK from the radio
 var txUnmuteMic = false;
 
+// Timeout that ends TX after console alert delay
+var alertStopTimeout = null;
+
 testInput = null;
 
 // Radio Card Tempalte
@@ -612,6 +615,14 @@ function startPtt(micActive) {
         if (radios[selectedRadioIdx].wsConn) {
             console.log("Starting PTT on " + selectedRadio);
             pttActive = true;
+
+            // Clear any pending stop TX timeouts
+            if (alertStopTimeout)
+            {
+                console.debug("Clearing alert tone stop timeout due to PTT override");
+                clearTimeout(alertStopTimeout)
+                alertStopTimeout = null;
+            }
             
             // Old logic that doesn't use the ACK below
             // Unmute mic after timeout, if requested
@@ -908,7 +919,9 @@ function sendAlert() {
         }, 50);
     } else {
         console.debug("Radio transmitting, starting alert tone");
-        audio.tones.start();
+        setTimeout(() => {
+            audio.tones.start();
+        }, radios[selectedRadioIdx].rtc.txLatency)
     }
 }
 
@@ -919,8 +932,9 @@ function stopAlert() {
     // Re-enable the mic
     setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
     // We wait 5 seconds after the release of the alert button before releasing PTT
-    setTimeout(() => {
+    alertStopTimeout = setTimeout(() => {
         stopPtt();
+        alertStopTimeout = null;
     }, 5000);
 }
 
