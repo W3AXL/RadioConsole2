@@ -15,7 +15,9 @@
             We use this to properly load our custom scripts in electron 
             https://stackoverflow.com/a/37480521/1842613
         -->
-        <script>if (typeof module === 'object') {window.module = module; module = undefined;} </script>
+        <script>
+            if (typeof module === 'object') {window.module = module; module = undefined;} 
+        </script>
 
         <!-- JQuery -->
         <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
@@ -103,6 +105,12 @@
                             <span class="sidebar-icon"><ion-icon name="settings-sharp"></ion-icon></span>
                             <span class="sidebar-item">Client Config</span>
                         </a>
+                    </li>
+                    <li>
+                        <a href="#" onclick="showPeriphConfig();toggleMainMenu();">
+                            <span class="sidebar-icon"><ion-icon name="cube-sharp"></ion-icon></span>
+                            <span class="sidebar-item">Peripheral Config</span>
+                        </a>    
                     </li>
                     <li>
                         <a href="#" onclick="showConfigPopup('#extension-config-popup');toggleMainMenu();">

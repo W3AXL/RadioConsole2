@@ -222,6 +222,11 @@ function radioConnected(idx) {
     // Update master connect/disconnect button
     $(`#navbar-connect`).removeClass('disconnected');
     $(`#navbar-connect`).addClass('connected');
+    // Open serial port, if configured
+    if (config.Peripherals.useCtsForPtt)
+    {
+        window.electronAPI.openSerialPort(config.Peripherals.serialPort);
+    }
 }
 
 /**
@@ -292,6 +297,49 @@ $(window).blur(function () {
 
 // Bind pageLoad function to document load
 $(document).ready(pageLoad());
+
+/***********************************************************************************
+    Peripheral Functions
+***********************************************************************************/
+
+// Peripheral config save
+window.electronAPI.savePeriphConfig((event, data) => {
+    console.debug("Received new peripheral config");
+    console.debug(data);
+    config.Peripherals = data.Peripherals;
+    saveConfig();
+});
+
+// Show the peripheral config window
+async function showPeriphConfig() {
+    // If peripheral config doesn't exist, create it
+    if (!config.hasOwnProperty('Peripherals'))
+    {
+        config.Peripherals = {
+            serialPort: "",
+            useCtsForPtt: false
+        }
+    }
+    // Show the window
+    const result = await window.electronAPI.showPeriphConfig(config.Peripherals);
+}
+
+// Callback for handling serial port control line status
+window.electronAPI.serialPortStatus((event, status) => {
+    // Handle PTT if enabled
+    if (config.Peripherals.useCtsForPtt) {
+        if (status.cts && !pttActive)
+        {
+            console.debug("Serial port CTS triggering PTT");
+            startPtt(true);
+        }
+        else if (!status.cts && pttActive)
+        {
+            console.debug("Serial port CTS releasing PTT");
+            stopPtt();
+        }
+    }
+})
 
 /***********************************************************************************
     Radio UI Functions
@@ -1089,6 +1137,17 @@ async function readConfig() {
     }
     
     console.debug("Successfully read config json");
+
+    // Populate peripheral config if it's missing
+    if (!config.hasOwnProperty('Peripherals'))
+    {
+        config.Peripherals = {
+            serialPort: "",
+            useCtsForPtt: false
+        }
+        saveConfig();
+        console.warn("Peripherals config was missing, added default & saved");
+    }
 
     // Autoconnect on launch
     $("#daemon-autoconnect").prop('checked', config.Autoconnect);
@@ -2669,10 +2728,13 @@ function handleSocketClose(event, idx) {
     $(`#radio${idx} .icon-connect`).parent().prop('title','Disconnected');
     updateRadioCard(idx);
 
-    // If no more radios connected, set master connect button to disconnected
+    // If no more radios connected, set master connect button to disconnected and close serial port
     if (!radios.some(e => e.wsConn != null)) {
+        // Set navbar icon to disconnected
         $(`#navbar-connect`).removeClass("connected");
         $(`#navbar-connect`).addClass("disconnected");
+        // Close serial port
+        window.electronAPI.closeSerialPort();
     }
 }
 

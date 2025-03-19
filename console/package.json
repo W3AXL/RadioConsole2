@@ -1,6 +1,6 @@
 {
     "name": "rc2-console",
-    "version": "1.1.0-beta1",
+    "version": "1.1.1-beta.2",
     "description": "RadioConsole2 Client GUI",
     "author": "W3AXL",
     "license": "MIT",
@@ -39,5 +39,13 @@
         "cross-env": "^7.0.3",
         "electron": "^28.3.3",
         "electron-builder": "^24.13.3"
+    },
+    "dependencies": {
+        "serialport": "^13.0.0"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "@serialport/bindings-cpp"
+        ]
     }
 }
