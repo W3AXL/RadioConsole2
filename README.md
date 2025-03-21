@@ -1,9 +1,13 @@
 # RadioConsole2
-![](docs/media/tut-mainwindow-connected.png)
+![](docs/media/screenshot-1.1.1-beta.2.png)
 
-The updated and improved python-radio-console!
+RadioConsole2 aims to be an open-source and expandable software console for controlling radios and radio systems remotely via WebRTC.
+
 ## Overview
-RC2 consists of two parts - the GUI console (`rc2-console`) and the radio control daemons (`rc2-daemon`), one per each radio to be connected to the console.
+RC2 consists of two parts - the GUI console (`rc2-console`) and the individual radio control daemons (`rc2-daemon`), one per each radio to be connected to the console. RC2 now also supports connection to a [DVMProject FNE](https://github.com/DVMProject/dvmhost) directly using the [rc2-dvm daemon](https://github.com/W3AXL/rc2-dvm).
+
+![](docs/media/screenshot-1.1.0-beta.1-lots.png)
+
 ## Installation
 ### Daemon Installation
 1. Download the appropriate `rc2-daemon` from the [latest release on the releases page](https://github.com/W3AXL/RadioConsole2/releases). Download the zipfile for the appropriate OS architecture you will be running the daemons on. The daemon runs as a portable executable binary and does not require an installer.
