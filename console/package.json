@@ -36,11 +36,13 @@
     },
     "keywords": [],
     "devDependencies": {
+        "@julusian/midi": "^3.6.1",
         "cross-env": "^7.0.3",
         "electron": "^28.3.3",
         "electron-builder": "^25.1.8"
     },
     "dependencies": {
+        "@julusian/midi": "^3.6.1",
         "electron-builder-squirrel-windows": "25.1.8",
         "serialport": "^13.0.0"
     },

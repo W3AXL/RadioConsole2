@@ -4,41 +4,29 @@ const path = require('path')
 const fs = require('fs');
 
 const { SerialPort } = require('serialport');
+const midi = require('@julusian/midi');
 
 const configPath = path.resolve(app.getPath("userData") + '/config.json');
 
-// Default config, saved if no config.json exists currently
-const defaultConfig = {
-    Radios: [],
-    Autoconnect: false,
-    ClockFormat: "UTC",
-    Audio: {
-        ButtonSounds: true,
-        UnselectedVol: -9.0,
-        ToneVolume: -9.0,
-        UseAGC: true,
-    },
-    Extension: {
-        address: "127.0.0.1",
-        port: 5555
-    },
-    Peripherals: {
-        serialPort: "",
-        useCtsForPtt: false
-    }
-}
-
 // Global window objects
-let mainWindow;
-let periphWindow;
+var mainWindow = null;
+var periphWindow = null;
+var midiWindow = null;
 
 // Serial port object
 let serialPort = null;
 
+// Midi object
+let midiInput = new midi.Input();
+
+/***********************************************************************************
+    Config Management Functions
+***********************************************************************************/
+
 /**
  * Reads the config file and returns the JSON inside
  */
-async function readConfig() {
+async function readConfig(defaultConfig) {
     // Check for existing config file
     if (!fs.existsSync(configPath)) {
         console.warn("No config.json file found, creating default at " + configPath);
@@ -72,6 +60,10 @@ async function saveConfig(event, args) {
         return e;
     }
 }
+
+/***********************************************************************************
+    Serial Port Functions
+***********************************************************************************/
 
 /**
  * Opens the serial port for CTS PTT
@@ -129,19 +121,117 @@ async function serialPortCallback()
     }
 }
 
+/***********************************************************************************
+    MIDI functions
+***********************************************************************************/
+
+// Midi Message Types
+const midiMsgTypes = {
+    NOTE_ON:        0x8,
+    NOTE_OFF:       0x9,
+    POLY_AFTER:     0xA,
+    CTRL_CHANGE:    0xB,
+    PGM_CHANGE:     0xC,
+    CHAN_AFTER:     0xD,
+    PITCH_WHEEL:    0xE,
+}
+
+function getMidiPorts()
+{
+    const portCount = midiInput.getPortCount();
+    if (portCount > 0)
+    {
+        console.info(`Found ${portCount} midi ports:`)
+        let ports = []
+        for (let i = 0; i < portCount; i++)
+        {
+            port = {
+                index: i,
+                name: midiInput.getPortName(i)
+            }
+            ports.push(port);
+            console.info(`  - port ${port.index}: ${port.name}`);
+        }
+        return ports;
+    }
+    else
+    {
+        console.warn("No midi ports found!");
+        return null;
+    }
+}
+
+function openMidiPort(port)
+{
+    // Ignore if none selected
+    if (port < 0)
+    {
+        console.warn("No MIDI port selected");
+        return;
+    }
+    // Ignore if there are no ports
+    if (midiInput.getPortCount() <= 0)
+    {
+        console.warn("No MIDI ports found");
+        return;
+    }
+    // Ignore if already open
+    if (midiInput.isPortOpen())
+    {
+        return;
+    }
+    // Log
+    console.debug(`Midi enabled, opening port ${port} (${midiInput.getPortName(port)})`);
+    // Open
+    midiInput.openPort(port);
+}
+
+function midiMessageHandler(deltaTime, message)
+{
+    // Decode
+    const msgType = (message[0] & 0b11110000) >> 4;
+    const msgChan = (message[0] & 0b00001111);
+    // Ignore certain messages
+    if (msgType == midiMsgTypes.POLY_AFTER || msgType == midiMsgTypes.PGM_CHANGE || msgType == midiMsgTypes.CHAN_AFTER || msgType == midiMsgTypes.PITCH_WHEEL)
+    {
+        return;
+    }
+    // Package
+    msg = {
+        type: msgType,
+        chan: msgChan,
+        num: message[1],
+        data: message[2]
+    }
+    // Send to main app (for processing)
+    if (mainWindow != null)
+    {   
+        mainWindow.webContents.send('gotMidiMessage', msg);
+    }
+    // Send to midi config window (for learning)
+    if (midiWindow != null)
+    {
+        midiWindow.webContents.send('gotMidiMessage', msg);
+    }
+}
+
+/***********************************************************************************
+    Window Creation Functions
+***********************************************************************************/
+
 /**
  * Creates the main console window
  */
 async function createMainWindow() {
     // Create the window
-    win = new BrowserWindow({
+    mainWindow = new BrowserWindow({
         width: 1280, 
         height: 430,
         autoHideMenuBar: true,
         icon: 'console-icon.png',
         webPreferences: {
             preload: path.join(__dirname, "main-preload.js")
-        }
+        },
     });
 
     // Handle config read & save
@@ -152,12 +242,15 @@ async function createMainWindow() {
     ipcMain.handle('openSerialPort', (event, path) => { openSerialPort(path); });
     ipcMain.handle('closeSerialPort', (event, args) => { closeSerialPort(); });
 
-    // Load & show the main window
-    await win.loadFile(path.join(__dirname, "index.html"))
-        .then(() => { win.webContents.send('appVersion', app.getVersion()); })
-        .then(() => { win.show() });
+    // Handle window closing
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+    })
 
-    return win;
+    // Load & show the main window
+    await mainWindow.loadFile(path.join(__dirname, "index.html"))
+        .then(() => { mainWindow.webContents.send('appVersion', app.getVersion()); })
+        .then(() => { mainWindow.show() });
 }
 
 /**
@@ -165,41 +258,109 @@ async function createMainWindow() {
  */
 async function createPeriphWindow(periphConfig)
 {
-    win = new BrowserWindow({
+    periphWindow = new BrowserWindow({
         width: 512,
-        height: 194,
+        height: 184,
         icon: 'console-icon.png',
         autoHideMenuBar: true,
         webPreferences: {
             preload: path.join(__dirname, "peripherals-preload.js")
-        }
+        },
+        resizable: false,
     });
+
+    periphWindow.on('closed', () => {
+        periphWindow = null;
+    })
 
     // Query available serial ports
     var serialPorts = await SerialPort.list();
     
-    await win.loadFile(path.join(__dirname, "peripherals.html"))
-        .then(() => { win.webContents.send('gotPorts', serialPorts); })
-        .then(() => { win.webContents.send('showPeriphConfig', periphConfig); });
-    
-    return win;
+    await periphWindow.loadFile(path.join(__dirname, "peripherals.html"))
+        .then(() => { periphWindow.webContents.send('gotPorts', serialPorts); })
+        .then(() => { periphWindow.webContents.send('populatePeriphConfig', periphConfig); });
 }
+
+async function createMidiWindow(midiConfig)
+{
+    // Query available midi ports
+    const ports = getMidiPorts();
+
+    if (!ports)
+    {
+        alert("No midi devices found!");
+        return null;
+    }
+
+    midiWindow = new BrowserWindow({
+        width: 512,
+        height: 272,
+        icon: 'console-icon.png',
+        autoHideMenuBar: true,
+        webPreferences: {
+            preload: path.join(__dirname, "midi-preload.js")
+        },
+        resizable: false,
+    });
+
+    midiWindow.on('closed', () => {
+        midiWindow = null;
+    })
+
+    await midiWindow.loadFile(path.join(__dirname, "midi.html"))
+        .then(() => { midiWindow.webContents.send('gotPorts', ports); })
+        .then(() => { midiWindow.webContents.send('populateMidiConfig', midiConfig); });
+}
+
+/***********************************************************************************
+    App Runtime Entry Point
+***********************************************************************************/
 
 /**
  * App startup
  */
 app.on('ready', async () => {
-    mainWindow = await createMainWindow();
-
     // Handle creating the peripheral config window
-    ipcMain.handle('showPeriphConfig', (event, periphConfig) => {
+    ipcMain.handle('showPeriphConfig', async (event, periphConfig) => {
         console.debug("Showing peripheral config window with initial data");
         console.debug(periphConfig);
-        periphWindow = createPeriphWindow(periphConfig);
+        await createPeriphWindow(periphConfig);
     });
 
     ipcMain.handle('savePeriphConfig', (event, periphConfig) => {
         // Send the data to our main window
         mainWindow.webContents.send('savePeriphConfig', periphConfig);
     });
+
+    // Handle creating & saving the midi config window
+    ipcMain.handle('showMidiConfig', async (event, midiConfig) => {
+        console.debug("Showing midi config window with initial data");
+        console.debug(midiConfig);
+        await createMidiWindow(midiConfig);
+    });
+
+    ipcMain.handle('saveMidiConfig', (event, midiConfig) => {
+        // Close current port
+        if (midiInput.isPortOpen())
+        {
+            midiInput.closePort()
+        }
+        // Open the new midi port if enabled
+        if (midiConfig.Midi.enabled)
+        {
+            openMidiPort(midiConfig.Midi.port);
+        }
+        // Send the data to our main window
+        mainWindow.webContents.send('saveMidiConfig', midiConfig);
+    });
+
+    ipcMain.handle('openMidiPort', (event, port) => {
+        openMidiPort(port);
+    })
+
+    // Handle Midi Messages
+    midiInput.on('message', midiMessageHandler);
+
+    // Create the main window
+    await createMainWindow();
 });

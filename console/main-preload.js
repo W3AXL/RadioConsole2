@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron/renderer')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Config functions
-  readConfig: () => ipcRenderer.invoke('readConfig'),
+  readConfig: (defaultConfig) => ipcRenderer.invoke('readConfig', defaultConfig),
   saveConfig: (configJson) => ipcRenderer.invoke('saveConfig', configJson),
   // Version string
   getVersion: (version) => ipcRenderer.on('appVersion', version),
@@ -14,4 +14,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeSerialPort: () => ipcRenderer.invoke('closeSerialPort'),
   // Serial port status
   serialPortStatus: (status) => ipcRenderer.on('serialPortStatus', status),
+  // Midi Window
+  showMidiConfig: (midiConfig) => ipcRenderer.invoke('showMidiConfig', midiConfig),
+  saveMidiConfig: (midiConfig) => ipcRenderer.on('saveMidiConfig', midiConfig),
+  // Midi Port
+  openMidiPort: (port) => ipcRenderer.invoke('openMidiPort', port),
+  // Midi Message
+  gotMidiMessage: (message) => ipcRenderer.on('gotMidiMessage', message),
 });

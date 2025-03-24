@@ -5,6 +5,41 @@
 // Config, read from main.js on page load
 var config = null;
 
+// Default config values
+const defaultConfig = {
+    Radios: [],
+    Autoconnect: false,
+    ClockFormat: "UTC",
+    Audio: {
+        ButtonSounds: true,
+        UnselectedVol: -9.0,
+        ToneVolume: -9.0,
+        UseAGC: true,
+    },
+    Extension: {
+        address: "127.0.0.1",
+        port: 5555
+    },
+    Peripherals: {
+        serialPort: "",
+        useCtsForPtt: false
+    },
+    Midi: {
+        port: -1,
+        enabled: false,
+        ccs: {
+            masterPtt: {
+                chan: null,
+                num: null,
+            },
+            masterVol: {
+                chan: null,
+                num: null,
+            },
+        }
+    }
+}
+
 // Radio List (read from radio config initially and populated with audio sources/sinks and rtc connections)
 var radios = [];
 
@@ -108,6 +143,17 @@ const rtcConf = {
     
     // Whether to disable FEC and enable CBR (this actually causes more latency annoyingly)
     cbr: false
+}
+
+// Midi Message Types
+const midiMsgTypes = {
+    NOTE_OFF:       0x8,
+    NOTE_ON:        0x9,
+    POLY_AFTER:     0xA,
+    CTRL_CHANGE:    0xB,
+    PGM_CHANGE:     0xC,
+    CHAN_AFTER:     0xD,
+    PITCH_WHEEL:    0xE,
 }
 
 // Flag to start/stop animation callback for audio meters (to save CPU when we're not doing anything)
@@ -302,13 +348,8 @@ $(document).ready(pageLoad());
     Peripheral Functions
 ***********************************************************************************/
 
-// Peripheral config save
-window.electronAPI.savePeriphConfig((event, data) => {
-    console.debug("Received new peripheral config");
-    console.debug(data);
-    config.Peripherals = data.Peripherals;
-    saveConfig();
-});
+// We save the CTS state so we only trigger PTT start/stop on state change
+var lastCtsState = false;
 
 // Show the peripheral config window
 async function showPeriphConfig() {
@@ -324,22 +365,93 @@ async function showPeriphConfig() {
     const result = await window.electronAPI.showPeriphConfig(config.Peripherals);
 }
 
+// Peripheral config save
+window.electronAPI.savePeriphConfig((event, data) => {
+    console.debug("Received new peripheral config");
+    console.debug(data);
+    config.Peripherals = data.Peripherals;
+    saveConfig();
+});
+
 // Callback for handling serial port control line status
 window.electronAPI.serialPortStatus((event, status) => {
     // Handle PTT if enabled
     if (config.Peripherals.useCtsForPtt) {
+        // Ignore if state hasn't changed
+        if (status.cts == lastCtsState)
+        {
+            return;
+        }
+        // Start if we need to
         if (status.cts && !pttActive)
         {
             console.debug("Serial port CTS triggering PTT");
             startPtt(true);
         }
+        // Stop if we need to
         else if (!status.cts && pttActive)
         {
             console.debug("Serial port CTS releasing PTT");
             stopPtt();
         }
+        // Save this new state
+        lastCtsState = status.cts;
     }
 })
+
+/***********************************************************************************
+    Midi Functions
+***********************************************************************************/
+
+async function showMidiConfig() {
+    // If midi config doesn't exist, create it
+    if (!config.hasOwnProperty('Midi'))
+    {
+        config.Midi = defaultConfig.Midi;
+    }
+    // Show the window
+    const result = await window.electronAPI.showMidiConfig(config.Midi);
+}
+
+// Handler for MIDI messages recieved
+window.electronAPI.gotMidiMessage((event, msg) => {
+    const midiConfig = config.Midi
+    //console.debug('Got midi message:');
+    //console.debug(msg);
+    // Check master PTT
+    if (midiConfig.ccs.masterPtt.chan == msg.chan && midiConfig.ccs.masterPtt.num == msg.num)
+    {
+        if (msg.type == midiMsgTypes.NOTE_ON && !pttActive)
+        {
+            console.debug("Starting PTT from MIDI master PTT note on");
+            startPtt(true);
+        }
+        else if (msg.type == midiMsgTypes.NOTE_OFF && pttActive)
+        {
+            console.debug("Stopping PTT from MIDI master PTT note off");
+            stopPtt();
+        }
+    }
+    // Check master volume
+    else if (midiConfig.ccs.masterVol.chan == msg.chan && midiConfig.ccs.masterVol.num == msg.num)
+    {
+        if (msg.type == midiMsgTypes.CTRL_CHANGE)
+        {
+            // Get new volume scaled
+            const newVolume = (msg.data / 127.0).toFixed(2);
+            // Set
+            setVolume(newVolume);
+        }
+    }
+});
+
+// Midi config save
+window.electronAPI.saveMidiConfig((event, data) => {
+    console.debug("Received new midi config");
+    console.debug(data);
+    config.Midi = data.Midi;
+    saveConfig();
+});
 
 /***********************************************************************************
     Radio UI Functions
@@ -1126,7 +1238,7 @@ function getRadioIndex(id) {
 async function readConfig() {
 
     // Read config via IPC and parse
-    configJson = await window.electronAPI.readConfig();
+    configJson = await window.electronAPI.readConfig(defaultConfig);
     try {
         console.debug("Reading config data");
         console.debug(configJson);
@@ -1138,16 +1250,28 @@ async function readConfig() {
     
     console.debug("Successfully read config json");
 
+    let configUpdated = false;
+
     // Populate peripheral config if it's missing
     if (!config.hasOwnProperty('Peripherals'))
     {
-        config.Peripherals = {
-            serialPort: "",
-            useCtsForPtt: false
-        }
-        saveConfig();
+        config.Peripherals = defaultConfig.Peripherals;
+        configUpdated = true;
         console.warn("Peripherals config was missing, added default & saved");
     }
+
+    // Populate default midi config if it's missing
+    if (!config.hasOwnProperty('Midi'))
+    {
+        config.Midi = defaultConfig.Midi;
+        configUpdated = true;
+        console.warn("MIDI config was missing, added default & saved");
+    }
+
+    if (configUpdated) { saveConfig(); }
+
+    // Try to open midi port
+    window.electronAPI.openMidiPort(config.Midi.port);
 
     // Autoconnect on launch
     $("#daemon-autoconnect").prop('checked', config.Autoconnect);
@@ -2046,6 +2170,27 @@ function changeVolume(increment) {
     var newVal = parseInt($("#console-volume").val()) + increment;
     if (newVal < 0) { newVal = 0} else if (newVal > 100) { newVal = 100 }
     $("#console-volume").val(newVal);
+    volumeSlider();
+}
+
+/**
+ * Changes the master console volume
+ * @param {float} level volume level from 0 to 1
+ */
+function setVolume(level)
+{
+    // Range clamping
+    if (level < 0)
+    {
+        level = 0;
+    }
+    else if (level > 1)
+    {
+        level = 1;
+    }
+    // Set volume
+    $("#console-volume").val(Math.round(level * 100));
+    // Trigger update
     volumeSlider();
 }
 

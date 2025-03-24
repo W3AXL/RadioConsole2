@@ -89,7 +89,7 @@
         });
 
         // Handle init config
-        window.electronAPI.showPeriphConfig((event, periphConfig) => {
+        window.electronAPI.populatePeriphConfig((event, periphConfig) => {
             console.debug(`Populating initial peripheral config`);
             console.debug(periphConfig);
             periphSerialPort.value = periphConfig.serialPort;
