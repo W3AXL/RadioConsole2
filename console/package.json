@@ -42,7 +42,6 @@
         "electron-builder": "^25.1.8"
     },
     "dependencies": {
-        "@julusian/midi": "^3.6.1",
         "electron-builder-squirrel-windows": "25.1.8",
         "serialport": "^13.0.0"
     },
