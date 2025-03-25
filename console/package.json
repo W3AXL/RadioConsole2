@@ -1,6 +1,6 @@
 {
     "name": "rc2-console",
-    "version": "1.1.0-beta1",
+    "version": "1.1.1-beta.2",
     "description": "RadioConsole2 Client GUI",
     "author": "W3AXL",
     "license": "MIT",
@@ -38,6 +38,14 @@
     "devDependencies": {
         "cross-env": "^7.0.3",
         "electron": "^28.3.3",
-        "electron-builder": "^24.13.3"
+        "electron-builder": "^25.1.8"
+    },
+    "dependencies": {
+        "electron-builder-squirrel-windows": "25.1.8",
+        "serialport": "^13.0.0",
+        "@julusian/midi": "^3.6.1"
+    },
+    "pnpm": {
+        "neverBuiltDependencies": []
     }
 }

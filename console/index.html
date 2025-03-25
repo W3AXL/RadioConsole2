@@ -15,7 +15,9 @@
             We use this to properly load our custom scripts in electron 
             https://stackoverflow.com/a/37480521/1842613
         -->
-        <script>if (typeof module === 'object') {window.module = module; module = undefined;} </script>
+        <script>
+            if (typeof module === 'object') {window.module = module; module = undefined;} 
+        </script>
 
         <!-- JQuery -->
         <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
@@ -98,18 +100,35 @@
             <!-- Sidebar Menu -->
             <div class="sidebar sidebar-closed" id="sidebar-mainmenu">
                 <ul>
+                    <!-- Client Config -->
                     <li>
                         <a href="#" onclick="showConfigPopup('#client-config-popup');toggleMainMenu();">
                             <span class="sidebar-icon"><ion-icon name="settings-sharp"></ion-icon></span>
                             <span class="sidebar-item">Client Config</span>
                         </a>
                     </li>
+                    <!-- Peripheral Config -->
+                    <li>
+                        <a href="#" onclick="showPeriphConfig();toggleMainMenu();">
+                            <span class="sidebar-icon"><ion-icon name="cube-sharp"></ion-icon></span>
+                            <span class="sidebar-item">Peripheral Config</span>
+                        </a>    
+                    </li>
+                    <!-- Midi Config -->
+                    <li>
+                        <a href="#" onclick="showMidiConfig();toggleMainMenu();">
+                            <ion-icon name="server-sharp"></ion-icon>
+                            <span class="sidebar-item">MIDI Config</span>
+                        </a>    
+                    </li>
+                    <!-- Extension Config -->
                     <li>
                         <a href="#" onclick="showConfigPopup('#extension-config-popup');toggleMainMenu();">
                             <span class="sidebar-icon"><ion-icon name="settings-sharp"></ion-icon></span>
                             <span class="sidebar-item">Extension Config</span>
                         </a>
                     </li>
+                    <!-- About -->
                     <li>
                         <a href="#">
                             <span class="sidebar-icon"><ion-icon name="information-circle-sharp"></ion-icon></span>

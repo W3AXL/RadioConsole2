@@ -1,0 +1,222 @@
+<html>
+
+    <head>
+        <title>Configure MIDI Interface</title>
+
+        <!-- Topcoat CSS -->
+        <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
+
+        <!-- CSS.gg Icons -->
+        <link href='https://css.gg/css' rel='stylesheet'>
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="css/custom.css">
+
+        <!-- JQuery -->
+        <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
+
+        <!-- Local Styles -->
+        <style>
+            .button-learning {
+                border-color: #933;
+                background-color: #C33;
+            }
+            .button-learning:hover {
+                background-color: #F33;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="popup-content">
+            <table class="popup-table">
+                <!-- Serial Port Select Button -->
+                <tr>
+                    <td width="40%">
+                        <h3>MIDI Port</h3>
+                    </td>
+                    <td width="60%" colspan="3">
+                        <select id="midi-port">
+                            <option value="-1">None (Disabled)</option>
+                        </select>
+                    </td>
+                </tr>
+                <!-- Midi Enabled -->
+                <tr>
+                    <td>
+                        <h3>Enabled</h3>
+                    </td>
+                    <td colspan="3">
+                        <label class="topcoat-checkbox">
+                            <input type="checkbox" id="midi-enabled">
+                            <div class="topcoat-checkbox__checkmark"></div>
+                        </label>
+                    </td>
+                </tr>
+                <!-- Master PTT Midi Channel -->
+                <tr id="midi-master-ptt">
+                    <td>
+                        <h3>Master PTT</h3>
+                    </td>
+                    <td>
+                        <input type="text" class="topcoat-text-input midi-chan" id="midi-chan-master-ptt" readonly>
+                    </td>
+                    <td>
+                        <input type="text" class="topcoat-text-input midi-num" id="midi-num-master-ptt" readonly>
+                    </td>
+                    <td>
+                        <button class="topcoat-button--cta learn-cc">Learn</button>
+                    </td>
+                </tr>
+                <!-- Master Volume Midi Channel -->
+                <tr id="midi-master-vol">
+                    <td>
+                        <h3>Master Volume</h3>
+                    </td>
+                    <td>
+                        <input type="text" class="topcoat-text-input midi-chan" id="midi-chan-master-vol" readonly>
+                    </td>
+                    <td>
+                        <input type="text" class="topcoat-text-input midi-num" id="midi-num-master-vol" readonly>
+                    </td>
+                    <td>
+                        <button class="topcoat-button--cta learn-cc">Learn</button>
+                    </td>
+                </tr>
+                <!-- Save Config Button -->
+                <tr>
+                    <td></td>
+                    <td>
+                        <button class="topcoat-button--cta" id="midi-savebtn">Save</button>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </body>
+
+    <script type="text/javascript">
+        // Form Fields
+        let midiPort = document.getElementById("midi-port");
+        let midiEnabled = document.getElementById("midi-enabled");
+        let midiSaveBtn = document.getElementById("midi-savebtn");
+
+        // Midi Channel Inputs
+        let chanMasterPtt = document.getElementById("midi-chan-master-ptt");
+        let chanMasterVol = document.getElementById("midi-chan-master-vol");
+
+        // Midi number inputs
+        let numMasterPtt = document.getElementById("midi-num-master-ptt");
+        let numMasterVol = document.getElementById("midi-num-master-vol");
+
+        // Bind CC learn buttons
+        var learnCCBtns = document.getElementsByClassName("learn-cc");
+        for (var i = 0; i < learnCCBtns.length; i++)
+        {
+            learnCCBtns[i].addEventListener('click', learnCC);
+        }
+
+        // Whether we're learning a CC or not
+        let learningCC = null;
+
+        function learnCC(event)
+        {
+            if (learningCC == null)
+            {
+                // Get the CC input closest to this button
+                learningCC = $(event.target).closest("tr");
+                // Get the channel & number input elements
+                inputChan = learningCC.find('.midi-chan');
+                inputNum = learningCC.find('.midi-num');
+                // Validate
+                if (inputChan.attr('type') != "text" || inputNum.attr('type') != 'text')
+                {
+                    console.error(`Failed to get CC input to learn!`);
+                    return;
+                }
+                // Clear current values
+                inputChan.val("");
+                inputNum.val("");
+                console.info(`Currently learning MIDI CC for ${learningCC}`);
+                // Change button color
+                event.target.classList.add("button-learning");
+            }
+            else
+            {
+                // Cancel the learn
+                learningCC = null;
+                // Remove the button learn color
+                event.target.classList.remove("button-learning");
+            }
+            
+        }
+
+        // Bind save
+        midiSaveBtn.addEventListener('click', (event) => {
+            midiConfig = {
+                Midi: {
+                    port: parseInt(midiPort.value),
+                    enabled: midiEnabled.checked,
+                    ccs: {
+                        masterPtt: {
+                            chan: isNaN(parseInt(chanMasterPtt.value)) ? null : parseInt(chanMasterPtt.value),
+                            num: isNaN(parseInt(numMasterPtt.value)) ? null : parseInt(numMasterPtt.value),
+                        },
+                        masterVol: {
+                            chan: isNaN(parseInt(chanMasterVol.value)) ? null : parseInt(chanMasterVol.value),
+                            num: isNaN(parseInt(numMasterVol.value)) ? null : parseInt(numMasterVol.value),
+                        }
+                    }
+                }
+            }
+            console.debug("Sending new midi config");
+            console.debug(midiConfig);
+            window.electronAPI.saveMidiConfig(midiConfig);
+        });
+
+        // Handle ports
+        window.electronAPI.gotPorts((event, portList) => {
+            console.debug("Got list of midi ports");
+            portList.forEach((port, idx) => {
+                var opt = document.createElement('option');
+                opt.value = port.index;
+                opt.innerHTML = `${port.name}`;
+                midiPort.appendChild(opt);
+            });
+        });
+
+        // Handle midi message
+        window.electronAPI.gotMidiMessage((event, message) => {
+            //console.debug("Got midi message");
+            //console.debug(message);
+            // If we're learning a bind, get the info
+            if (learningCC != null)
+            {
+                // Get channel and number
+                inputChan = learningCC.find('.midi-chan');
+                inputNum = learningCC.find('.midi-num');
+                // Update values
+                inputChan.val(message.chan);
+                inputNum.val(message.num);
+                // Log
+                console.debug(`Bound ${learningCC.attr("id")} to Midi channel ${message.chan}, number ${message.num}`);
+                // Cancel learn
+                learningCC = null;
+                // Clear button class
+                $(".button-learning").removeClass("button-learning");
+            }
+        });
+
+        // Handle init config
+        window.electronAPI.populateMidiConfig((event, midiConfig) => {
+            console.debug(`Populating initial midi config`);
+            console.debug(midiConfig);
+            midiPort.value = midiConfig.port;
+            midiEnabled.checked = midiConfig.enabled;
+            chanMasterPtt.value = midiConfig.ccs.masterPtt.chan;
+            numMasterPtt.value = midiConfig.ccs.masterPtt.num;
+            chanMasterVol.value = midiConfig.ccs.masterVol.chan;
+            numMasterVol.value = midiConfig.ccs.masterVol.num;
+        });
+    </script>
+
+</html>

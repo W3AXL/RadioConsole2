@@ -1,0 +1,100 @@
+<html>
+
+    <head>
+        <title>Configure Peripherals</title>
+
+        <!-- Topcoat CSS -->
+        <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
+
+        <!-- CSS.gg Icons -->
+        <link href='https://css.gg/css' rel='stylesheet'>
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="css/custom.css">
+
+        <!-- JQuery -->
+        <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
+
+        <!-- Local Styles -->
+        <style>
+
+        </style>
+    </head>
+
+    <body>
+        <div class="popup-content">
+            <table class="popup-table">
+                <!-- Serial Port Select Button -->
+                <tr>
+                    <td width="50%">
+                        <h3>Serial Port</h3>
+                    </td>
+                    <td width="50%">
+                        <select id="periph-serialport">
+                            <option value="">None (Disabled)</option>
+                        </select>
+                    </td>
+                </tr>
+                <!-- Use Serial CTS for PTT -->
+                <tr>
+                    <td>
+                        <h3>Serial CTS for PTT</h3>
+                    </td>
+                    <td>
+                        <label class="topcoat-checkbox">
+                            <input type="checkbox" id="periph-ctsptt">
+                            <div class="topcoat-checkbox__checkmark"></div>
+                        </label>
+                    </td>
+                </tr>
+                <!-- Save Config Button -->
+                <tr>
+                    <td></td>
+                    <td>
+                        <button class="topcoat-button--cta" id="periph-savebtn">Save</button>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </body>
+
+    <script type="text/javascript">
+        // Form Fields
+        let periphSerialPort = document.getElementById("periph-serialport");
+        let periphCtsForPtt = document.getElementById("periph-ctsptt");
+        let periphSaveButton = document.getElementById("periph-savebtn");
+
+        // Bind save
+        periphSaveButton.addEventListener('click', (event) => {
+            periphConfig = {
+                Peripherals: {
+                    serialPort: periphSerialPort.value,
+                    useCtsForPtt: periphCtsForPtt.checked
+                }
+            }
+            console.debug("Sending new peripheral config");
+            console.debug(periphConfig);
+            window.electronAPI.savePeriphConfig(periphConfig);
+        });
+
+        // Handle ports
+        window.electronAPI.gotPorts((event, portList) => {
+            console.debug("Got list of serial ports");
+            portList.forEach((port, idx) => {
+                var opt = document.createElement('option');
+                opt.value = port.path;
+                opt.innerHTML = `${port.friendlyName}`;
+                periphSerialPort.appendChild(opt);
+            });
+        });
+
+        // Handle init config
+        window.electronAPI.populatePeriphConfig((event, periphConfig) => {
+            console.debug(`Populating initial peripheral config`);
+            console.debug(periphConfig);
+            periphSerialPort.value = periphConfig.serialPort;
+            periphCtsForPtt.checked = periphConfig.useCtsForPtt;
+        });
+    </script>
+
+</html>
