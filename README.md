@@ -18,6 +18,11 @@ The latest release can be found on the right side of the Github Repo main page, 
 
 You will find both `rc2-daemon` and `rc2-console` available for download. You will need both for a full RC2 system, [see the documentation](https://rc2.readthedocs.io) for more information.
 
+## Support
+
+If you encounter issues using RC2, you should first consider joining [our Discord channel on the DVMProject discord server](https://discord.gg/Y9CF6zNtjr). If you don't wish to use
+Discord, you can always [create an issue using our bug issue template](https://github.com/W3AXL/RadioConsole2/issues/new/choose).
+
 ## Building
 
 ### Radio Daemon
