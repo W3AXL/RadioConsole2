@@ -30,9 +30,9 @@ assuming that you clone the repo using `--recurse-submodules`.
 Once the .NET SDK is installed, you can build the daemon easily using the following steps:
 
 ```console
-:~ $ git clone --recurse-submodules https://github.com/W3AXL/RadioConsole2.git
-:~ $ cd RadioConsole2/daemon
-:~ $ dotnet build
+git clone --recurse-submodules https://github.com/W3AXL/RadioConsole2.git
+cd RadioConsole2/daemon
+dotnet build
 ```
 
 The `dotnet build` command should automatically install all required dependencies via NuGET and build the daemon.
@@ -51,10 +51,10 @@ to install Node on your operating system. Ensure that you select `pnpm` as the p
 Once Node and PNPM are installed, you can use the following steps to install all required Node dependencies and run the console in development mode
 
 ```console
-:~ $ git clone --recurse-submodules https://github.com/W3AXL/RadioConsole2.git
-:~ $ cd console
-:~ $ pnpm install
-:~ $ pnpm run start
+git clone --recurse-submodules https://github.com/W3AXL/RadioConsole2.git
+cd console
+pnpm install
+pnpm run start
 ```
 
 Additionally, you can package the console into a single-file application using the command `pnpm run dist`. This will place a compiled
