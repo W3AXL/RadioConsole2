@@ -12,6 +12,12 @@ RC2 consists of two parts - the GUI console (`rc2-console`) and the individual r
 
 All RC2 documentation is now hosted at [ReadTheDocs](https://rc2.readthedocs.io).
 
+## Downloading
+
+The latest release can be found on the right side of the Github Repo main page, or by [following this link](https://github.com/W3AXL/RadioConsole2/releases)
+
+You will find both `rc2-daemon` and `rc2-console` available for download. You will need both for a full RC2 system, [see the documentation](https://rc2.readthedocs.io) for more information.
+
 ## Building
 
 ### Radio Daemon
