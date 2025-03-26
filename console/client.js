@@ -177,10 +177,13 @@ const radioCardTemplate = document.querySelector('#card-template');
 const alertTemplate = document.querySelector("#alert-dialog-template");
 
 // Radio JSON validation
-const validColors = ["red","amber","green","blue","purple"];
+const validColors = ["red","amber", "yellow", "green", "teal", "blue", "purple"];
 
 // Extension websocket connection
 var extensionWs = null;
+
+// Whether we're currently editing a radio
+var editingRadioIdx = -1;
 
 /***********************************************************************************
     State variables
@@ -522,9 +525,11 @@ function deselectRadios() {
  * Populate radio cards based on the radios in radios[] and bind their buttons
  */
 function populateRadios() {
+    console.debug("Populating radio cards from initial config");
     // Add a card for each radio in the list
     radios.forEach((radio, index) => {
-        console.log("Adding radio " + radio.name);
+        console.info("Adding radio " + radio.name);
+        console.debug(radio);
         // Add the radio card
         addRadioCard("radio" + String(index), radio.name, radio.color);
         // Update edit list
@@ -552,6 +557,9 @@ function clearRadios() {
  * @param {string} name Name to display in header
  */
 function addRadioCard(id, name, color) {
+    // Log
+    console.debug(`Adding card for radio ${name} (id ${id})`);
+
     // New, much easier way to add new cards
     var newCard = radioCardTemplate.content.cloneNode(true);
     newCard.querySelector(".radio-card").classList.add(color);
@@ -575,36 +583,227 @@ function addRadioCard(id, name, color) {
     $("#main-layout").append(newCard);
 }
 
-function addRadioToEditTable(radio) {
-    $("#edit-radios-table tr:last").after(`
-        <tr><td>${radio.name}</td><td>${radio.address}</td><td>${radio.port}</td><td><a href="#" onclick="deleteRadio(this, '${radio.name}')"><ion-icon name='trash-bin-sharp'></ion-icon></a></td></tr>
-    `);
-}
-
-function deleteRadio(editRow, name) {
-    var found = false;
-    console.warn(`Removing radio ${name}`);
-    // Remove from config and radio objects
-    radios.forEach((radio, index) => {
-        if (radio.name == name) {
-            // Update list objects
-            config.Radios.splice(index, 1);
-            radios.splice(index, 1);
-            // Remove radio card
-            console.debug("Removing radio card by identifier: " + `.radio-card:contains("${name}")`);
-            $(`.radio-card:contains("${name}")`).remove();
-            // Update List
-            $(editRow).closest("tr").remove();
-            // Save config
-            saveConfig();
-            // update flag
-            found = true;
+/**
+ * Add a radio to the edit radios table
+ * @param {Radio} radio radio object to add
+ * @param {int} index optional index in the table to overwrite
+ */
+function addRadioToEditTable(radio, index = null) {
+    // Get nice pretty display value for pan
+    let panValue = "C";
+    if (radio.pan != 0)
+    {
+        const panPercent = Math.abs(radio.pan / 1.0).toFixed(2) * 100;
+        if (radio.pan < 0)
+        {
+            panValue = `L ${panPercent}%`;
         }
-    });
-    if (!found) {
-        alert("Failed to delete radio!");
+        else
+        {
+            panValue = `R ${panPercent}%`;
+        }
+    }
+    // Create HTML content
+    const tableRowHtml = `
+        <td class="radio-table-name">${radio.name}</td>
+        <td class="radio-table-address">${radio.address}</td>
+        <td class="radio-table-port">${radio.port}</td>
+        <td class="radio-table-color">${radio.color}</td>
+        <td class="radio-table-pan">${panValue}</td>
+        <td class="radio-table-actions">
+            <a href="#" onclick="editRadio(this, '${radio.name}')" title="Edit"><ion-icon name="create-sharp"></ion-icon></a>
+            &nbsp;
+            <a href="#" onclick="deleteRadio(this, '${radio.name}')" title="Delete">
+                <ion-icon name='trash-bin-sharp'></ion-icon>
+            </a>
+        </td>
+    `
+    if (index != null)
+    {
+        console.debug(`Updating edit table row ${index} for radio ${radio.name}`);
+        $(`#edit-radios-table tr:eq(${index})`).html(tableRowHtml);
+    }
+    else
+    {
+        console.debug(`Adding edit table row for radio ${radio.name} to end of table`);
+        $("#edit-radios-table tr:last").after(`<tr>${tableRowHtml}</tr>`);
     }
 }
+
+/**
+ * Show the radio dialog for a new radio (empty)
+ */
+function showAddRadioDialog()
+{
+    window.electronAPI.showRadioConfig(null);
+}
+
+/**
+ * Show the radio dialog for an existing radio
+ * @param {int} editRow 
+ * @param {str} name 
+ */
+function editRadio(editRow, name)
+{
+    // Find the radio
+    const idx = radios.findIndex((radio) => radio.name == name);
+    // Verify found
+    if (idx < 0)
+    {
+        alert(`Unable to edit radio ${name}: could not find radio in list`);
+        return;
+    }
+    // Get radio config
+    const radioConfig = config.Radios[idx]
+    // Flag editing
+    editingRadioIdx = idx;
+    console.info(`Now editing radio ${radioConfig.name}`);
+    console.debug(radioConfig);
+    // Show window
+    window.electronAPI.showRadioConfig(radioConfig);
+}
+
+/**
+ * Delete a radio
+ * @param {int} editRow row in the table
+ * @param {str} name name of the radio
+ */
+function deleteRadio(editRow, name) {
+    // Find the radio
+    const idx = radios.findIndex((radio) => radio.name == name);
+    // Verify found
+    if (idx < 0)
+    {
+        alert(`Unable to delete radio ${name}: could not find radio in list`);
+        return;
+    }
+    // Log
+    console.info(`Removing radio ${name})`)
+    console.debug(config.Radios[idx]);
+    // Remove from config and radio list
+    config.Radios.splice(idx, 1);
+    radios.splice(idx, 1);
+    // Remove card
+    $(`.radio-card:contains("${name}")`).remove();
+    // Remove row in radio table
+    $(editRow).closest("tr").remove();
+    // Save config
+    saveConfig();
+}
+
+/**
+ * Handle radio edit dialog cancel
+ */
+window.electronAPI.cancelRadioConfig(() => {
+    if (editingRadioIdx >= 0)
+    {
+        console.debug("Clearing edit radio flag, edit cancelled");
+        editingRadioIdx = -1;
+    }
+});
+
+/**
+ * New handler for getting new radio configurations from the radio config window
+ */
+window.electronAPI.saveRadioConfig((event, radioConfig) => {
+    // Debug print
+    console.debug('Got new radio config from radio edit window!');
+    console.debug(radioConfig);
+
+    // Handle edit of an existing radio first
+    if (editingRadioIdx >= 0)
+    {
+        console.info(`Updating radio at index ${editingRadioIdx}`);
+        console.debug(radioConfig);
+        
+        // Store index
+        const idx = editingRadioIdx;
+        // Clear flag
+        editingRadioIdx = -1;
+        
+        // Update radio config at index
+        config.Radios[idx] = radioConfig;
+        saveConfig();
+
+        // Disconnect radio if connected
+        if (radios[idx].status.State != 'Disconnected')
+        {
+            disconnectRadio(idx);
+        }
+
+        // Update radio in main list
+        radios[idx].name = radioConfig.name;
+        radios[idx].address = radioConfig.address;
+        radios[idx].port = radioConfig.port;
+        radios[idx].color = radioConfig.color;
+        radios[idx].pan = radioConfig.pan;
+
+        // Find the table row for this radio and get its index
+        let editTableRow = $(`#edit-radios-table tr:contains('${radioConfig.name}')`);
+        const editTableIndex = editTableRow.index();
+
+        // Update the row at the index
+        addRadioToEditTable(radioConfig, editTableIndex);
+
+        // Update card
+        updateRadioCard(idx);
+        
+        // Return
+        return;
+    }
+
+    // Validate radio doesn't already exist
+    if (config.Radios.some(radio => radio.name === radioConfig.name))
+    {
+        alert(`Radio with name ${radioConfig.name} already exists!`);
+        return;
+    }
+    if (config.Radios.some(radio => radio.address === radioConfig.address) && config.Radios.some(radio => radio.port === radioConfig.port))
+    {
+        alert(`Radio at destination ${radioConfig.address}:${radioConfig.port} already exists!`);
+        return;
+    }
+    // Validate color selection
+    if (!validColors.includes(radioConfig.color))
+    {
+        alert(`Invalid radio color selected: ${radioConfig.color}`);
+        return;
+    }
+    
+    // Save new radio
+    config.Radios.push(radioConfig);
+    saveConfig();
+    
+    // Copy config to a new radio object (this gets added to our current radios)
+    var newRadio = radioConfig;
+
+    // Populate defaults
+    newRadio.status = { State: 'Disconnected' };
+    newRadio.rtc = {};
+    newRadio.wsConn = null;
+    newRadio.audioSrc = null;
+
+    // Get the index for this new radio (will be at the end of the list)
+    const newRadioIdx = radios.length;
+
+    // Append to config
+    radios.push(newRadio);
+
+    // Populate new radio
+    console.log("Adding radio " + newRadio.name);
+    
+    // Add the radio card
+    addRadioCard("radio" + String(newRadioIdx), newRadio.name, newRadio.color);
+    
+    // Populate its text
+    updateRadioCard(newRadioIdx);
+    
+    // Update edit list
+    addRadioToEditTable(newRadio);
+    
+    // Clear form
+    newRadioClear();
+});
 
 function stopClick(event, obj) {
     event.stopPropagation();
@@ -618,9 +817,25 @@ function updateRadioCard(idx) {
     // Get card object
     var radioCard = $("#radio" + String(idx));
 
-    // Update card name & description (we limit the header name to 14 characters)
-    radioCard.find(".radio-name").html(radio.status.Name ? radio.status.Name.substring(0,14) : `Radio ${idx}`);
+    // Update card name & description
+    radioCard.find(".radio-name").html(radio.status.Name ? radio.status.Name : radio.name);
     radioCard.find(".radio-name").attr("title", radio.status.Description);
+
+    // Update color if changed
+    if (!radioCard.hasClass(radio.color))
+    {
+        const cardClasses = radioCard.attr('class').split(/\s+/);
+        cardClasses.forEach((className) => {
+            if (validColors.some(color => color === className))
+            {
+                const oldColor = className
+                console.debug(`Updating radio card color from ${oldColor} to ${radio.color}`);
+                radioCard.removeClass(oldColor);
+                radioCard.addClass(radio.color);
+            }
+        })
+        
+    }
 
     // Limit zone & channel text to 27/18 characters
     // TODO: figure out dynamic scaling of channel/zone text so we don't have to do this
@@ -786,24 +1001,6 @@ function startPtt(micActive) {
                 clearTimeout(alertStopTimeout)
                 alertStopTimeout = null;
             }
-            
-            // Old logic that doesn't use the ACK below
-            // Unmute mic after timeout, if requested
-            /**if (micActive) {
-                setTimeout( unmuteMic, audio.micUnmuteDelay);
-            }
-            // Play TPT
-            playSound("sound-ptt");
-            // Send radio keyup after latency timeout
-            setTimeout( function() {
-                radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-                    {
-                        "radio": {
-                            "command": "startTx"
-                        }
-                    }
-                ));
-            }, radios[selectedRadioIdx].rtc.txLatency);**/
             
             // Flag that we want the mic to unmute or not
             txUnmuteMic = micActive;
@@ -1323,8 +1520,6 @@ async function readConfig() {
         }
         // Default mute (not muted)
         radios[idx].mute = false;
-        // Default name (used for logging until we get the proper name)
-        radios[idx].name = `Radio ${idx}`;
     });
 
     // Populate radio cards
@@ -1376,58 +1571,6 @@ function newRadioClear() {
     $('#new-radio-address').val('');
     $('#new-radio-port').val('');
     $('#new-radio-pan').val(0);
-}
-
-function newRadioAdd() {
-    // Get values
-    const newRadioAddress = $('#new-radio-address').val();
-    const newRadioPort = $('#new-radio-port').val();
-    const newRadioColor = $('#new-radio-color').val();
-    const newRadioPan = $('#new-radio-pan').val();
-
-    // Create the new radio entry
-    var newRadio = {
-        address: newRadioAddress,
-        port: newRadioPort,
-        color: newRadioColor,
-        pan: newRadioPan,
-    };
-
-    // Validate
-    if (!validColors.includes(newRadio.color)) {
-        console.warn(`Color ${newRadio.color} not valid, defaulting to blue`);
-        radios[idx].color = "blue";
-    }
-
-    // Save config
-    config.Radios.push(newRadio);
-    saveConfig();
-    
-    // Populate default values
-    newRadio.status = { State: 'Disconnected' };
-    newRadio.rtc = {};
-    newRadio.wsConn = null;
-    newRadio.audioSrc = null;
-
-    // Get the index
-    var newRadioIdx = radios.length;
-
-    // Default name (used for logging until we get the proper name)
-    newRadio.name = `Radio ${newRadioIdx}`;
-
-    // Append to config
-    radios.push(newRadio);
-
-    // Populate new radio
-    console.log("Adding radio " + newRadio.name);
-    // Add the radio card
-    addRadioCard("radio" + String(newRadioIdx), newRadio.name, newRadio.color);
-    // Populate its text
-    updateRadioCard(newRadioIdx);
-    // Update edit list
-    addRadioToEditTable(newRadio);
-    // Clear form
-    newRadioClear();
 }
 
 /***********************************************************************************
@@ -1957,7 +2100,7 @@ function startAudioDevices() {
 
     // Create gain node for output volume and connect it to the default output device
     audio.outputGain = audio.context.createGain();
-    audio.outputGain.gain.value = 0.75;
+    audio.outputGain.gain.value = Math.pow($("#console-volume").val() / 100, 2);
     audio.outputGain.connect(audio.context.destination);
 
     // Start audio input
@@ -2160,8 +2303,11 @@ function zeroAudioMeters()
 function volumeSlider() {
     // Convert 0-100 to 0-1 for multiplication with audio, using an inverse-square curve for better "logarithmic" volume
     const newVol = Math.pow($("#console-volume").val() / 100, 2);
-    // Set gain node to new value
-    audio.outputGain.gain.value = newVol;
+    // Set gain node to new value if it exists
+    if (audio.outputGain != null)
+    {
+        audio.outputGain.gain.value = newVol;
+    }
     // Set volume of each ui html sound
     const uiSounds = document.getElementsByClassName("ui-audio");
     for (var i = 0; i < uiSounds.length; i++) {
@@ -2954,8 +3100,19 @@ function extensionConnect() {
         extensionWs.close();
         return;
     }
+    // Prepare URL
+    const wsUrl = `ws://${config.Extension.address}:${config.Extension.port}`;
+    // Verify valid address
+    try {
+        const url = new URL(wsUrl);
+    }
+    catch (_)
+    {
+        alert("Invalid extension URL, cannot open connection!");
+        return;
+    }
     // Create the connection
-    extensionWs = new WebSocket(`ws://${config.Extension.address}:${config.Extension.port}`);
+    extensionWs = new WebSocket(wsUrl);
     // Create websocket
     extensionWs.onerror = function(event) { handleExtensionError(event) };
     extensionWs.onmessage = function(event) { recvExtensionMessage(event) };
