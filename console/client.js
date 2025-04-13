@@ -165,6 +165,9 @@ var audio_playing = false;
 // Flag to unmute the mic on receipt of a startTx ACK from the radio
 var txUnmuteMic = false;
 
+// Timeout that starts alert tone transmit
+var alertStartTimeout = null;
+
 // Timeout that ends TX after console alert delay
 var alertStopTimeout = null;
 
@@ -1269,37 +1272,53 @@ function startAlert(mode) {
             break;
     }
     // Wait for TX
-    sendAlert()
+    alertStartTimeout = setTimeout(() => {
+        sendAlert()
+    }, 50);
 }
 
 function sendAlert() {
     // Wait for TX
     if (radios[selectedRadioIdx].status.State != "Transmitting") {
         console.debug("waiting for radio to start transmitting");
-        setTimeout(() => {
+        alertStartTimeout = setTimeout(() => {
             sendAlert();
         }, 50);
     } else {
         // Ensure mic is muted
         muteMic();
         console.debug("Radio transmitting, starting alert tone");
-        setTimeout(() => {
+        alertStartTimeout = setTimeout(() => {
             audio.tones.start();
+            alertStartTimeout = null;
         }, radios[selectedRadioIdx].rtc.txLatency)
     }
 }
 
 function stopAlert() {
-    console.debug("Stopping alert tones");
-    // Stop the tones
-    audio.tones.stop();
-    // Re-enable the mic
-    setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
-    // We wait 5 seconds after the release of the alert button before releasing PTT
-    alertStopTimeout = setTimeout(() => {
+    // Cancel start timeout if pending
+    if (alertStartTimeout != null)
+    {
+        console.debug("Cancelling alert tone start");
+        clearTimeout(alertStartTimeout);
+        alertStartTimeout = null;
         stopPtt();
-        alertStopTimeout = null;
-    }, 5000);
+    }
+    // Normal tone end with TX voice tail 
+    else
+    {
+        console.debug("Stopping alert tones");
+        // Stop the tones
+        audio.tones.stop();
+        // Re-enable the mic
+        setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
+        // We wait 5 seconds after the release of the alert button before releasing PTT
+        alertStopTimeout = setTimeout(() => {
+            stopPtt();
+            alertStopTimeout = null;
+        }, 5000);
+    }
+    
 }
 
 /***********************************************************************************
