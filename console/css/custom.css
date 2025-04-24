@@ -408,18 +408,25 @@ ion-icon {
     margin-left: 8px;
     margin-top: 8px;
     width: 300px;
-    height: 124px;
+    min-height:134px;   
+    vertical-align: top;
+    overflow: hidden;
+    transition:max-height .25s ease;
     font-family: "Iosevka Bold";
     /* Clip Path for Angles */
     clip-path: polygon(0 0, 100% 0, 100% 83%, 93% 100%, 0 100%);
     background-color: rgba(0,0,0,0);
     user-select: none;
 }
+.radio-card.log-open {                   
+    min-height: 188px; /* expanded size */
+    clip-path: polygon(0 0, 100% 0, 100% 81%, 93% 100%, 0 100%);
+}
 
 .radio-card .card {
     /* Width is overall card width -4 px for border */
     width: 296px;
-    height: 120px;
+    height: auto;
     position: absolute;
 }
 
@@ -740,7 +747,8 @@ ion-icon {
 .radio-card .content {
     position: absolute;
     width: 100%;
-    height: 90px;
+    min-height:90px;            /* original size */
+    height:auto;                /* expand with caller log */
     top: 32px;
     left: 2px;
     box-sizing: border-box;
@@ -847,6 +855,120 @@ ion-icon {
     color: var(--color-card-midpurple);
 }
 
+/* live line ----------------------------------------------------*/
+.callerid-live{
+    height:18px;
+    line-height:18px;
+    font-size:18px;
+    font-family:"Iosevka Bold";
+    color:var(--color-txt-light);
+    /* little breathing-room under the live line */
+    margin-bottom:2px;
+    overflow:hidden;
+    white-space:nowrap;
+    text-overflow:ellipsis;
+}
+
+/* scrolling list ----------------------------------------------*/
+.caller-log{
+    list-style:none;
+    margin:0;
+    padding:0;
+    font-size:16px;
+    line-height:18px;
+    max-height:54px;           /* exactly three rows */
+    overflow:hidden;           /* hides rows we remove last */
+}
+
+.caller-log .cidtime{opacity:.75} /* dimmed time column */
+.caller-log .cid { overflow:hidden; text-overflow:ellipsis; }
+
+/* wrapper for the live line and log */
+.caller-log-wrap{
+    position:relative;           
+    margin-top:2px;
+    overflow-y:hidden;          
+    background:rgba(0,0,0,.25);  /* faint backdrop so it stands out */
+    border:1px solid rgba(255,255,255,.08);
+    transition:max-height .25s ease;
+    max-height:0;                /* collapsed */
+    width: 90%;
+}
+
+/* expanded state */
+.caller-log-wrap.expanded{       
+    max-height:54px; 
+}
+
+/* hide empty rows */
+.caller-log li.stub{visibility:hidden}
+
+/* every row = three-column grid (ID | time | label) */
+.caller-log li{
+    display:grid; 
+    grid-template-columns: 1fr 65px 45px;
+    font-size:14px; line-height:18px;
+    color:var(--color-txt-light);
+    border-bottom:1px solid rgba(255,255,255,.1);
+}
+
+/*  chevron toggle  */
+.caller-log-toggle{
+    position:absolute;
+    right:6px; top:2px;     /* floats on the same line as live row */
+    font-size:16px;
+    color:var(--color-txt-mid);
+    cursor:pointer;
+    user-select:none;
+    z-index:2;
+}
+
+.caller-log-wrap.expanded + .caller-log-toggle ion-icon{
+    transform:rotate(180deg);    /* points up when open */
+}
+
+/*  drawer container  */
+#caller-drawer{
+    position:fixed;
+    top:48px;                       /* under your navbar                 */
+    right:0;
+    width:320px;                    /* tweak to taste                    */
+    height:calc(100% - 48px);
+    background:var(--color-bg-mid);
+    box-shadow:-6px 0 14px rgba(0,0,0,.6);
+    transform:translateX(100%);     /* hidden off-screen                 */
+    transition:transform .25s ease;
+    z-index:50;
+    display:flex;
+    flex-direction:column;
+}
+#caller-drawer.open{ transform:translateX(0); }
+
+/*  header bar  */
+#caller-drawer header{
+    height:34px;
+    padding:4px 8px;
+    background:var(--color-accent-mid);
+    color:var(--color-txt-light);
+    font:20px/26px "Iosevka Bold";
+    display:flex;
+    align-items:center;
+}
+#drawer-title{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; }
+#drawer-close{
+    width:28px; height:28px;
+    font:24px/24px monospace;
+    background:none; border:none; color:var(--color-txt-mid);
+    cursor:pointer;
+}
+#drawer-close:hover{ color:var(--color-txt-light); }
+
+/*  body  */
+#drawer-body{
+    overflow-y:auto;                /* scroll if log gets long           */
+    padding:8px;
+}
+  
 /********************************
     Bottom Control Bar Styling
 ********************************/

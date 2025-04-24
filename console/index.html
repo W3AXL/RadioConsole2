@@ -186,6 +186,24 @@
                             <div class="content">
                                 <div id="zone-text">Zone Text</div>
                                 <div id="channel-text">Channel Text</div>
+                                <!-- Live / flashing line -->
+                                <div class="callerid-live"></div>
+                                <!-- collapsible wrapper -->
+                                <div class="caller-log-wrap collapsed">
+                                    <!-- Scrolling history (newest on top) -->
+                                    <ul class="caller-log">
+                                        <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                                        <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                                        <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                                    </ul>
+                                </div>
+
+                                <!-- collapse chevron to open / close -->
+                                <a  class="caller-log-toggle" title="Show caller log"
+                                    onclick="toggleCallerLog(this)">
+                                    <ion-icon name="chevron-down-sharp"></ion-icon>
+                                </a>
+                                
                                 <!-- RX Audio Bar -->
                                 <div class="audio-bar">
                                     <div class="audio-eq">

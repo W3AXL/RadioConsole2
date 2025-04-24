@@ -3,7 +3,7 @@
     "verbose noreset": {
       "commandName": "Project",
       "commandLineArgs": "-d -v -nr -c .\\config\\config.toml",
-      "workingDirectory": "H:\\Documents\\GitHub\\RadioConsole2\\daemon"
+      "workingDirectory": "E:\\RadioConsole2\\daemon"
     },
     "verbose": {
       "commandName": "Project",

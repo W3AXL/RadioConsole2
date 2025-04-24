@@ -10,6 +10,7 @@ const defaultConfig = {
     Radios: [],
     Autoconnect: false,
     ClockFormat: "UTC",
+    CallLogOverlay: true,
     Audio: {
         ButtonSounds: true,
         UnselectedVol: -9.0,
@@ -461,6 +462,76 @@ window.electronAPI.saveMidiConfig((event, data) => {
 ***********************************************************************************/
 
 /**
+ * Toggle the caller log on the radio card
+ * @param {HTMLElement} toggleAnchor the anchor element that was clicked
+ * @returns {void}
+ * */
+function toggleCallerLog(toggleAnchor){
+    const wrap = toggleAnchor.previousElementSibling;   // the .caller-log-wrap
+    wrap.classList.toggle('expanded');
+
+
+    const card = toggleAnchor.closest('.radio-card');
+    card.classList.toggle('log-open', wrap.classList.contains('expanded'));
+
+    // change tooltip text
+    toggleAnchor.title = wrap.classList.contains('expanded')
+        ? 'Hide caller log' : 'Show caller log';
+}
+
+/**
+ * Show live caller-ID while the radio is Receiving.
+ * Only when the call *finishes* does the ID get added to the scroll-back.
+ *
+ * @param {HTMLElement} cardEl – the .radio-card element
+ * @param {string|null} idStr  – the current caller-ID (null/"" when idle)
+ */
+function updateCallerId(cardEl, idStr){
+
+    // this object lives for the lifetime of the element
+    if (!cardEl._cidState){
+        cardEl._cidState = {
+            liveId   : "",   // ID currently shown in live line
+            active   : false // true while RX is up
+        };
+    }
+    const st   = cardEl._cidState;
+    const live = cardEl.querySelector('.callerid-live');
+    const log  = cardEl.querySelector('.caller-log');
+
+    /* ── radio is Receiving ─────────────────────────────────────────── */
+    if (idStr){                     // non-empty ⇒ still RX’ing
+        live.textContent = idStr;   // update live line
+        st.liveId = idStr;          // remember it
+        st.active = true;           // mark "call in progress"
+
+    /* ── radio just went idle – append the *previous* ID ────────────── */
+    } else if (st.active){          // we *were* RXing and just stopped
+        st.active = false;
+
+        const timeStr =
+        (config?.ClockFormat === "UTC")
+            ? getTimeUTC("HH:mm:ss")   
+            : getTimeLocal("HH:mm:ss");
+
+        // build one <li> row and stick it on top of the UL
+        const li = document.createElement('li');
+        li.innerHTML =
+            `<span class="cid">${st.liveId}</span>
+             <span class="cidtime">${timeStr}</span>
+             <span class="cidlabel">PTT&nbsp;ID</span>`;
+        log.prepend(li);
+
+        // keep only three rows
+        while (log.children.length > 3){
+            log.removeChild(log.lastChild);
+        }
+        // clear the live line
+        live.textContent = "";
+        st.liveId = "";
+    }
+}
+/**
  * Select a radio
  * @param {string} id the id of the radio to select
  */
@@ -632,6 +703,10 @@ function updateRadioCard(idx) {
     if (radio.status.ChannelName != null) {
         const shortChan = radio.status.ChannelName.substring(0,19);
         radioCard.find("#channel-text").html(shortChan);
+    }
+    // Update caller ID
+    if (radio.status.CallerId != null) {
+        updateCallerId(radioCard[0], radio.status.CallerId);
     }
     
     // Remove all current classes
