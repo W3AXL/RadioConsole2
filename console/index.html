@@ -6,7 +6,7 @@
         <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
 
         <!-- CSS.gg Icons -->
-        <link href='https://css.gg/css' rel='stylesheet'>
+        <!-- <link href='https://css.gg/css' rel='stylesheet'> -->
 
         <!-- Custom CSS -->
         <link rel="stylesheet" type="text/css" href="css/custom.css">
@@ -31,6 +31,20 @@
         <script>if (window.module) module = window.module;</script>
     </head>
     <body>
+        <!-- Caller History Drawer -->
+        <aside id="caller-drawer">
+            <header>
+                <span id="drawer-title">No Radio Selected</span>
+                <button id="drawer-close" title="Close">&times;</button>
+            </header>
+            <div id="drawer-body">
+                <ul class="caller-log">
+                    <li><span>Call Log Empty</span></li>
+                    <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                    <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                </ul>
+            </div>
+        </aside>
         <!-- Top Nav Bar -->
         <div id="navbar">
 
@@ -56,6 +70,10 @@
             <!-- Clock -->
             <div id="navbar-clock">
                 <div id="clock"></div>
+            </div>
+
+            <div id="navbar-call-log" class="navbar-item" title="Show Call Log" onclick="toggleCallerLog(this)">
+                <div class="btn"><ion-icon name="reader-outline"></ion-icon></div>
             </div>
 
             <!-- Edit Radio Cards Button -->
@@ -349,6 +367,18 @@
                             </select>
                         </td>
                     </tr>
+                    <!-- Call Log Display -->
+                     <tr>
+                        <td width="60%">
+                            <h3>Call Log Display</h3>
+                        </td>
+                        <td width="40%">
+                            <select id="client-call-log">
+                                <option value="Card">Card</option>
+                                <option value="Drawer">Drawer</option>
+                            </select>
+                        </td>
+                    </tr>
                     <!-- RX AGC Toggle -->
                     <tr>
                         <td>
@@ -360,7 +390,7 @@
                                 <div class="topcoat-checkbox__checkmark"></div>
                             </label>
                         </td>
-                    </tr>
+                    </tr> 
                     <!-- Unselected Radio Volume -->
                     <tr>
                         <td>

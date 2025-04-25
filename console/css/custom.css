@@ -264,6 +264,7 @@ ion-icon {
 
 #navbar-connect,
 #navbar-ext,
+#navbar-call-log,
 #navbar-edit {
     float: right;
     padding-left: 0;
@@ -419,7 +420,7 @@ ion-icon {
     user-select: none;
 }
 .radio-card.log-open {                   
-    min-height: 188px; /* expanded size */
+    min-height: 188px; 
     clip-path: polygon(0 0, 100% 0, 100% 81%, 93% 100%, 0 100%);
 }
 
@@ -747,8 +748,8 @@ ion-icon {
 .radio-card .content {
     position: absolute;
     width: 100%;
-    min-height:90px;            /* original size */
-    height:auto;                /* expand with caller log */
+    min-height:90px;
+    height:auto;
     top: 32px;
     left: 2px;
     box-sizing: border-box;
@@ -876,8 +877,7 @@ ion-icon {
     padding:0;
     font-size:16px;
     line-height:18px;
-    max-height:54px;           /* exactly three rows */
-    overflow:hidden;           /* hides rows we remove last */
+    overflow:hidden;
 }
 
 .caller-log .cidtime{opacity:.75} /* dimmed time column */
@@ -888,10 +888,10 @@ ion-icon {
     position:relative;           
     margin-top:2px;
     overflow-y:hidden;          
-    background:rgba(0,0,0,.25);  /* faint backdrop so it stands out */
+    background:rgba(0,0,0,.25);
     border:1px solid rgba(255,255,255,.08);
     transition:max-height .25s ease;
-    max-height:0;                /* collapsed */
+    max-height:0;
     width: 90%;
 }
 
@@ -915,7 +915,7 @@ ion-icon {
 /*  chevron toggle  */
 .caller-log-toggle{
     position:absolute;
-    right:6px; top:2px;     /* floats on the same line as live row */
+    right:6px; top:2px;
     font-size:16px;
     color:var(--color-txt-mid);
     cursor:pointer;
@@ -927,23 +927,49 @@ ion-icon {
     transform:rotate(180deg);    /* points up when open */
 }
 
-/*  drawer container  */
-#caller-drawer{
+/* drawer container left */
+/*#caller-drawer{
     position:fixed;
-    top:48px;                       /* under your navbar                 */
+    top:48px;
     right:0;
-    width:320px;                    /* tweak to taste                    */
+    width:320px;                  
     height:calc(100% - 48px);
     background:var(--color-bg-mid);
     box-shadow:-6px 0 14px rgba(0,0,0,.6);
-    transform:translateX(100%);     /* hidden off-screen                 */
+    transform:translateX(100%);
     transition:transform .25s ease;
     z-index:50;
     display:flex;
     flex-direction:column;
 }
-#caller-drawer.open{ transform:translateX(0); }
+#caller-drawer.open{ transform:translateX(0); } */
 
+
+/* Bottom drawer, centered above the control bar */
+/* base, hidden state */
+#caller-drawer {
+    position: fixed;
+    bottom: 60px;
+    right: 0;
+    width: 280px;
+    max-height: 50vh;
+    background: var(--color-bg-mid);
+    box-shadow: 0 -6px 14px rgba(0,0,0,.6);
+    z-index: 50;
+    transform: translateY(100%);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  #caller-drawer.open {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  
 /*  header bar  */
 #caller-drawer header{
     height:34px;
@@ -953,8 +979,9 @@ ion-icon {
     font:20px/26px "Iosevka Bold";
     display:flex;
     align-items:center;
+    justify-content:space-between;
 }
-#drawer-title{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; }
+#drawer-title{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis;display:contents; }
 #drawer-close{
     width:28px; height:28px;
     font:24px/24px monospace;
@@ -965,7 +992,7 @@ ion-icon {
 
 /*  body  */
 #drawer-body{
-    overflow-y:auto;                /* scroll if log gets long           */
+    overflow-y:auto;  
     padding:8px;
 }
   

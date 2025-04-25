@@ -10,7 +10,7 @@ const defaultConfig = {
     Radios: [],
     Autoconnect: false,
     ClockFormat: "UTC",
-    CallLogOverlay: true,
+    CallLogFormat: "Card",
     Audio: {
         ButtonSounds: true,
         UnselectedVol: -9.0,
@@ -233,6 +233,7 @@ function pageLoad() {
 
     // Setup clock timer
     setInterval(updateClock, 100);
+
 }
 
 /**
@@ -460,6 +461,28 @@ window.electronAPI.saveMidiConfig((event, data) => {
 /***********************************************************************************
     Radio UI Functions
 ***********************************************************************************/
+/**
+ * Setup the caller log toggles
+ * @param {HTMLElement[]} radios the radio cards to setup
+ * @returns {void}
+ * */
+function setupCallerLog(radios){
+    if (config.CallLogFormat == "Drawer") {
+        $("#navbar-call-log").show();
+        //hide the caller-log-wrap
+        radios.forEach((radio, idx) => {
+            $(`#radio${idx} .caller-log-wrap`).hide();
+        });
+        radios.forEach((radio, idx) => {
+            $(`#radio${idx} .caller-log-toggle`).hide();
+        });
+    } else {
+        $("#navbar-call-log").hide();
+        radios.forEach((radio, idx) => {
+            $(`#radio${idx} .caller-log-toggle`).show();
+        });
+    }
+}
 
 /**
  * Toggle the caller log on the radio card
@@ -467,17 +490,82 @@ window.electronAPI.saveMidiConfig((event, data) => {
  * @returns {void}
  * */
 function toggleCallerLog(toggleAnchor){
-    const wrap = toggleAnchor.previousElementSibling;   // the .caller-log-wrap
+    const cardEl = toggleAnchor.closest('.radio-card');
+
+    /* — use bottom drawer — */
+    if (config.CallLogFormat === "Drawer") {
+        
+        const drawer = document.getElementById('caller-drawer');
+         
+        //check if the drawer is open
+        if (drawer.classList.contains('open')){
+            //if it is, close it
+            closeCallerDrawer();
+            //set the toggle text
+            toggleAnchor.title = 'Show caller log';
+            return;
+        }
+        //open the drawer
+        openCallerDrawer(cardEl);
+        //set the toggle text
+        toggleAnchor.title = 'Hide caller log';
+        return; // skip inline behaviour
+    }
+    /* — use inline log — */
+    const wrap = toggleAnchor.previousElementSibling;
     wrap.classList.toggle('expanded');
+    cardEl.classList.toggle('log-open', wrap.classList.contains('expanded'));
 
-
-    const card = toggleAnchor.closest('.radio-card');
-    card.classList.toggle('log-open', wrap.classList.contains('expanded'));
-
-    // change tooltip text
+    // tooltip text
     toggleAnchor.title = wrap.classList.contains('expanded')
         ? 'Hide caller log' : 'Show caller log';
 }
+
+/************************************************************************
+ * Caller-log overlay drawer
+ ***********************************************************************/
+
+// holds a reference to the card whose log is showing – or null
+let drawerCard = null;
+
+function refreshCallerDrawer(cardEl){
+    if (config.CallLogFormat !== "Drawer") return; // feature not enabled
+    if (!drawerCard || drawerCard !== cardEl) return;   // other card / closed
+
+    const body    = document.getElementById('drawer-body');
+    const drawerTitle = document.getElementById('drawer-title');
+    const radioName = cardEl.querySelector('.radio-name').textContent;
+    const history = cardEl.querySelector('.caller-log');
+
+    body.innerHTML = ''; 
+    body.appendChild(history.cloneNode(true));
+
+    drawerTitle.innerHTML = `<ion-icon name="reader-outline"></ion-icon><span class="radio-name">&nbsp;${radioName}</span>`;
+}
+
+function selectDrawerCard(cardEl){
+    if (config.CallLogFormat !== "Drawer") return; // feature not enabled
+    drawerCard = cardEl;
+    //check if the drawer is open
+    const drawer = document.getElementById('caller-drawer');
+    if (drawer.classList.contains('open')){
+        // if it is, refresh the drawer
+        refreshCallerDrawer(cardEl);
+    }
+}
+
+function openCallerDrawer(cardEl){
+    drawerCard = cardEl;
+    refreshCallerDrawer(cardEl);                        // ← just do this
+    document.getElementById('caller-drawer').classList.add('open');
+}
+
+/** close the drawer */
+function closeCallerDrawer(){
+    document.getElementById('caller-drawer').classList.remove('open');
+    drawerCard = null;
+}
+document.getElementById('drawer-close').onclick = closeCallerDrawer;
 
 /**
  * Show live caller-ID while the radio is Receiving.
@@ -487,7 +575,6 @@ function toggleCallerLog(toggleAnchor){
  * @param {string|null} idStr  – the current caller-ID (null/"" when idle)
  */
 function updateCallerId(cardEl, idStr){
-
     // this object lives for the lifetime of the element
     if (!cardEl._cidState){
         cardEl._cidState = {
@@ -522,13 +609,22 @@ function updateCallerId(cardEl, idStr){
              <span class="cidlabel">PTT&nbsp;ID</span>`;
         log.prepend(li);
 
-        // keep only three rows
-        while (log.children.length > 3){
+        
+
+        var logLength = 3;
+        if (config.CallLogFormat === "Drawer"){
+            logLength = 10;
+        }
+        while (log.children.length > logLength){
             log.removeChild(log.lastChild);
         }
+
         // clear the live line
         live.textContent = "";
         st.liveId = "";
+
+        // update the drawer if it's open
+        refreshCallerDrawer(cardEl);
     }
 }
 /**
@@ -558,6 +654,8 @@ function selectRadio(id) {
         selectedRadioIdx = null;
         // Update stream volumes
         updateRadioAudio();
+        // Update the call log drawer
+        selectDrawerCard($(`#${id}`)[0]);
     } else {
         // Deselect all radio cards
         deselectRadios();
@@ -569,6 +667,7 @@ function selectRadio(id) {
         // Update controls
         updateRadioControls();
         updateRadioAudio();
+        selectDrawerCard($(`#${id}`)[0]);
     }
     // Update the extension
     exUpdateSelected();
@@ -1371,6 +1470,8 @@ async function readConfig() {
     $("#daemon-autoconnect").prop('checked', config.Autoconnect);
     // Clock Format
     $("#client-timeformat").val(config.ClockFormat);
+    // Call log format
+    $("#client-call-log").val(config.CallLogFormat);
     // Audio stuff
     $("#client-rxagc").prop("checked", config.Audio.UseAGC);
     // Unselected Volume
@@ -1421,16 +1522,26 @@ async function readConfig() {
     if (config.Autoconnect) {
         connectAllButton();
     }
+
+    //setup call log
+    if (config.CallLogFormat == "Drawer") {
+        radios.forEach((radio, idx) => {
+            $(`#radio${idx} .caller-log-toggle`).hide();
+        });
+    }
 }
 
 async function saveConfig() {
 
     // Client config values
     const clockFormat = $("#client-timeformat").val();
+    const callLogFormat = $("#client-call-log").val();
     const useAgc = $("#client-rxagc").is(":checked");
     const unselectedVol = $("#unselected-vol").val();
     const toneVol = $("#tone-vol").val();
-    config.ClockFormat = clockFormat;
+    
+    config.ClockFormat = clockFormat;  
+    config.CallLogFormat = callLogFormat;
     config.Audio.UseAGC = useAgc;
     config.Audio.UnselectedVol = parseFloat(unselectedVol);
     config.Audio.ToneVolume = parseFloat(toneVol);
@@ -1450,6 +1561,8 @@ async function saveConfig() {
     if (audio.context) {
         updateRadioAudio();
     }
+    // Update the call log format
+    setupCallerLog(config.Radios);
 
     const result = await window.electronAPI.saveConfig(JSON.stringify(config, null, 4));
 
@@ -1457,6 +1570,9 @@ async function saveConfig() {
     {
         alert("Failed to save config: " + result);
     }
+
+   
+
 }
 
 function newRadioClear() {
