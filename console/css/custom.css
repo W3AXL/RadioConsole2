@@ -444,18 +444,18 @@ ion-icon {
 }
 
 .radio-card.receiving {
-    -webkit-animation: rxBorderBlink 1.5s ease-out infinite;
-    animation: rxBorderBlink 1.5s ease-out infinite;
+    -webkit-animation: rxBorderBlink 0.75s ease-out infinite;
+    animation: rxBorderBlink 0.75s ease-out infinite;
 }
 
 .radio-card.encrypted {
-    -webkit-animation: encBorderBlink 1s ease-out infinite;
-    animation: encBorderBlink 1s ease-out infinite;
+    -webkit-animation: encBorderBlink 0.5s ease-out infinite;
+    animation: encBorderBlink 0.5s ease-out infinite;
 }
 
 .radio-card.transmitting {
-    -webkit-animation: txBorderBlink 0.5s ease infinite;
-    animation: txBorderBlink 0.5s ease infinite;
+    -webkit-animation: txBorderBlink 0.25s ease infinite;
+    animation: txBorderBlink 0.25s ease infinite;
 }
 
 .radio-card.disconnected .content{
