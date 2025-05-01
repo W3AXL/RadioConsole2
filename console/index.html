@@ -167,12 +167,7 @@
                             <!-- Header -->
                             <div class="header">
                                 <h2 class="radio-name" title="Placeholder description">Placeholder Name</h2>
-                                <div class="icon-stack">
-                                    <!-- Scan Icon -->
-                                    <div class="scan-icons">
-                                        <ion-icon name="moto-scan" class="scan-icon"></ion-icon>
-                                        <ion-icon name="moto-scan-dot" class="scan-pri-icon"></ion-icon>
-                                    </div>
+                                <div class="button-stack">
                                     <!-- DTMF Dropdown -->
                                     <a href="#" onclick="showDTMFMenu(event, this)" class="enabled"><ion-icon name="keypad-sharp" id="icon-dtmf"></ion-icon></a>
                                         <div class="dtmf-dropdown closed">
@@ -202,8 +197,29 @@
                             </div>
                             <!-- Content -->
                             <div class="content">
-                                <div id="zone-text">Zone Text</div>
-                                <div id="channel-text">Channel Text</div>
+                                <!-- Upper Text Area -->
+                                <div class="upper-content">
+                                    <!-- Zone Text -->
+                                    <div id="zone-text">Zone Text</div>
+                                    <!-- Radio Card Icons -->
+                                    <div class="icon-stack">
+                                        <!-- Scan Icon -->
+                                        <div class="scan-icons card-icon">
+                                            <ion-icon name="moto-scan-dot" class="scan-icon-bg"></ion-icon>
+                                            <ion-icon name="moto-scan" class="scan-icon"></ion-icon>
+                                            <ion-icon name="moto-scan-dot" class="scan-pri-icon"></ion-icon>
+                                        </div>
+                                        <!-- Secure Icons -->
+                                        <div class="card-icon">
+                                            <ion-icon name="secure" class="secure-icon"></ion-icon>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Lower Text Area -->
+                                <div class="lower-content">
+                                    <!-- Channel Text -->
+                                    <div id="channel-text">Channel Text</div>
+                                </div>
                                 <!-- Live / flashing line -->
                                 <div class="callerid-live"></div>
                                 <!-- collapsible wrapper -->

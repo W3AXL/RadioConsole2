@@ -15,6 +15,7 @@
 
     --color-alert-mid: rgb(100, 60, 25);
     --color-alert-light: rgb(160, 100, 40);
+    --color-alert-light-half: rgba(160, 100, 40, 0.5);
     --color-alert-light2: rgb(196, 119, 42);
 
     --color-alert-red-mid: rgb(133, 0, 33);
@@ -451,13 +452,18 @@ ion-icon {
 }
 
 .radio-card.receiving {
-    -webkit-animation: rxBorderBlink 1s ease-out infinite;
-    animation: rxBorderBlink 1s ease-out infinite;
+    -webkit-animation: rxBorderBlink 0.75s ease-out infinite;
+    animation: rxBorderBlink 0.75s ease-out infinite;
+}
+
+.radio-card.encrypted {
+    -webkit-animation: encBorderBlink 0.5s ease-out infinite;
+    animation: encBorderBlink 0.5s ease-out infinite;
 }
 
 .radio-card.transmitting {
-    -webkit-animation: txBorderBlink 0.5s ease infinite;
-    animation: txBorderBlink 0.5s ease infinite;
+    -webkit-animation: txBorderBlink 0.25s ease infinite;
+    animation: txBorderBlink 0.25s ease infinite;
 }
 
 .radio-card.disconnected .content{
@@ -535,7 +541,7 @@ ion-icon {
     font-size: 16px;
 }
 
-.radio-card .icon-stack {
+.radio-card .button-stack {
     height: 100%;
     margin-left: auto;
     font-size: 18px;
@@ -543,69 +549,39 @@ ion-icon {
     align-items: center;
 }
 
-.radio-card .icon-stack a,
-.radio-card .icon-stack .scan-icons {
+.radio-card .button-stack a,
+.radio-card .button-stack .scan-icons {
     width: 24px;
     display: inline-flex;
 }
 
-.icon-stack ion-icon {
+.button-stack ion-icon {
     color: var(--color-txt-light);
 }
 
-.icon-stack #icon-alert {
+.button-stack #icon-alert {
     color: var(--color-accent-dark);
 }
 
-.icon-stack .icon-mute.muted {
+.button-stack .icon-mute.muted {
     color: var(--color-alert-red-light);
 }
 
-.icon-stack .icon-connect.disconnected {
+.button-stack .icon-connect.disconnected {
     color: var(--color-alert-red-light);
 }
 
-.icon-stack .icon-connect.connecting {
+.button-stack .icon-connect.connecting {
     color: var(--color-alert-light);
 }
 
-.icon-stack .icon-connect.connected {
+.button-stack .icon-connect.connected {
     color: var(--color-alert-green-mid);
 }
 
-.icon-stack ion-icon.alerting {
+.button-stack ion-icon.alerting {
     -webkit-animation: iconAlertRed 0.7s ease infinite;
     animation: iconAlertRed 0.7s ease infinite;
-}
-
-.icon-stack .scan-icons ion-icon {
-    position: absolute;
-    bottom: 5px;
-}
-
-/* No Scan State */
-.icon-stack .scan-icons .scan-icon,
-.icon-stack .scan-icons .scan-pri-icon {
-    opacity: 0;
-}
-
-/* Scanning State */
-.icon-stack .scan-icons.scanning .scan-icon {
-    opacity: 1;
-}
-
-/* Priority Scan */
-.icon-stack .scan-icons.priority .scan-pri-icon {
-    opacity: 1;
-}
-
-/* Priority 2 Scan */
-.icon-stack .scan-icons.priority2 .scan-pri-icon {
-    animation: iconFlash 1s infinite;
-    -webkit-animation: iconFlash 1s infinite;
-}
-.icon-stack .scan-icons.priority2 .scan-icon {
-    opacity: 1;
 }
 
 /* Pan Dropdown */
@@ -758,6 +734,16 @@ ion-icon {
     clip-path: polygon(0 0, 100% 0, 100% 77%, 93% 100%, 0 100%);
 }
 
+.radio-card .upper-content {
+    width: 100%;
+    height: 40%
+}
+
+.radio-card .lower-content {
+    width: 100%;
+    height: 40%;
+}
+
 /* Dynamic Content Color */
 .radio-card.red .content {
     background-color: var(--color-card-darkred);
@@ -775,9 +761,70 @@ ion-icon {
     background-color: var(--color-card-darkpurple);
 }
 
+/* Icon Stack */
+
+.icon-stack {
+    float: right;
+    text-align: right;
+    padding-top: 4px;
+    color: var(--color-bg-dark);
+}
+
+.icon-stack:last-child {
+    padding-right: 4px;
+}
+
+.icon-stack .card-icon {
+    padding-right: 4px;
+    float: right;
+    width: 24px;
+    height: 24px;
+    font-size: 20px;
+    position: relative;
+}
+
+.icon-stack .scan-icons ion-icon {
+    position: absolute;
+    left: 3px;
+    top: 0px;
+}
+
+/* No Scan State */
+.icon-stack .scan-icons .scan-icon,
+.icon-stack .scan-icons .scan-pri-icon {
+    color: var(--color-txt-mid);
+    opacity: 0;
+}
+
+/* Scanning State */
+.icon-stack .scan-icons.scanning .scan-icon {
+    opacity: 1;
+}
+
+/* Priority Scan */
+.icon-stack .scan-icons.priority .scan-pri-icon {
+    opacity: 1;
+}
+
+/* Priority 2 Scan */
+.icon-stack .scan-icons.priority2 .scan-pri-icon {
+    animation: iconFlash 1s infinite;
+    -webkit-animation: iconFlash 1s infinite;
+}
+.icon-stack .scan-icons.priority2 .scan-icon {
+    opacity: 1;
+}
+
+/* Secure Icon */
+.icon-stack .secure-icon.secure {
+    color: var(--color-txt-mid);
+}
+
+/* Zone Text */
 .radio-card #zone-text {
     font-family: "Iosevka Bold";
     font-size: 22px;
+    float: left;
 }
 
 /* Dynamic Zone Text Color */
@@ -1295,6 +1342,24 @@ ion-icon {
     }
     50% {
         background-color: var(--color-alert-green-light);
+    }
+}
+
+/* Animation for radio card ENC RX state */
+@-webkit-keyframes encBorderBlink {
+    from, to {
+        background-color: var(--color-alert-light-half);
+    }
+    50% {
+        background-color: var(--color-alert-light);
+    }
+}
+@keyframes encBorderBlink {
+    from, to {
+        background-color: var(--color-alert-light-half);
+    }
+    50% {
+        background-color: var(--color-alert-light);
     }
 }
 
