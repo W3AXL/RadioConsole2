@@ -478,11 +478,13 @@ function setupCallerLog(radios){
         });
         radios.forEach((radio, idx) => {
             $(`#radio${idx} .caller-log-toggle`).hide();
+            $(`#radio${idx} .upper-content .icon-stack`).removeClass('call-chevron');
         });
     } else {
         $("#navbar-call-log").hide();
         radios.forEach((radio, idx) => {
             $(`#radio${idx} .caller-log-toggle`).show();
+            $(`#radio${idx} .upper-content .icon-stack`).addClass('call-chevron');
         });
     }
 }
@@ -1546,11 +1548,8 @@ async function readConfig() {
     }
 
     //setup call log
-    if (config.CallLogFormat == "Drawer") {
-        radios.forEach((radio, idx) => {
-            $(`#radio${idx} .caller-log-toggle`).hide();
-        });
-    }
+    setupCallerLog(radios);
+   
 }
 
 async function saveConfig() {

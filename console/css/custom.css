@@ -739,6 +739,17 @@ ion-icon {
     height: 40%
 }
 
+.radio-card .upper-content .no-toggle{
+    position: absolute;
+    right: 0px;
+    top: 2px;
+}
+.radio-card .upper-content .call-chevron {
+    position: absolute;
+    right: 15px;
+    top: 2px;
+}
+
 .radio-card .lower-content {
     width: 100%;
     height: 40%;
@@ -824,7 +835,7 @@ ion-icon {
 .radio-card #zone-text {
     font-family: "Iosevka Bold";
     font-size: 22px;
-    float: left;
+    /* float: left; */
 }
 
 /* Dynamic Zone Text Color */
