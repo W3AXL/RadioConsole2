@@ -1059,7 +1059,7 @@ ion-icon {
 ********************************/
 
 #controlbar {
-    position: absolute;
+    position: fixed;
     bottom: 0;
     height: 60px;
     width: 100%;
