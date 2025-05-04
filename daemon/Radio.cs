@@ -239,10 +239,11 @@ namespace daemon
         {
             // Update the radio status to connecting
             Status.State = RadioState.Connecting;
-            RadioStatusCallback();
+            
             // Start runtimes depending on control type
             if (Type == RadioType.SB9600)
             {
+                RadioStatusCallback();
                 IntSB9600.radioStatus = Status;
                 IntSB9600.Start(noreset);
             }
@@ -266,7 +267,7 @@ namespace daemon
         {
             Log.Verbose("Got radio status callback from interface");
             // Perform lookups on zone/channel names (radio-control-type agnostic)
-            if (ZoneLookups.Count > 0)
+            if (ZoneLookups != null && ZoneLookups.Count > 0)
             {
                 foreach (TextLookup lookup in ZoneLookups)
                 {
@@ -293,7 +294,7 @@ namespace daemon
                     }
                 }
             }
-            if (ChanLookups.Count > 0)
+            if (ChanLookups !=null && ChanLookups.Count > 0)
             {
                 foreach (TextLookup lookup in ChanLookups)
                 {
