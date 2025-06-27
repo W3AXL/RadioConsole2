@@ -5,9 +5,6 @@
         <!-- Topcoat CSS -->
         <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
 
-        <!-- CSS.gg Icons -->
-        <link href='https://css.gg/css' rel='stylesheet'>
-
         <!-- Custom CSS -->
         <link rel="stylesheet" type="text/css" href="css/custom.css">
 
@@ -31,6 +28,9 @@
         <script>if (window.module) module = window.module;</script>
     </head>
     <body>
+        <!-- Main Body Dimming Div -->
+        <div id="body-dimmer" style="display: none;" onclick="closePopup()"></div>
+
         <!-- Top Nav Bar -->
         <div id="navbar">
 
@@ -144,8 +144,10 @@
                 <!-- Radio Card Template  -->
                 <template id="card-template">
                     <div class="radio-card disconnected">
+                        <!-- Selected Tab -->
+                        <div class="selected-tab"></div>
+                        <!-- Card Proper -->
                         <div class="card">
-                            <div class="selected-tab"></div>
                             <!-- Header -->
                             <div class="header">
                                 <h2 class="radio-name" title="Placeholder description">Placeholder Name</h2>
@@ -228,9 +230,6 @@
             <div id="text-placeholder" style="display: none;">
                 <h2>Add a radio to begin!</h2>
             </div>
-
-            <!-- Main Body Dimming Div -->
-            <div id="body-dimmer" style="display: none;" onclick="closePopup()"></div>
         </div>
 
         <!-- Control Footer -->
@@ -400,71 +399,6 @@
             </div>
         </div>
 
-        <!-- Add Radio Popup -->
-        <div id="add-radio-popup" class="popup" style="display: none">
-            <div class="popup-header">
-                <h2>Add Radio</h2>
-                <div class="popup-buttons">
-                    <a href="#" onclick="closePopup(this)"><ion-icon name="close-circle-sharp"></ion-icon></a>
-                </div>
-            </div>
-            <div class="popup-content">
-                <table class="popup-table">
-                    <!-- Daemon Address -->
-                    <tr>
-                        <td>
-                            <h3>Daemon Address</h3>
-                        </td>
-                        <td>
-                            <input type="text" id="new-radio-address" class="topcoat-text-input" placeholder="127.0.0.1" value="">
-                        </td>    
-                    </tr>
-                    <!-- Daemon Port -->
-                    <tr>
-                        <td>
-                            <h3>Daemon Port</h3>
-                        </td>
-                        <td>
-                            <input type="text" id="new-radio-port" class="topcoat-text-input" placeholder="8801" value="" maxlength="5">
-                        </td>    
-                    </tr>
-                    <!-- Card Color -->
-                    <tr>
-                        <td>
-                            <h3>Card Color</h3>
-                        </td>
-                        <td>
-                            <select id="new-radio-color">
-                                <option value="red" selected="selected">Red</option>
-                                <option value="amber">Amber</option>
-                                <option value="green">Green</option>
-                                <option value="blue">Blue</option>
-                                <option value="purple">Purple</option>
-                            </select>
-                        </td>
-                    </tr>
-                    <!-- Default Pan Value -->
-                    <tr>
-                        <td>
-                            <h3>Default Pan</h3>
-                        </td>
-                        <td>
-                            <input type="range" min="-1" max="1" value="0" step="0.1" id="new-radio-pan">
-                        </td>
-                    </tr>
-                    <!-- Add/Cancel buttons -->
-                    <tr>
-                        <td style="text-align: right;">
-                            <button class="topcoat-button--cta" onclick="newRadioClear();closePopup(this);">Cancel</button>
-                        </td>
-                        <td>
-                            <button class="topcoat-button--cta" onclick="newRadioAdd();closePopup(this);">Add</button>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-
         <!-- Edit Radios Popup -->
         <div id="edit-radios-popup" class="popup" style="display: none;">
             <div class="popup-header">
@@ -479,10 +413,12 @@
                         <th>Name</th>
                         <th>Address</th>
                         <th>Port</th>
-                        <th>Delete</th>
+                        <th>Color</th>
+                        <th>Pan</th>
+                        <th>Actions</th>
                     </tr>
                 </table>
-                <div style="padding: 4px; font-size: 18px;"><a href="#" onclick="showConfigPopup('#add-radio-popup')"><ion-icon name="add-circle-sharp"></ion-icon></a></div>
+                <div style="padding: 4px; font-size: 18px;"><a href="#" onclick="showAddRadioDialog()"><ion-icon name="add-circle-sharp"></ion-icon></a></div>
             </div>
         </div>
 

@@ -39,23 +39,69 @@
     --color-btn-dark: #1A1A1A;
     --color-btn-pressed: #3D3D3D;
 
-    /* Dynamic Card Colors */
-    --color-card-darkred: #291C1C;
-    --color-card-midred: #523838;
-    --color-card-lightred: #B87D7D;
-    --color-card-darkamber: #292015;
-    --color-card-midamber: #52402B;
-    --color-card-lightamber: #B88E60;
-    --color-card-darkgreen: #1C291E;
-    --color-card-midgreen: #38523B;
-    --color-card-lightgreen: #7DB885;
-    --color-card-darkblue: #1C2529;
-    --color-card-midblue: #384b52;
-    --color-card-lightblue: #7DA8B8;
-    --color-card-darkpurple: #1F1C29;
-    --color-card-midpurple: #3F3852;
-    --color-card-lightpurple: #8D7DB8;
-    
+    /* Dynamic Card Color Values */
+    --value-card-darkest:   5%;
+    --value-card-dark:      15%;
+    --value-card-mid:       30%;
+    --value-card-light:     60%;
+    --value-card-text:      90%;
+    --sat-card-text:        50%;
+    /* Red */
+    --hue-card-red:         0;
+    --sat-card-red:         25%;
+    --color-card-red-black: hsl(var(--hue-card-red), var(--sat-card-red), var(--value-card-darkest));
+    --color-card-red-dark:  hsl(var(--hue-card-red), var(--sat-card-red), var(--value-card-dark));
+    --color-card-red-mid:   hsl(var(--hue-card-red), var(--sat-card-red), var(--value-card-mid));
+    --color-card-red-light: hsl(var(--hue-card-red), var(--sat-card-red), var(--value-card-light));
+    --color-card-red-text:  hsl(var(--hue-card-red), var(--sat-card-text), var(--value-card-text));
+    /* Amber */
+    --hue-card-amber:         20;
+    --sat-card-amber:         40%;
+    --color-card-amber-black: hsl(var(--hue-card-amber), var(--sat-card-amber), var(--value-card-darkest));
+    --color-card-amber-dark:  hsl(var(--hue-card-amber), var(--sat-card-amber), var(--value-card-dark));
+    --color-card-amber-mid:   hsl(var(--hue-card-amber), var(--sat-card-amber), var(--value-card-mid));
+    --color-card-amber-light: hsl(var(--hue-card-amber), var(--sat-card-amber), var(--value-card-light));
+    --color-card-amber-text:  hsl(var(--hue-card-amber), var(--sat-card-text), var(--value-card-text));
+    /* Yellow */
+    --hue-card-yellow:         50;
+    --sat-card-yellow:         40%;
+    --color-card-yellow-black: hsl(var(--hue-card-yellow), var(--sat-card-yellow), var(--value-card-darkest));
+    --color-card-yellow-dark:  hsl(var(--hue-card-yellow), var(--sat-card-yellow), var(--value-card-dark));
+    --color-card-yellow-mid:   hsl(var(--hue-card-yellow), var(--sat-card-yellow), var(--value-card-mid));
+    --color-card-yellow-light: hsl(var(--hue-card-yellow), var(--sat-card-yellow), var(--value-card-light));
+    --color-card-yellow-text:  hsl(var(--hue-card-yellow), var(--sat-card-text), var(--value-card-text));
+    /* Green */
+    --hue-card-green:         110;
+    --sat-card-green:         25%;
+    --color-card-green-black: hsl(var(--hue-card-green), var(--sat-card-green), var(--value-card-darkest));
+    --color-card-green-dark:  hsl(var(--hue-card-green), var(--sat-card-green), var(--value-card-dark));
+    --color-card-green-mid:   hsl(var(--hue-card-green), var(--sat-card-green), var(--value-card-mid));
+    --color-card-green-light: hsl(var(--hue-card-green), var(--sat-card-green), var(--value-card-light));
+    --color-card-green-text:  hsl(var(--hue-card-green), var(--sat-card-text), var(--value-card-text));
+    /* Teal */
+    --hue-card-teal:         170;
+    --sat-card-teal:         25%;
+    --color-card-teal-black: hsl(var(--hue-card-teal), var(--sat-card-teal), var(--value-card-darkest));
+    --color-card-teal-dark:  hsl(var(--hue-card-teal), var(--sat-card-teal), var(--value-card-dark));
+    --color-card-teal-mid:   hsl(var(--hue-card-teal), var(--sat-card-teal), var(--value-card-mid));
+    --color-card-teal-light: hsl(var(--hue-card-teal), var(--sat-card-teal), var(--value-card-light));
+    --color-card-teal-text:  hsl(var(--hue-card-teal), var(--sat-card-text), var(--value-card-text));
+    /* Blue */
+    --hue-card-blue:         210;
+    --sat-card-blue:         25%;
+    --color-card-blue-black: hsl(var(--hue-card-blue), var(--sat-card-blue), var(--value-card-darkest));
+    --color-card-blue-dark:  hsl(var(--hue-card-blue), var(--sat-card-blue), var(--value-card-dark));
+    --color-card-blue-mid:   hsl(var(--hue-card-blue), var(--sat-card-blue), var(--value-card-mid));
+    --color-card-blue-light: hsl(var(--hue-card-blue), var(--sat-card-blue), var(--value-card-light));
+    --color-card-blue-text:  hsl(var(--hue-card-blue), var(--sat-card-text), var(--value-card-text));
+    /* Purple */
+    --hue-card-purple:         270;
+    --sat-card-purple:         25%;
+    --color-card-purple-black: hsl(var(--hue-card-purple), var(--sat-card-purple), var(--value-card-darkest));
+    --color-card-purple-dark:  hsl(var(--hue-card-purple), var(--sat-card-purple), var(--value-card-dark));
+    --color-card-purple-mid:   hsl(var(--hue-card-purple), var(--sat-card-purple), var(--value-card-mid));
+    --color-card-purple-light: hsl(var(--hue-card-purple), var(--sat-card-purple), var(--value-card-light));
+    --color-card-purple-text:  hsl(var(--hue-card-purple), var(--sat-card-text), var(--value-card-text));
 }
 
 @font-face {
@@ -476,19 +522,25 @@ ion-icon {
 
 /* Dynamic Header Colors */
 .radio-card.red .header {
-    background-color: var(--color-card-midred);
+    background-color: var(--color-card-red-mid);
 }
 .radio-card.amber .header {
-    background-color: var(--color-card-midamber);
+    background-color: var(--color-card-amber-mid);
+}
+.radio-card.yellow .header {
+    background-color: var(--color-card-yellow-mid);
 }
 .radio-card.green .header {
-    background-color: var(--color-card-midgreen);
+    background-color: var(--color-card-green-mid);
+}
+.radio-card.teal .header {
+    background-color: var(--color-card-teal-mid);
 }
 .radio-card.blue .header {
-    background-color: var(--color-card-midblue);
+    background-color: var(--color-card-blue-mid);
 }
 .radio-card.purple .header {
-    background-color: var(--color-card-midpurple);
+    background-color: var(--color-card-purple-mid);
 }
 
 /* Hover highlight */
@@ -502,25 +554,64 @@ ion-icon {
     opacity: 0.75;
 }
 
-/* Dynamic Header Text Color */
-.radio-card.red .header h2 {
-    color: var(--color-card-lightred);
+/* Dynamic Header/Zone Text Color */
+.radio-card.red .header h2,
+.radio-card.red #zone-text {
+    color: var(--color-card-red-light);
 }
-.radio-card.amber .header h2 {
-    color: var(--color-card-lightamber);
+.radio-card.amber .header h2,
+.radio-card.amber #zone-text {
+    color: var(--color-card-amber-light);
 }
-.radio-card.green .header h2 {
-    color: var(--color-card-lightgreen);
+.radio-card.yellow .header h2,
+.radio-card.yellow #zone-text {
+    color: var(--color-card-yellow-light);
 }
-.radio-card.blue .header h2 {
-    color: var(--color-card-lightblue);
+.radio-card.green .header h2,
+.radio-card.green #zone-text {
+    color: var(--color-card-green-light);
 }
-.radio-card.purple .header h2 {
-    color: var(--color-card-lightpurple);
+.radio-card.teal .header h2,
+.radio-card.teal #zone-text {
+    color: var(--color-card-teal-light);
+}
+.radio-card.blue .header h2,
+.radio-card.blue #zone-text {
+    color: var(--color-card-blue-light);
+}
+.radio-card.purple .header h2,
+.radio-card.purple #zone-text {
+    color: var(--color-card-purple-light);
 }
 
-.radio-card.selected .header h2 {
-    color: var(--color-txt-light);
+/* Selected Card Header/Zone Text Color */
+.radio-card.red.selected .header h2,
+.radio-card.red.selected #zone-text {
+    color: var(--color-card-red-text);
+}
+.radio-card.amber.selected .header h2,
+.radio-card.amber.selected #zone-text {
+    color: var(--color-card-amber-text);
+}
+.radio-card.yellow.selected .header h2,
+.radio-card.yellow.selected #zone-text {
+    color: var(--color-card-yellow-text);
+}
+.radio-card.green.selected .header h2,
+.radio-card.green.selected #zone-text {
+    color: var(--color-card-green-text);
+}
+.radio-card.teal.selected .header h2,
+.radio-card.teal.selected #zone-text {
+    color: var(--color-card-teal-text);
+}
+.radio-card.blue.selected .header h2,
+.radio-card.blue.selected #zone-text {
+    color: var(--color-card-blue-text);
+}
+.radio-card.purple.selected .header h2,
+.radio-card.purple.selected #zone-text {
+    color: var(--color-card-purple-text);
 }
 
 .radio-card .header h2 {
@@ -680,23 +771,31 @@ ion-icon {
 
 .radio-card.red .panning-dropdown,
 .radio-card.red .dtmf-dropdown {
-    background-color: var(--color-card-midred);
+    background-color: var(--color-card-red-mid);
 }
 .radio-card.amber .panning-dropdown,
 .radio-card.amber .dtmf-dropdown {
-    background-color: var(--color-card-midamber);
+    background-color: var(--color-card-amber-mid);
+}
+.radio-card.yellow .panning-dropdown,
+.radio-card.yellow .dtmf-dropdown {
+    background-color: var(--color-card-yellow-mid);
 }
 .radio-card.green .panning-dropdown,
 .radio-card.green .dtmf-dropdown {
-    background-color: var(--color-card-midgreen);
+    background-color: var(--color-card-green-mid);
+}
+.radio-card.teal .panning-dropdown,
+.radio-card.teal .dtmf-dropdown {
+    background-color: var(--color-card-teal-mid);
 }
 .radio-card.blue .panning-dropdown,
 .radio-card.blue .dtmf-dropdown {
-    background-color: var(--color-card-midblue);
+    background-color: var(--color-card-blue-mid);
 }
 .radio-card.purple .panning-dropdown,
 .radio-card.purple .dtmf-dropdown {
-    background-color: var(--color-card-midpurple);
+    background-color: var(--color-card-purple-mid);
 }
 
 .panning-dropdown.closed,
@@ -737,19 +836,25 @@ ion-icon {
 
 /* Dynamic Content Color */
 .radio-card.red .content {
-    background-color: var(--color-card-darkred);
+    background-color: var(--color-card-red-dark);
 }
 .radio-card.amber .content {
-    background-color: var(--color-card-darkamber);
+    background-color: var(--color-card-amber-dark);
+}
+.radio-card.yellow .content {
+    background-color: var(--color-card-yellow-dark);
 }
 .radio-card.green .content {
-    background-color: var(--color-card-darkgreen);
+    background-color: var(--color-card-green-dark);
+}
+.radio-card.teal .content {
+    background-color: var(--color-card-teal-dark);
 }
 .radio-card.blue .content {
-    background-color: var(--color-card-darkblue);
+    background-color: var(--color-card-blue-dark);
 }
 .radio-card.purple .content {
-    background-color: var(--color-card-darkpurple);
+    background-color: var(--color-card-purple-dark);
 }
 
 /* Icon Stack */
@@ -818,28 +923,33 @@ ion-icon {
     float: left;
 }
 
-/* Dynamic Zone Text Color */
-.radio-card.red #zone-text {
-    color: var(--color-card-lightred);
-}
-.radio-card.amber #zone-text {
-    color: var(--color-card-lightamber);
-}
-.radio-card.green #zone-text {
-    color: var(--color-card-lightgreen);
-}
-.radio-card.blue #zone-text {
-    color: var(--color-card-lightblue);
-}
-.radio-card.purple #zone-text {
-    color: var(--color-card-lightpurple);
-}
-
 .radio-card #channel-text {
     font-family: "Iosevka Bold";
     font-size: 28px;
-    color: var(--color-txt-light);
     margin-top: -4px;
+}
+
+/* Dynamic Channel Text Color */
+.radio-card.red #channel-text {
+    color: var(--color-card-red-text);
+}
+.radio-card.amber #channel-text {
+    color: var(--color-card-amber-text);
+}
+.radio-card.yellow #channel-text {
+    color: var(--color-card-yellow-text);
+}
+.radio-card.green #channel-text {
+    color: var(--color-card-green-text);
+}
+.radio-card.teal #channel-text {
+    color: var(--color-card-teal-text);
+}
+.radio-card.blue #channel-text {
+    color: var(--color-card-blue-text);
+}
+.radio-card.purple #channel-text {
+    color: var(--color-card-purple-text);
 }
 
 .radio-card.selected #channel-text {
@@ -879,19 +989,25 @@ ion-icon {
 
 /* Dynamic Icon Color */
 .radio-card.red .audio-bar {
-    color: var(--color-card-midred);
+    color: var(--color-card-red-mid);
 }
 .radio-card.amber .audio-bar {
-    color: var(--color-card-midamber);
+    color: var(--color-card-amber-mid);
+}
+.radio-card.yellow .audio-bar {
+    color: var(--color-card-yellow-mid);
 }
 .radio-card.green .audio-bar {
-    color: var(--color-card-midgreen);
+    color: var(--color-card-green-mid);
+}
+.radio-card.teal .audio-bar {
+    color: var(--color-card-teal-mid);
 }
 .radio-card.blue .audio-bar {
-    color: var(--color-card-midblue);
+    color: var(--color-card-blue-mid);
 }
 .radio-card.purple .audio-bar {
-    color: var(--color-card-midpurple);
+    color: var(--color-card-purple-mid);
 }
 
 /********************************
@@ -987,15 +1103,15 @@ ion-icon {
 }
 
 #ptt {
-    background-color: var(--color-card-midred) !important;
-    color: var(--color-card-lightred);
+    background-color: var(--color-card-red-mid) !important;
+    color: var(--color-card-red-light);
     clip-path: polygon(15% 0, 100% 0, 100% 70%, 85% 100%, 0 100%, 0 30%);
     width: 64px;
 }
 
 #ptt.pressed,
 #ptt:active:hover {
-    background-color: var(--color-card-darkred) !important;
+    background-color: var(--color-card-red-dark) !important;
     color: var(--color-txt-light);
 }
 
@@ -1006,14 +1122,14 @@ ion-icon {
 
 #alert-bar-icon.pressed,
 #alert-bar-icon:active:hover {
-    background-color: var(--color-card-darkamber) !important;
+    background-color: var(--color-card-amber-dark) !important;
     color: var(--color-txt-light);
 }
 
 #alert-bar-icon,
 .alert-btn-icon {
-    background-color: var(--color-card-midamber) !important;
-    color: var(--color-card-lightamber);
+    background-color: var(--color-card-amber-mid) !important;
+    color: var(--color-card-amber-light);
     clip-path: polygon(15% 0, 100% 0, 100% 70%, 85% 100%, 0 100%, 0 30%);
     width: 64px;
 }
@@ -1053,8 +1169,8 @@ ion-icon {
 
 .popup {
     position: fixed;
-    width: 480px;
-    top: -16px;
+    width: 540px;
+    top: -48px;
     left: 0;
     right: 0;
     margin: 5% auto;
