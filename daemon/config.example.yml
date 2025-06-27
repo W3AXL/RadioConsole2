@@ -24,6 +24,9 @@ control:
     #   4 - XCMP USB (control of Motorola XPR and APX radios via USB)
     controlMode: 2
 
+    # RX Only (TX disabled)
+    rxOnly: false
+
     # SB9600 configuration
     sb9600:
         # Serial port name (COMx on Windows, /dev/ttyX on linux)
@@ -33,6 +36,8 @@ control:
         #   1 - MCS2000 M3 Head
         #   2 - XTL O5/M5 head (XTL2500 or 5000)
         controlHeadType: 0
+        # Use LED indicators for RX state detection (useful for scanning trunked systems)
+        useLedsForRx: false
         # Softkey button binding (maps SB9600 buttons to configured softkeys below)
         softkeyBindings:
             # Each entry is in the format sb9600 button name: softkey name

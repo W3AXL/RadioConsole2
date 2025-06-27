@@ -28,7 +28,7 @@ namespace moto_sb9600
         /// <summary>
         /// Whether to use RX LEDs as an additional RX state trigger
         /// </summary>
-        public bool RxLeds = false;
+        public bool UseLedsForRx = false;
         /// <summary>
         /// Softkey binding dictionary
         /// </summary>
@@ -51,7 +51,7 @@ namespace moto_sb9600
         /// <param name="listenPort">daemon list port</param>
         /// <param name="serialPortName">Serial port name for SB9600</param>
         /// <param name="headType">SB9600 head type</param>
-        /// <param name="rxLeds">Whether to use the RX leds on the control head as an RX status indicator</param>
+        /// <param name="useLedsForRx">Whether to use the RX leds on the control head as an RX status indicator</param>
         /// <param name="softkeys">list of softkeys</param>
         /// <param name="zoneLookups">list of zone text lookups</param>
         /// <param name="chanLookups">list of channel text lookups</param>
@@ -60,7 +60,7 @@ namespace moto_sb9600
         public MotoSb9600Radio(
             string name, string desc, bool rxOnly,
             IPAddress listenAddress, int listenPort,
-            string serialPortName, SB9600.HeadType headType, bool rxLeds, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings,
+            string serialPortName, SB9600.HeadType headType, bool useLedsForRx, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings,
             Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
             List<rc2_core.SoftkeyName> softkeys,
             List<rc2_core.TextLookup> zoneLookups = null, List<rc2_core.TextLookup> chanLookups = null
@@ -69,7 +69,7 @@ namespace moto_sb9600
             // Save softkey lookups
             this.softkeyBindings = softkeyBindings;
             // Init SB9600
-            sb9600 = new SB9600(serialPortName, headType, this.softkeyBindings, this, rxLeds);
+            sb9600 = new SB9600(serialPortName, headType, this.softkeyBindings, this, useLedsForRx);
             sb9600.StatusCallback += () => {
                 this.RadioStatusCallback();
             };

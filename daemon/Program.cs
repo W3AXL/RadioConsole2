@@ -186,7 +186,7 @@ namespace netcore_cli
                         Config.Daemon.ListenPort,
                         Config.Control.Sb9600.SerialPort,
                         Config.Control.Sb9600.ControlHeadType,
-                        Config.Control.Sb9600.RxLeds,
+                        Config.Control.Sb9600.UseLedsForRx,
                         Config.Control.Sb9600.SoftkeyBindings,
                         localAudio.TxAudioCallback,
                         16000,

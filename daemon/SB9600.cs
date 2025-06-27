@@ -357,7 +357,7 @@ namespace moto_sb9600
 
         private bool noReset = false;
 
-        private bool RxLeds = false;
+        private bool useLedsForRx = false;
 
         /// <summary>
         /// Reference back to Radio state object for status updates
@@ -789,12 +789,12 @@ namespace moto_sb9600
             }
         }
 
-        public SB9600(string portName, HeadType controlHead, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings, MotoSb9600Radio radio, bool rxLeds = false)
+        public SB9600(string portName, HeadType controlHead, Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings, MotoSb9600Radio radio, bool useLedsForRx = false)
         {
             Port = new SerialPort(portName);
             Port.BaudRate = 9600;
             ControlHead = controlHead;
-            RxLeds = rxLeds;
+            this.useLedsForRx = useLedsForRx;
             this.softkeyBindings = softkeyBindings;
             this.radio = radio;
         }
@@ -1378,7 +1378,7 @@ namespace moto_sb9600
                             Log.Verbose("Indicator {indicator} ({code}) state is now {state}", indicator.Name, indicator.Code, indicator.State);
 
                             // Check for RX state by indicator state, if enabled
-                            if (RxLeds)
+                            if (useLedsForRx)
                             {
                                 // Detect RX state from W9 head using pri/non-pri LEDs
                                 if (indicator.Name == ControlHeads.IndicatorName.non_pri || indicator.Name == ControlHeads.IndicatorName.pri)

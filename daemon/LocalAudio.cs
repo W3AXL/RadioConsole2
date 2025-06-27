@@ -56,6 +56,9 @@ namespace daemon
         // Radio to obtain statuses from
         private rc2_core.Radio radio;
 
+        // Whether we're RX-only
+        private bool rxOnly;
+
         // RX audio callback action
         public Action<uint, byte[]> RxEncodedSampleCallback;
 
@@ -63,6 +66,9 @@ namespace daemon
         {
             // Store radio
             this.radio = radio;
+
+            // Store RX only
+            this.rxOnly = rxOnly;
 
             // Init SDL2
             SDL2Helper.InitSDL();
@@ -82,34 +88,39 @@ namespace daemon
             };
             Log.Information("    RX: {rxDevice}", rxDevice);
             // Setup TX audio devices if we aren't rx-only
-            if (!rxOnly) {
+            if (!rxOnly)
+            {
                 txEncoder = new AudioEncoder();
                 txEndpoint = new SDL2AudioEndPoint(txDevice, txEncoder);
-                txEndpoint.OnAudioSinkError += (e) => {
+                txEndpoint.OnAudioSinkError += (e) =>
+                {
                     Log.Error("Got RX audio error: {error}", e);
                 };
+                Log.Information("    TX: {txDevice}", txDevice);
             }
-            Log.Information("    TX: {txDevice}", txDevice);
         }
 
         public void Start(AudioFormat audioFormat)
         {
             // Set audio formats
             rxSource.SetAudioSourceFormat(audioFormat);
-            txEndpoint.SetAudioSinkFormat(audioFormat);
+            if (!rxOnly)
+            {
+                txEndpoint.SetAudioSinkFormat(audioFormat);
+            }
             // Start!
             rxSource.StartAudio();
-            if (txEndpoint != null)
+            if (!rxOnly)
             {
                 txEndpoint.StartAudioSink();
             }
-            Log.Debug("Audio devices started using format {format}/{rate}/{chans}", audioFormat.FormatName, audioFormat.ClockRate, audioFormat.ChannelCount);
+            Log.Debug("Audio device(s) started using format {format}/{rate}/{chans}", audioFormat.FormatName, audioFormat.ClockRate, audioFormat.ChannelCount);
         }
 
         public async Task Stop()
         {
             await rxSource.CloseAudio();
-            if (txEndpoint != null)
+            if (!rxOnly)
             {
                 await txEndpoint.CloseAudioSink();
             }
@@ -120,6 +131,8 @@ namespace daemon
 
         public void TxAudioCallback(short[] pcm16Samples)
         {
+            // Do nothing if we're RX only
+            if (rxOnly) { return; }
             // Convert the short[] samples into byte[] samples
             byte[] pcm16Bytes = new byte[pcm16Samples.Length * 2];
             Buffer.BlockCopy(pcm16Samples, 0, pcm16Bytes, 0, pcm16Samples.Length * 2);
