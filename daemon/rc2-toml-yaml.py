@@ -1,14 +1,20 @@
 import tomllib
-import ruamel.yaml
 import argparse
 import logging
 import sys
 import os
-
+import importlib.util
 from pprint import pformat
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
+
+# Ensure that ruamel.yaml is installed
+try:
+    import ruamel.yaml
+except ImportError as e:
+    logger.error("ruamel.yaml python library not found, please install it!")
+    sys.exit(1)
 
 parser = argparse.ArgumentParser()
 
