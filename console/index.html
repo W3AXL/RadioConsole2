@@ -6,7 +6,7 @@
         <link rel="stylesheet" type="text/css" href="css/topcoat-mobile-dark.css">
 
         <!-- CSS.gg Icons -->
-        <link href='https://css.gg/css' rel='stylesheet'>
+        <!-- <link href='https://css.gg/css' rel='stylesheet'> -->
 
         <!-- Custom CSS -->
         <link rel="stylesheet" type="text/css" href="css/custom.css">
@@ -31,6 +31,20 @@
         <script>if (window.module) module = window.module;</script>
     </head>
     <body>
+        <!-- Caller History Drawer -->
+        <aside id="caller-drawer">
+            <header>
+                <span id="drawer-title">No Radio Selected</span>
+                <button id="drawer-close" title="Close">&times;</button>
+            </header>
+            <div id="drawer-body">
+                <ul class="caller-log">
+                    <li><span>Call Log Empty</span></li>
+                    <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                    <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                </ul>
+            </div>
+        </aside>
         <!-- Top Nav Bar -->
         <div id="navbar">
 
@@ -56,6 +70,10 @@
             <!-- Clock -->
             <div id="navbar-clock">
                 <div id="clock"></div>
+            </div>
+
+            <div id="navbar-call-log" class="navbar-item" title="Show Call Log" onclick="toggleCallerLog(this)">
+                <div class="btn"><ion-icon name="reader-outline"></ion-icon></div>
             </div>
 
             <!-- Edit Radio Cards Button -->
@@ -184,7 +202,7 @@
                                     <!-- Zone Text -->
                                     <div id="zone-text">Zone Text</div>
                                     <!-- Radio Card Icons -->
-                                    <div class="icon-stack">
+                                    <div class="icon-stack no-toggle">
                                         <!-- Scan Icon -->
                                         <div class="scan-icons card-icon">
                                             <ion-icon name="moto-scan-dot" class="scan-icon-bg"></ion-icon>
@@ -202,6 +220,24 @@
                                     <!-- Channel Text -->
                                     <div id="channel-text">Channel Text</div>
                                 </div>
+                                <!-- Live / flashing line -->
+                                <div class="callerid-live"></div>
+                                <!-- collapsible wrapper -->
+                                <div class="caller-log-wrap collapsed">
+                                    <!-- Scrolling history (newest on top) -->
+                                    <ul class="caller-log">
+                                        <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                                        <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                                        <li class="stub"><span>&nbsp;</span><span>&nbsp;</span></li>
+                                    </ul>
+                                </div>
+
+                                <!-- collapse chevron to open / close -->
+                                <a  class="caller-log-toggle" title="Show caller log"
+                                    onclick="toggleCallerLog(this)">
+                                    <ion-icon name="chevron-down-sharp"></ion-icon>
+                                </a>
+                                
                                 <!-- RX Audio Bar -->
                                 <div class="audio-bar">
                                     <div class="audio-eq">
@@ -347,6 +383,18 @@
                             </select>
                         </td>
                     </tr>
+                    <!-- Call Log Display -->
+                     <tr>
+                        <td width="60%">
+                            <h3>Call Log Display</h3>
+                        </td>
+                        <td width="40%">
+                            <select id="client-call-log">
+                                <option value="Card">Card</option>
+                                <option value="Drawer">Drawer</option>
+                            </select>
+                        </td>
+                    </tr>
                     <!-- RX AGC Toggle -->
                     <tr>
                         <td>
@@ -358,7 +406,7 @@
                                 <div class="topcoat-checkbox__checkmark"></div>
                             </label>
                         </td>
-                    </tr>
+                    </tr> 
                     <!-- Unselected Radio Volume -->
                     <tr>
                         <td>
@@ -499,7 +547,7 @@
                     <!-- Extension Address -->
                     <tr>
                         <td>
-                            <h3>Etension Address</h3>
+                            <h3>Extension Address</h3>
                         </td>
                         <td>
                             <input type="text" id="extension-address" class="topcoat-text-input" placeholder="localhost" value="">
@@ -508,7 +556,7 @@
                     <!-- Extension Port -->
                     <tr>
                         <td>
-                            <h3>Etension Port</h3>
+                            <h3>Extension Port</h3>
                         </td>
                         <td>
                             <input type="text" id="extension-port" class="topcoat-text-input" placeholder="10800" value="">
