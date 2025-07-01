@@ -23,7 +23,8 @@
             "icon": "console-icon-576x576.png"
         },
         "linux": {
-            "icon": "console-icon-576x576.png"
+            "icon": "console-icon-576x576.png",
+            "target": ["AppImage"]
         },
         "portable": {
             "artifactName": "rc2-console.exe"
