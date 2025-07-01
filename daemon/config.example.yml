@@ -1,0 +1,106 @@
+#
+#   RadioConsole2 Daemon Config File
+#
+
+# Base radio configuration parameters
+daemon:
+    # Name of this radio daemon (shown in console radio card header)
+    name: "Radio"
+    # Description of this radio daemon (shown on hover over name in console)
+    desc: "RadioConsole2 Radio Daemon"
+    # Listen address for this radio daemon
+    listenAddress: 0.0.0.0
+    # Listen port
+    listenPort: 8801
+
+# Radio control configuration
+control:
+    # Control Mode
+    #
+    #   0 - VOX (control of TX/RX states is based on audio levels only) [Not Yet Implemented]
+    #   1 - TRC (Tone remote control based on EIA tone signalling) [Not Yet Implemented]
+    #   2 - SB9600 (emulation of Motorola Astro W-series and MCS2000 model-3 control heads over SB9600)
+    #   3 - XCMP Serial (control of Motorola XTL radios via serial)
+    #   4 - XCMP USB (control of Motorola XPR and APX radios via USB)
+    controlMode: 2
+
+    # RX Only (TX disabled)
+    rxOnly: false
+
+    # SB9600 configuration
+    sb9600:
+        # Serial port name (COMx on Windows, /dev/ttyX on linux)
+        serialPort: "/dev/ttyS0"
+        # Control head type
+        #   0 - Astro W9 head (Astro spectra or XTL5000)
+        #   1 - MCS2000 M3 Head
+        #   2 - XTL O5/M5 head (XTL2500 or 5000)
+        controlHeadType: 0
+        # Use LED indicators for RX state detection (useful for scanning trunked systems)
+        useLedsForRx: false
+        # Softkey button binding (maps SB9600 buttons to configured softkeys below)
+        softkeyBindings:
+            # Each entry is in the format sb9600 button name: softkey name
+            #   valid SB9600 buttons can be found in the configuration documentation
+            btn_top_1: MON
+            btn_top_2: LPWR
+            btn_top_3: SCAN
+            btn_top_4: DIR
+            btn_top_5: SEC
+            btn_top_6: 
+            btn_kp_1: CALL
+            btn_kp_2: PAGE
+            btn_kp_3: TGRP
+            btn_kp_4: 
+            btn_kp_5: 
+            btn_kp_6: 
+            btn_kp_7: 
+            btn_kp_8: 
+            btn_kp_9: 
+            btn_kp_s: RCL
+            btn_kp_0: 
+            btn_kp_p: DEL
+            btn_home: HOME
+            btn_sel: SEL
+
+# Audio settings for radio TX/RX audio
+# Run `daemon list-audio` to get valid names for tx/rx devices
+audio:
+    # TX audio device (speaker)
+    txDevice: "C-Media USB Headphone Set, USB Audio"
+    # RX audio device (microphone)
+    rxDevice: "C-Media USB Headphone Set, USB Audio"
+
+# Text lookups for Zone/Channel text replacement with single-line displays
+textLookups:
+    # Zone text lookups
+    zone:
+        # Lookups consist of multiple list entries as follows:
+      - match: "Z1"       # Text matching "Z1" will replace the radio zone name
+        replace: "Zone 1" # with the text "Zone 1"
+        # Here's a second zone lookup entry
+      - match: "Z2"
+        replace: "Zone 2"
+    # Channel text lookups
+    channel:
+        # Same thing for channel text
+      - match: "CHAN1"
+        replace: "Channel 1"
+        # And a second
+      - match: "CHAN2"
+        replace: "Channel 2"
+
+# List of softkeys shown for this radio in the console client
+softkeys:
+    - MON
+    - DEL
+    - LPWR
+    - SCAN
+    - DIR
+    - HOME
+    - CALL
+    - PAGE
+    - TGRP
+    - SEC
+    - RCL
+    - SEL
