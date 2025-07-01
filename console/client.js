@@ -165,6 +165,12 @@ var audio_playing = false;
 // Flag to unmute the mic on receipt of a startTx ACK from the radio
 var txUnmuteMic = false;
 
+// Whether the alert tones are currently playing
+var alertTonesInProgress = false;
+
+// Whether the alert PTT has been overridden by a normal PTT
+var alertPttOverride = false;
+
 // Timeout that starts alert tone transmit
 var alertStartTimeout = null;
 
@@ -329,7 +335,14 @@ $(document).on("keydown", function (e) {
         // Spacebar
         case 32:
             e.preventDefault();
-            startPtt(true);
+            // Start PTT if not already TXing
+            if (!pttActive) {
+                startPtt(true);
+            }
+            // Handle alert tone override
+            else if (pttActive && alertTonesInProgress) {
+                startPtt(false);
+            }
             break;
     }
 });
@@ -400,6 +413,11 @@ window.electronAPI.serialPortStatus((event, status) => {
             console.debug("Serial port CTS triggering PTT");
             startPtt(true);
         }
+        // Handle alert tone PTT override case
+        else if (status.cts && pttActive && alertTonesInProgress)
+        {
+            startPtt();
+        }
         // Stop if we need to
         else if (!status.cts && pttActive)
         {
@@ -433,11 +451,18 @@ window.electronAPI.gotMidiMessage((event, msg) => {
     // Check master PTT
     if (midiConfig.ccs.masterPtt.chan == msg.chan && midiConfig.ccs.masterPtt.num == msg.num)
     {
+        // handle Midi Keyup
         if (msg.type == midiMsgTypes.NOTE_ON && !pttActive)
         {
             console.debug("Starting PTT from MIDI master PTT note on");
             startPtt(true);
         }
+        // Handle alert tone override case
+        else if (msg.type == midiMsgTypes.NOTE_ON && pttActive && alertTonesInProgress)
+        {
+            startPtt(false);
+        }
+        // Handle MIDI dekey
         else if (msg.type == midiMsgTypes.NOTE_OFF && pttActive)
         {
             console.debug("Stopping PTT from MIDI master PTT note off");
@@ -1036,6 +1061,9 @@ function startPtt(micActive) {
     } else if (!pttActive && !selectedRadio) {
         pttActive = true;
         console.log("No radio selected, ignoring PTT");
+    } else if (pttActive && alertTonesInProgress) {
+        alertPttOverride = true;
+        console.warn("PTT overriding alert tone PTT timeout");
     }
 }
 
@@ -1277,10 +1305,20 @@ function dialNumber(radioId, number, digitTime, delayTime) {
 }
 
 function startAlert(mode) {
-    // Start PTT
-    startPtt(false);
-    // Ensure mic doesn't unmute (should be covered by the above false but it gets weird sometimes)
-    txUnmuteMic = false;
+    // Bonk if no radio is selected
+    if (!selectedRadio) {
+        bonk();
+    }
+    // Start PTT if we need to, otherwise PTT was overridden
+    if (!pttActive) {
+        startPtt(false);
+        // Ensure mic doesn't unmute (should be covered by the above false but it gets weird sometimes)
+        txUnmuteMic = false;
+    } else {
+        alertPttOverride = true;
+    }
+    // Set flag
+    alertTonesInProgress = true;
     // Set and start tone gen
     switch (mode) {
         case 1:
@@ -1334,13 +1372,19 @@ function stopAlert() {
         audio.tones.stop();
         // Re-enable the mic
         setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
-        // We wait 5 seconds after the release of the alert button before releasing PTT
-        alertStopTimeout = setTimeout(() => {
-            stopPtt();
-            alertStopTimeout = null;
-        }, 5000);
+        // Only start the 5 second timer if we haven't been overridden
+        if (!alertPttOverride) {
+            // We wait 5 seconds after the release of the alert button before releasing PTT
+            alertStopTimeout = setTimeout(() => {
+                stopPtt();
+                alertStopTimeout = null;
+            }, 5000);
+        } else {
+            alertPttOverride = false;
+        }
     }
-    
+    // Clear flag
+    alertTonesInProgress = false;
 }
 
 /***********************************************************************************
@@ -2412,6 +2456,13 @@ function playSound(soundId) {
 }
 
 /**
+ * Play the error sound
+ */
+function bonk() {
+    playSound("sound-error");
+}
+
+/**
  * Updates the audio parameters for each radio audio source based on current config and selected radio
  */
  function updateRadioAudio() {
@@ -3204,10 +3255,22 @@ function recvExtensionMessage(event) {
                 break;
             // Key radio
             case "keyRadio":
-                if (selectedRadioIdx != value) {
-                    selectRadio(`radio${value}`);
+                if (!pttActive) {
+                    // Select the radio if it isn't
+                    if (selectedRadioIdx != value) {
+                        selectRadio(`radio${value}`);
+                    }
+                    // Start PTT
+                    startPtt(true);
                 }
-                startPtt(true);
+                // Handle alert tone override
+                else if (pttActive && selectedRadioIdx == value && alertTonesInProgress) {
+                    startPtt(false);
+                }
+                // Bonk otherwise (presumably another radio is PTTing)
+                else {
+                    bonk();
+                }
                 break;
             // Dekey radio
             case "dekeyRadio":
