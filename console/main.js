@@ -27,13 +27,15 @@ let midiInput = new midi.Input();
 /**
  * Reads the config file and returns the JSON inside
  */
-async function readConfig(defaultConfig) {
+async function readConfig(readConfig, defaultConfig) {
     // Check for existing config file
     if (!fs.existsSync(configPath)) {
         console.warn("No config.json file found, creating default at " + configPath);
         try {
             fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 4));
-            return defaultConfig;
+            
+            const configJson = fs.readFileSync(configPath, { encoding: 'utf8', flag: 'r' });
+            return configJson;
         }
         catch (e) {
             console.error("Failed to write default config file " + configPath + "!");
