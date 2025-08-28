@@ -1,0 +1,139 @@
+<html>
+
+    <head>
+        <title>Configure Radios</title>
+
+        <!-- Topcoat CSS -->
+        <link rel="stylesheet" type="text/css" href="../css/topcoat-mobile-dark.css">
+
+        <!-- CSS.gg Icons -->
+        <link href='https://css.gg/css' rel='stylesheet'>
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="../css/custom.css">
+
+        <!-- JQuery -->
+        <script type="text/javascript" src="../jquery-3.6.0.min.js"></script>
+
+        <!-- Local Styles -->
+        <style>
+
+        </style>
+    </head>
+
+    <body>
+        <div class="popup-content">
+            <table class="popup-table">
+                <!-- Radio Name -->
+                <tr>
+                    <td>
+                        <h3>Radio Name</h3>
+                    </td>
+                    <td>
+                        <input type="text" id="radio-name" class="topcoat-text-input" placeholder="New Radio" value="">
+                    </td>
+                </tr>
+                <!-- Daemon Address -->
+                <tr>
+                    <td>
+                        <h3>Daemon Address</h3>
+                    </td>
+                    <td>
+                        <input type="text" id="radio-daemon-address" class="topcoat-text-input" placeholder="127.0.0.1" value="">
+                    </td>    
+                </tr>
+                <!-- Daemon Port -->
+                <tr>
+                    <td>
+                        <h3>Daemon Port</h3>
+                    </td>
+                    <td>
+                        <input type="text" id="radio-daemon-port" class="topcoat-text-input" placeholder="8801" value="" maxlength="5" min="0" max="65535">
+                    </td>    
+                </tr>
+                <!-- Card Color -->
+                <tr>
+                    <td>
+                        <h3>Card Color</h3>
+                    </td>
+                    <td>
+                        <select id="radio-card-color">
+                            <option value="red" selected="selected">Red</option>
+                            <option value="amber">Amber</option>
+                            <option value="yellow">Yellow</option>
+                            <option value="green">Green</option>
+                            <option value="teal">Teal</option>
+                            <option value="blue">Blue</option>
+                            <option value="purple">Purple</option>
+                        </select>
+                    </td>
+                </tr>
+                <!-- Default Pan Value -->
+                <tr>
+                    <td>
+                        <h3>Default Pan</h3>
+                    </td>
+                    <td>
+                        <input type="range" min="-1" max="1" value="0" step="0.1" id="radio-pan">
+                    </td>
+                </tr>
+                <!-- Add/Cancel buttons -->
+                <tr>
+                    <td style="text-align: right;">
+                        <button class="topcoat-button--cta" id="cancel-radio">Cancel</button>
+                    </td>
+                    <td>
+                        <button class="topcoat-button--cta" id="save-radio">Save</button>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </body>
+
+    <script type="text/javascript">
+        // Form Fields
+        let radioName = document.getElementById("radio-name");
+        let radioDaemonAddress = document.getElementById("radio-daemon-address");
+        let radioDaemonPort = document.getElementById("radio-daemon-port");
+        let radioCardColor = document.getElementById("radio-card-color");
+        let radioPan = document.getElementById("radio-pan");
+
+        // Buttons
+        let saveRadio = document.getElementById("save-radio");
+        let cancelRadio = document.getElementById("cancel-radio");
+
+        // Bind save
+        saveRadio.addEventListener('click', (event) => {
+            const newRadioConfig = {
+                name: radioName.value,
+                address: radioDaemonAddress.value,
+                port: radioDaemonPort.value,
+                color: radioCardColor.value,
+                pan: radioPan.value,
+            }
+            console.debug("Adding new radio config")
+            console.debug(newRadioConfig);
+            window.electronAPI.saveRadioConfig(newRadioConfig);
+            // Close
+            window.close();
+        })
+
+        // Bind Cancel
+        cancelRadio.addEventListener('click', (event) => {
+            window.electronAPI.cancelRadioConfig(null);
+            window.close();
+        });
+
+        // Handle init config
+        window.electronAPI.populateRadioConfig((event, radioConfig) => {
+            console.debug(`Populating initial radio config`);
+            console.debug(radioConfig);
+            radioName.value = radioConfig.name;
+            radioDaemonAddress.value = radioConfig.address;
+            radioDaemonPort.value = radioConfig.port;
+            radioCardColor.value = radioConfig.color;
+            radioPan.value = radioConfig.pan;
+        });
+    </script>
+
+</html>

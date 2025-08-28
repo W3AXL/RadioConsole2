@@ -21,4 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openMidiPort: (port) => ipcRenderer.invoke('openMidiPort', port),
   // Midi Message
   gotMidiMessage: (message) => ipcRenderer.on('gotMidiMessage', message),
+  // Show/save radio dialog
+  showRadioConfig: (radioConfig) => ipcRenderer.invoke('showRadioConfig', radioConfig),
+  saveRadioConfig: (radioConfig) => ipcRenderer.on('saveRadioConfig', radioConfig),
+  cancelRadioConfig: (data) => ipcRenderer.on('cancelRadioConfig', data),
 });

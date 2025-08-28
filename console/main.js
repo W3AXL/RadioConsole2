@@ -12,6 +12,7 @@ const configPath = path.resolve(app.getPath("userData") + '/config.json');
 var mainWindow = null;
 var periphWindow = null;
 var midiWindow = null;
+var editRadioWindow = null;
 
 // Serial port object
 let serialPort = null;
@@ -183,7 +184,14 @@ function openMidiPort(port)
     // Log
     console.debug(`Midi enabled, opening port ${port} (${midiInput.getPortName(port)})`);
     // Open
-    midiInput.openPort(port);
+    try {
+        midiInput.openPort(port);
+    }
+    catch (error)
+    {
+        console.error(`Encountered error while opening MIDI port:`);
+        console.error(error);
+    }
 }
 
 function midiMessageHandler(deltaTime, message)
@@ -248,7 +256,7 @@ async function createMainWindow() {
     })
 
     // Load & show the main window
-    await mainWindow.loadFile(path.join(__dirname, "index.html"))
+    await mainWindow.loadFile(path.join(__dirname, "main-window.html"))
         .then(() => { mainWindow.webContents.send('appVersion', app.getVersion()); })
         .then(() => { mainWindow.show() });
 }
@@ -264,9 +272,11 @@ async function createPeriphWindow(periphConfig)
         icon: 'console-icon.png',
         autoHideMenuBar: true,
         webPreferences: {
-            preload: path.join(__dirname, "peripherals-preload.js")
+            preload: path.join(__dirname, "dialogs/peripherals-preload.js")
         },
         resizable: false,
+        parent: mainWindow,
+        modal: true,
     });
 
     periphWindow.on('closed', () => {
@@ -276,7 +286,7 @@ async function createPeriphWindow(periphConfig)
     // Query available serial ports
     var serialPorts = await SerialPort.list();
     
-    await periphWindow.loadFile(path.join(__dirname, "peripherals.html"))
+    await periphWindow.loadFile(path.join(__dirname, "dialogs/peripherals.html"))
         .then(() => { periphWindow.webContents.send('gotPorts', serialPorts); })
         .then(() => { periphWindow.webContents.send('populatePeriphConfig', periphConfig); });
 }
@@ -298,18 +308,43 @@ async function createMidiWindow(midiConfig)
         icon: 'console-icon.png',
         autoHideMenuBar: true,
         webPreferences: {
-            preload: path.join(__dirname, "midi-preload.js")
+            preload: path.join(__dirname, "dialogs/midi-preload.js")
         },
         resizable: false,
+        parent: mainWindow,
+        modal: true,
     });
 
     midiWindow.on('closed', () => {
         midiWindow = null;
-    })
+    });
 
-    await midiWindow.loadFile(path.join(__dirname, "midi.html"))
+    await midiWindow.loadFile(path.join(__dirname, "dialogs/midi.html"))
         .then(() => { midiWindow.webContents.send('gotPorts', ports); })
         .then(() => { midiWindow.webContents.send('populateMidiConfig', midiConfig); });
+}
+
+async function createEditRadioWindow(radioConfig)
+{
+    editRadioWindow = new BrowserWindow({
+        width: 512,
+        height: 284,
+        icon: 'console-icon.png',
+        autoHideMenuBar: true,
+        webPreferences: {
+            preload: path.join(__dirname, "dialogs/edit-radio-preload.js")
+        },
+        resizable: false,
+        parent: mainWindow,
+        modal: true,
+    });
+
+    editRadioWindow.on('closed', () => {
+        editRadioWindow = null;
+    });
+
+    await editRadioWindow.loadFile(path.join(__dirname, "dialogs/edit-radio.html"))
+        .then(() => { if (radioConfig) { editRadioWindow.webContents.send('populateRadioConfig', radioConfig); } });
 }
 
 /***********************************************************************************
@@ -360,6 +395,20 @@ app.on('ready', async () => {
 
     // Handle Midi Messages
     midiInput.on('message', midiMessageHandler);
+
+    // Handle showing/saving radio dialog
+    ipcMain.handle('showRadioConfig', async (event, radioConfig) => {
+        await createEditRadioWindow(radioConfig);
+    });
+    ipcMain.handle('saveRadioConfig', (event, radioConfig) => {
+        console.debug('Saving radio config:');
+        console.debug(radioConfig);
+        mainWindow.webContents.send('saveRadioConfig', radioConfig);
+    });
+    ipcMain.handle('cancelRadioConfig', () => {
+        console.debug('Cancelling radio config');
+        mainWindow.webContents.send('cancelRadioConfig');
+    })
 
     // Create the main window
     await createMainWindow();
