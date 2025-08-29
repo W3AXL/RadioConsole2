@@ -505,15 +505,17 @@ function setupCallerLog(radios){
         $("#navbar-call-log").show();
         //hide the caller-log-wrap
         radios.forEach((radio, idx) => {
+            $(`#radio${idx} .caller-log-wrap`).removeClass('expanded');
+            $(`#radio${idx}`).removeClass('log-open');
             $(`#radio${idx} .caller-log-wrap`).hide();
-        });
-        radios.forEach((radio, idx) => {
             $(`#radio${idx} .caller-log-toggle`).hide();
             $(`#radio${idx} .upper-content .icon-stack`).removeClass('call-chevron');
         });
     } else {
         $("#navbar-call-log").hide();
+        $("#caller-drawer").removeClass('open');
         radios.forEach((radio, idx) => {
+            $(`#radio${idx} .caller-log-wrap`).show();
             $(`#radio${idx} .caller-log-toggle`).show();
             $(`#radio${idx} .upper-content .icon-stack`).addClass('call-chevron');
         });
@@ -549,6 +551,7 @@ function toggleCallerLog(toggleAnchor){
     }
     /* — use inline log — */
     const wrap = toggleAnchor.previousElementSibling;
+
     wrap.classList.toggle('expanded');
     cardEl.classList.toggle('log-open', wrap.classList.contains('expanded'));
 
