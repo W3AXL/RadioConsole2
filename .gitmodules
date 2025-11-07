@@ -6,3 +6,6 @@
 	path = daemon/rc2-core
 	url = https://github.com/W3AXL/rc2-core
 	branch = main
+[submodule "daemon/XCMPSharp"]
+	path = daemon/XCMPSharp
+	url = git@github.com:W3AXL/XCMPSharp.git
