@@ -1,4 +1,5 @@
 ﻿using moto_sb9600;
+using moto_xcmp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -39,8 +40,9 @@ namespace daemon
         VOX = 0,
         TRC = 1,
         SB9600 = 2,
-        XCMP_SER = 3,
-        XCMP_USB = 4
+        XCMP_XTL = 3,
+        XCMP_XPR = 4,
+        XCMP_APX = 5
     }
 
     /// <summary>
@@ -60,6 +62,10 @@ namespace daemon
         /// Config for motorola SB9600
         /// </summary>
         public MotoSb9600Config Sb9600 = new MotoSb9600Config();
+        /// <summary>
+        /// Config for motorola XCMP
+        /// </summary>
+        public MotoXcmpConfig Xcmp = new MotoXcmpConfig();
     }
 
     /// <summary>

@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using SIPSorceryMedia.Abstractions;
 using xcmp;
 using xcmp.connection;
+using System.ComponentModel.DataAnnotations;
 
 namespace moto_xcmp
 {
@@ -22,11 +23,27 @@ namespace moto_xcmp
         /// <summary>
         /// Address for the radio's XCMP interface when using IP connection
         /// </summary>
-        public IPAddress xcmpAddress;
+        public IPAddress Address;
         /// <summary>
         /// Port name for the radio's XCMP interface when using serial PPP connection
         /// </summary>
-        public string xcmpSerialPort;
+        public string SerialPort;
+        /// <summary>
+        /// Baudrate to use for the serial connection
+        /// </summary>
+        public int Baudrate;
+        /// <summary>
+        /// Path to the pppd binary for use with wvdial
+        /// </summary>
+        public string PppdPath;
+        /// <summary>
+        /// List of 4 keys for XCMP authentication
+        /// </summary>
+        public List<UInt32> XcmpKeys;
+        /// <summary>
+        /// Delta value for XCMP autnentication
+        /// </summary>
+        public UInt32 XcmpDelta;
     }
 
     public class MotoXcmpRadio : rc2_core.Radio
@@ -37,15 +54,14 @@ namespace moto_xcmp
         private XCMP xcmp;
 
         /// <summary>
-        /// Initialize a new XCMP radio connection using IP
+        /// Initialize a new XCMP radio connection
         /// </summary>
         /// <param name="name"></param>
         /// <param name="desc"></param>
         /// <param name="rxOnly"></param>
         /// <param name="listenAddress"></param>
         /// <param name="listenPort"></param>
-        /// <param name="xcmpHostname"></param>
-        /// <param name="xcmpPort"></param>
+        /// <param name="xcmpConn"></param>
         /// <param name="txAudioCallback"></param>
         /// <param name="txAudioSampleRate"></param>
         /// <param name="rtcFormatCallback"></param>
@@ -55,43 +71,13 @@ namespace moto_xcmp
         public MotoXcmpRadio(
             string name, string desc, bool rxOnly,
             IPAddress listenAddress, int listenPort,
-            string xcmpHostname, int xcmpPort,
+            XCMPBaseConnection xcmpConn,
             Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
             List<rc2_core.SoftkeyName> softkeys,
             List<rc2_core.TextLookup> zoneLookups = null, List<rc2_core.TextLookup> chanLookups = null
             ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
         {
-            // Init XCMP IP connection
-            XCMPIPConnection xcmpConn = new XCMPIPConnection(xcmpHostname, xcmpPort);
-            xcmp = new XCMP(xcmpConn);
-        }
-
-        /// <summary>
-        /// Initialize a new XCMP connection using serial PPP
-        /// </summary>
-        /// <param name="name"></param>
-        /// <param name="desc"></param>
-        /// <param name="rxOnly"></param>
-        /// <param name="listenAddress"></param>
-        /// <param name="listenPort"></param>
-        /// <param name="xcmpSerialPort"></param>
-        /// <param name="txAudioCallback"></param>
-        /// <param name="txAudioSampleRate"></param>
-        /// <param name="rtcFormatCallback"></param>
-        /// <param name="softkeys"></param>
-        /// <param name="zoneLookups"></param>
-        /// <param name="chanLookups"></param>
-        public MotoXcmpRadio(
-            string name, string desc, bool rxOnly,
-            IPAddress listenAddress, int listenPort,
-            string xcmpSerialPort,
-            Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
-            List<rc2_core.SoftkeyName> softkeys,
-            List<rc2_core.TextLookup> zoneLookups = null, List<rc2_core.TextLookup> chanLookups = null
-            ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
-        {
-            // Init XCMP IP connection
-            XCMPPPPConnection xcmpConn = new XCMPPPPConnection(xcmpSerialPort);
+            // Init XCMP connection
             xcmp = new XCMP(xcmpConn);
         }
 
@@ -104,16 +90,21 @@ namespace moto_xcmp
             Log.Information($"Starting new Motorola XCMP radio instance");
             base.Start(reset);
             xcmp.Connect();
-            if (reset)
-                xcmp.ResetRadio();
+            /*if (reset)
+                xcmp.ResetRadio();*/
+            // Query for display text
+            xcmp.GetDisplayText(DisplayRegion.PRIMARY, DisplayID.ALL);
         }
 
         /// <summary>
         /// Stop the base radio as well as the SB9600 services
         /// </summary>
-        public new void Stop()
+        public override void Stop()
         {
+            Log.Information($"Stopping XCMP radio...");
             base.Stop();
+            if (Status.State == RadioState.Transmitting)
+                xcmp.Dekey();
             xcmp.Disconnect();
         }
 
@@ -125,8 +116,10 @@ namespace moto_xcmp
 
         public override bool SetTransmit(bool tx)
         {
-            // TODO
-            return false;
+            if (tx)
+                return xcmp.Keyup();
+            else
+                return xcmp.Dekey();
         }
 
         public override bool PressButton(rc2_core.SoftkeyName name)

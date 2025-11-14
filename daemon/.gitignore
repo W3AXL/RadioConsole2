@@ -488,3 +488,13 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Config files, non-example
+config.yml
+wvdial.conf
+
+# Log files
+*.log
+
+# PCAP files
+*.pcap

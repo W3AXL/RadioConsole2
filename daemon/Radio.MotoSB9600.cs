@@ -89,7 +89,7 @@ namespace moto_sb9600
         /// <summary>
         /// Stop the base radio as well as the SB9600 services
         /// </summary>
-        public new void Stop()
+        public override void Stop()
         {
             base.Stop();
             sb9600.Stop();

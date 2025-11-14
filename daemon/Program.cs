@@ -37,6 +37,10 @@ using DirectShowLib;
 using MathNet.Numerics;
 using rc2_core;
 using moto_sb9600;
+using moto_xcmp;
+using xcmp;
+using xcmp.connection;
+using System.Xml.Resolvers;
 
 namespace netcore_cli
 {
@@ -132,95 +136,149 @@ namespace netcore_cli
 
         static async Task Startup(FileInfo configFile, bool debug, bool verbose, bool noreset, bool log)
         {
-            // Add handler for SIGINT
-            ManualResetEvent startShutdown = new ManualResetEvent(false);
-            Console.CancelKeyPress += (sender, args) => {
-                args.Cancel = true;
-                startShutdown.Set();
-            };
-
-            // Logging setup
-            if (debug)
+            try
             {
-                loggerSwitch.MinimumLevel = LogEventLevel.Debug;
-                Log.Debug("Debug logging enabled");
-            }
-            if (verbose)
-            {
-                loggerSwitch.MinimumLevel = LogEventLevel.Verbose;
-                Log.Verbose("Verbose logging enabled");
-            }
-
-            // Read config from toml
-            ReadConfig(configFile);
-
-            // Set up file logging (we do this after config reading)
-            if (log)
-            {
-                // Create the logs directory if it doesn't exist
-                System.IO.Directory.CreateDirectory("logs");
-                // Get the timestamp
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
-                Log.Information("Logging to file: {Name}_{timestamp}.log", Config.Daemon.Name, timestamp);
-                // We append the file logger to the original created logger
-                Log.Logger = new LoggerConfiguration()
-                    .WriteTo.Logger(Log.Logger)
-                    .WriteTo.File($"logs/{Config.Daemon.Name.Replace(" ", "_")}_{timestamp}.log")
-                    .MinimumLevel.ControlledBy(loggerSwitch)
-                    .CreateLogger();
-            }
-
-            // Setup Audio Devices
-            localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, radio, Config.Control.RxOnly);
-
-            // Switch based on control mode
-            switch(Config.Control.ControlMode)
-            {
-                case RadioControlMode.SB9600:
+                // Add handler for SIGINT
+                ManualResetEvent startShutdown = new ManualResetEvent(false);
+                Console.CancelKeyPress += (sender, args) =>
                 {
-                    radio = new MotoSb9600Radio(
-                        Config.Daemon.Name,
-                        Config.Daemon.Desc,
-                        Config.Control.RxOnly,
-                        Config.Daemon.ListenAddress,
-                        Config.Daemon.ListenPort,
-                        Config.Control.Sb9600.SerialPort,
-                        Config.Control.Sb9600.ControlHeadType,
-                        Config.Control.Sb9600.UseLedsForRx,
-                        Config.Control.Sb9600.SoftkeyBindings,
-                        localAudio.TxAudioCallback,
-                        16000,
-                        localAudio.Start,
-                        Config.Softkeys,
-                        Config.TextLookups.Zone,
-                        Config.TextLookups.Channel
-                    );
-                }
-                break;
-                default:
+                    args.Cancel = true;
+                    startShutdown.Set();
+                };
+
+                // Logging setup
+                if (debug)
                 {
-                    Log.Error("Control mode {mode} not yet implemented!", Config.Control.ControlMode.ToString());
-                    Environment.Exit((int)ERRNO.EBADCONFIG);
+                    loggerSwitch.MinimumLevel = LogEventLevel.Debug;
+                    Log.Debug("Debug logging enabled");
                 }
-                break;
+                if (verbose)
+                {
+                    loggerSwitch.MinimumLevel = LogEventLevel.Verbose;
+                    Log.Verbose("Verbose logging enabled");
+                }
+
+                // Read config from toml
+                ReadConfig(configFile);
+
+                // Set up file logging (we do this after config reading)
+                if (log)
+                {
+                    // Create the logs directory if it doesn't exist
+                    System.IO.Directory.CreateDirectory("logs");
+                    // Get the timestamp
+                    string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+                    Log.Information("Logging to file: {Name}_{timestamp}.log", Config.Daemon.Name, timestamp);
+                    // We append the file logger to the original created logger
+                    Log.Logger = new LoggerConfiguration()
+                        .WriteTo.Logger(Log.Logger)
+                        .WriteTo.File($"logs/{Config.Daemon.Name.Replace(" ", "_")}_{timestamp}.log")
+                        .MinimumLevel.ControlledBy(loggerSwitch)
+                        .CreateLogger();
+                }
+
+                // Setup Audio Devices
+                localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, radio, Config.Control.RxOnly);
+
+                // Switch based on control mode
+                switch (Config.Control.ControlMode)
+                {
+                    case RadioControlMode.SB9600:
+                        {
+                            radio = new MotoSb9600Radio(
+                                Config.Daemon.Name,
+                                Config.Daemon.Desc,
+                                Config.Control.RxOnly,
+                                Config.Daemon.ListenAddress,
+                                Config.Daemon.ListenPort,
+                                Config.Control.Sb9600.SerialPort,
+                                Config.Control.Sb9600.ControlHeadType,
+                                Config.Control.Sb9600.UseLedsForRx,
+                                Config.Control.Sb9600.SoftkeyBindings,
+                                localAudio.TxAudioCallback,
+                                16000,
+                                localAudio.Start,
+                                Config.Softkeys,
+                                Config.TextLookups.Zone,
+                                Config.TextLookups.Channel
+                            );
+                        }
+                        break;
+                    case RadioControlMode.XCMP_XTL:
+                        {
+                            // Create a new serial XCMP connection to UDP/4051
+                            XCMPPPPConnection pppConn = new XCMPPPPConnection(
+                                Config.Control.Xcmp.SerialPort,
+                                Config.Control.Xcmp.Baudrate,
+                                Config.Control.Xcmp.PppdPath,
+                                IPConnectionType.UDP,
+                                4051
+                            );
+                            // Prepare XCMP keys
+                            XNLKeys xnlKeys = new XNLKeys(Config.Control.Xcmp.XcmpKeys, Config.Control.Xcmp.XcmpDelta);
+                            // Create an XNL wrapper
+                            XCMPXNLWrapper wrapperConn = new XCMPXNLWrapper(pppConn, xnlKeys);
+                            // Finally, create the radio using the new connection
+                            radio = new MotoXcmpRadio(
+                                Config.Daemon.Name,
+                                Config.Daemon.Desc,
+                                Config.Control.RxOnly,
+                                Config.Daemon.ListenAddress,
+                                Config.Daemon.ListenPort,
+                                wrapperConn,
+                                localAudio.TxAudioCallback,
+                                16000,
+                                localAudio.Start,
+                                Config.Softkeys,
+                                Config.TextLookups.Zone,
+                                Config.TextLookups.Channel
+                            );
+                        }
+                        break;
+                    default:
+                        {
+                            Log.Error("Control mode {mode} not yet implemented!", Config.Control.ControlMode.ToString());
+                            Environment.Exit((int)ERRNO.EBADCONFIG);
+                        }
+                        break;
+                }
+
+                // Setup RX audio callback
+                localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+
+                // Start radio
+                radio.Start(!noreset);
+
+                // Wait for shutdown trigger
+                startShutdown.WaitOne();
+
+                // Stop radio
+                Log.Information("Shutting down...");
+                radio.Stop();
+                await localAudio.Stop();
+                Log.CloseAndFlush();
+
+                Environment.Exit(0);
             }
-
-            // Setup RX audio callback
-            localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
-
-            // Start radio
-            radio.Start(noreset);
-            
-            // Wait for shutdown trigger
-            startShutdown.WaitOne();
-
-            // Stop radio
-            Log.Information("Shutting down...");
-            radio.Stop();
-            await localAudio.Stop();
-            Log.CloseAndFlush();
-
-            Environment.Exit(0);
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Caught unhandled exception");
+                // Shutdown radio if running
+                if (radio != null)
+                {
+                    radio.Stop();
+                    radio = null;
+                }
+                // Shutdown audio if running
+                if (localAudio != null)
+                {
+                    await localAudio.Stop();
+                }
+                // Close log
+                Log.CloseAndFlush();
+                // Exit with error
+                Environment.Exit(1);
+            }
         }
 
         internal static void ReadConfig(FileInfo configFile)
