@@ -89,7 +89,7 @@ namespace moto_xcmp
         {
             Log.Information($"Starting new Motorola XCMP radio instance");
             base.Start(reset);
-            xcmp.Connect();
+            xcmp.Connect(underTest: false, waitForInit: true);
             /*if (reset)
                 xcmp.ResetRadio();*/
             // Query for display text
