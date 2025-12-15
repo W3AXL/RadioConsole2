@@ -92,8 +92,9 @@ namespace moto_xcmp
             xcmp.Connect(underTest: false, waitForInit: true);
             /*if (reset)
                 xcmp.ResetRadio();*/
-            // Query for display text
-            xcmp.GetDisplayText(DisplayRegion.PRIMARY, DisplayID.ALL);
+            // Query for display texts
+            Status.ZoneName = xcmp.GetDisplayText(DisplayRegion.PRIMARY).Text;
+            Status.ChannelName = xcmp.GetDisplayText(DisplayRegion.SECONDARY).Text;
         }
 
         /// <summary>
