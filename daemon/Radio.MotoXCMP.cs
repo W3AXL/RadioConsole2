@@ -54,14 +54,6 @@ namespace moto_xcmp
         /// </summary>
         private XCMP xcmp;
         /// <summary>
-        /// Token source for cancellation token
-        /// </summary>
-        private CancellationTokenSource ts;
-        /// <summary>
-        /// Token used to cancel listener loop
-        /// </summary>
-        private CancellationToken ct;
-        /// <summary>
         /// Queue for outgoing XCMP messages
         /// </summary>
         private ConcurrentQueue<XCMP.XcmpMessage> msgQueue = new ConcurrentQueue<XCMP.XcmpMessage>();
@@ -92,6 +84,8 @@ namespace moto_xcmp
         {
             // Init XCMP connection
             xcmp = new XCMP(xcmpConn);
+            // Bind receive event
+            xcmp.OnReceive += onMessage;
         }
 
         /// <summary>
@@ -102,11 +96,7 @@ namespace moto_xcmp
         {
             Log.Information("Starting new Motorola XCMP radio instance");
             base.Start(reset);
-            xcmp.Connect(underTest: false, waitForInit: true);
-            // Start listener
-            ts = new CancellationTokenSource();
-            ct = ts.Token;
-            Task.Factory.StartNew(listenLoop, ct);
+            xcmp.Connect(underTest: false);
             Log.Debug("XCMP runtime started");
         }
 
@@ -116,14 +106,6 @@ namespace moto_xcmp
         public override void Stop()
         {
             Log.Information($"Stopping XCMP radio...");
-            // Stop loop
-            if (ts != null)
-            {
-                Log.Debug("Stopping XCMP runtime");
-                ts.Cancel();
-                ts.Dispose();
-                ts = null;
-            }
             // Stop base radio
             base.Stop();
             // Dekey if transmitting
@@ -133,18 +115,28 @@ namespace moto_xcmp
             xcmp.Disconnect();
         }
 
+        private void onMessage(object sender, XCMP.XcmpMessage msg)
+        {
+            // Handle different XCMP messages
+            switch (msg.Opcode)
+            {
+                default:
+                    Log.Warning("Unhandled XCMP opcode {opcode}", Enum.GetName(msg.Opcode));
+                    break;
+            }
+        }
+
         public override bool ChangeChannel(bool down)
         {
-            // TODO
-            return false;
+            return xcmp.ChangeChannel(down).GetAwaiter().GetResult();
         }
 
         public override bool SetTransmit(bool tx)
         {
             if (tx)
-                return xcmp.Keyup();
+                return xcmp.Keyup().GetAwaiter().GetResult();
             else
-                return xcmp.Dekey();
+                return xcmp.Dekey().GetAwaiter().GetResult();
         }
 
         public override bool PressButton(rc2_core.SoftkeyName name)
@@ -158,34 +150,5 @@ namespace moto_xcmp
             // TODO
             return false;
         }
-
-        /// <summary>
-        /// Listener loop for handling XCMP send/receive
-        /// </summary>
-        /// <param name="token"></param>
-        private void listenLoop(object _token)
-        {
-            CancellationToken token = (CancellationToken)_token;
-
-            while (!token.IsCancellationRequested)
-            {
-                // Receive messages first
-                if (xcmp.Available())
-                {
-                    XCMP.XcmpMessage rxMsg = xcmp.Receive();
-                }
-
-                // Next, send any waiting
-                XCMP.XcmpMessage msg;
-                if (msgQueue.TryDequeue(out msg))
-                {
-                    xcmp.Send(msg);
-                }
-
-                // Rest CPU
-                Thread.Sleep(2);
-            }
-        }
-
     }
 }
