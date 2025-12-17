@@ -12,6 +12,7 @@ using SIPSorceryMedia.Abstractions;
 using xcmp;
 using xcmp.connection;
 using System.ComponentModel.DataAnnotations;
+using System.Collections.Concurrent;
 
 namespace moto_xcmp
 {
@@ -52,6 +53,18 @@ namespace moto_xcmp
         /// The underlying XCMP connection for this radio
         /// </summary>
         private XCMP xcmp;
+        /// <summary>
+        /// Token source for cancellation token
+        /// </summary>
+        private CancellationTokenSource ts;
+        /// <summary>
+        /// Token used to cancel listener loop
+        /// </summary>
+        private CancellationToken ct;
+        /// <summary>
+        /// Queue for outgoing XCMP messages
+        /// </summary>
+        private ConcurrentQueue<XCMP.XcmpMessage> msgQueue = new ConcurrentQueue<XCMP.XcmpMessage>();
 
         /// <summary>
         /// Initialize a new XCMP radio connection
@@ -87,14 +100,14 @@ namespace moto_xcmp
         /// <param name="reset"></param>
         public override void Start(bool reset = false)
         {
-            Log.Information($"Starting new Motorola XCMP radio instance");
+            Log.Information("Starting new Motorola XCMP radio instance");
             base.Start(reset);
             xcmp.Connect(underTest: false, waitForInit: true);
-            /*if (reset)
-                xcmp.ResetRadio();*/
-            // Query for display texts
-            Status.ZoneName = xcmp.GetDisplayText(DisplayRegion.PRIMARY).Text;
-            Status.ChannelName = xcmp.GetDisplayText(DisplayRegion.SECONDARY).Text;
+            // Start listener
+            ts = new CancellationTokenSource();
+            ct = ts.Token;
+            Task.Factory.StartNew(listenLoop, ct);
+            Log.Debug("XCMP runtime started");
         }
 
         /// <summary>
@@ -103,9 +116,20 @@ namespace moto_xcmp
         public override void Stop()
         {
             Log.Information($"Stopping XCMP radio...");
+            // Stop loop
+            if (ts != null)
+            {
+                Log.Debug("Stopping XCMP runtime");
+                ts.Cancel();
+                ts.Dispose();
+                ts = null;
+            }
+            // Stop base radio
             base.Stop();
+            // Dekey if transmitting
             if (Status.State == RadioState.Transmitting)
                 xcmp.Dekey();
+            // Disconnect from xcmp
             xcmp.Disconnect();
         }
 
@@ -133,6 +157,34 @@ namespace moto_xcmp
         {
             // TODO
             return false;
+        }
+
+        /// <summary>
+        /// Listener loop for handling XCMP send/receive
+        /// </summary>
+        /// <param name="token"></param>
+        private void listenLoop(object _token)
+        {
+            CancellationToken token = (CancellationToken)_token;
+
+            while (!token.IsCancellationRequested)
+            {
+                // Receive messages first
+                if (xcmp.Available())
+                {
+                    XCMP.XcmpMessage rxMsg = xcmp.Receive();
+                }
+
+                // Next, send any waiting
+                XCMP.XcmpMessage msg;
+                if (msgQueue.TryDequeue(out msg))
+                {
+                    xcmp.Send(msg);
+                }
+
+                // Rest CPU
+                Thread.Sleep(2);
+            }
         }
 
     }

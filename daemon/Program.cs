@@ -206,6 +206,12 @@ namespace netcore_cli
                         break;
                     case RadioControlMode.XCMP_XTL:
                         {
+                            // Validate baudrate
+                            if (!XCMPPPPConnection.BaudRates.Contains(Config.Control.Xcmp.Baudrate))
+                            {
+                                Log.Error("{baud} is not a valid baudrate! Valid options are {valid}", Config.Control.Xcmp.Baudrate, XCMPPPPConnection.BaudRates);
+                                Environment.Exit((int)ERRNO.EBADCONFIG);
+                            }
                             // Create a new serial XCMP connection to UDP/4051
                             XCMPPPPConnection pppConn = new XCMPPPPConnection(
                                 Config.Control.Xcmp.SerialPort,
