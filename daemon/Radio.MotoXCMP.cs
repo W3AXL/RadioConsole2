@@ -13,6 +13,7 @@ using xcmp;
 using xcmp.connection;
 using System.ComponentModel.DataAnnotations;
 using System.Collections.Concurrent;
+using System.Drawing;
 
 namespace moto_xcmp
 {
@@ -57,6 +58,12 @@ namespace moto_xcmp
         /// Queue for outgoing XCMP messages
         /// </summary>
         private ConcurrentQueue<XCMP.XcmpMessage> msgQueue = new ConcurrentQueue<XCMP.XcmpMessage>();
+        
+        /// <summary>
+        /// Trackers for the radio's current zone/channel numbers to detect channel changes
+        /// </summary>
+        private UInt16 zoneNumber;
+        private UInt16 chanNumber;
 
         /// <summary>
         /// Initialize a new XCMP radio connection
@@ -96,8 +103,12 @@ namespace moto_xcmp
         {
             Log.Information("Starting new Motorola XCMP radio instance");
             base.Start(reset);
-            xcmp.Connect(underTest: false);
+            xcmp.Connect().GetAwaiter().GetResult();
             Log.Debug("XCMP runtime started");
+            // Get initial displays
+            xcmp.QueryDisplayText(DisplayRegion.PRIMARY).GetAwaiter().GetResult(); // Channel
+            xcmp.QueryDisplayText(DisplayRegion.SECONDARY).GetAwaiter().GetResult(); // Zone
+            xcmp.QueryDisplayText(DisplayRegion.TERTIARY).GetAwaiter().GetResult(); // Softkeys
         }
 
         /// <summary>
@@ -110,20 +121,85 @@ namespace moto_xcmp
             base.Stop();
             // Dekey if transmitting
             if (Status.State == RadioState.Transmitting)
-                xcmp.Dekey();
+                xcmp.Dekey().GetAwaiter().GetResult();
             // Disconnect from xcmp
-            xcmp.Disconnect();
+            xcmp.Disconnect().GetAwaiter().GetResult();
         }
 
         private void onMessage(object sender, XCMP.XcmpMessage msg)
         {
+            // Flag that we need to update radio status
+            bool updated = false;
             // Handle different XCMP messages
             switch (msg.Opcode)
             {
+                // Channel/Zone Select Message
+                case Opcode.CHZNSEL:
+                    // Decode
+                    XCMP.ChanZoneSelectMsg chznsel = new XCMP.ChanZoneSelectMsg(msg);
+                    // Upon receipt of a zone/channel broadcast, we query for the updated zone/channel text
+                    if (chznsel.MsgType == MsgType.BROADCAST)
+                    {
+                        if (chznsel.ZoneNumber != zoneNumber)
+                        {
+                            zoneNumber = chznsel.ZoneNumber;
+                            Log.Verbose("Got new zone number {num} from radio, querying for new display text", zoneNumber);
+                            xcmp.QueryDisplayText(DisplayRegion.SECONDARY).GetAwaiter().GetResult(); // Zone
+                        }
+                        if (chznsel.ChanNumber != chanNumber)
+                        {
+                            chanNumber = chznsel.ChanNumber;
+                            Log.Verbose("Got new channel number {num} from radio, querying for new display text", chanNumber);
+                            xcmp.QueryDisplayText(DisplayRegion.PRIMARY).GetAwaiter().GetResult(); // Channel
+                        }
+                    }
+                    break;
+                case Opcode.DISPTXT:
+                    // Decode
+                    XCMP.DisplayTextMsg dispMsg = new XCMP.DisplayTextMsg(msg);
+                    // Obtain display text from a response or broadcast
+                    if (dispMsg.MsgType == MsgType.RESPONSE || dispMsg.MsgType == MsgType.BROADCAST)
+                    {
+                        // Get text with whitespace stripped
+                        string text = dispMsg.Text.Replace("\u0000","").Trim();
+                        // Channel Name
+                        if (dispMsg.Region == DisplayRegion.PRIMARY)
+                        {
+                            if (Status.ChannelName != text)
+                            {
+                                Log.Information("Got new channel name: {name}", text);
+                                Status.ChannelName = text;
+                                updated = true;
+                            }
+                        }
+                        // Zone Name
+                        else if (dispMsg.Region == DisplayRegion.SECONDARY)
+                        {
+                            if (Status.ZoneName != text)
+                            {
+                                Log.Information("Got new zone name: {name}", text);
+                                Status.ZoneName = text;
+                                updated = true;
+                            }
+                        }
+                        // Softkeys
+                        else if (dispMsg.Region == DisplayRegion.TERTIARY)
+                        {
+                            
+                        }
+                        else
+                        {
+                            Log.Warning("XCMP: Got unhandled display region {region}", dispMsg.Region);
+                        }
+                    }
+                    break;
                 default:
-                    Log.Warning("Unhandled XCMP opcode {opcode}", Enum.GetName(msg.Opcode));
+                    Log.Warning("Radio.MotoXCMP Unhandled XCMP message opcode {name} ({opcode:X})", Enum.GetName(msg.Opcode), msg.Opcode);
                     break;
             }
+            // Send a status update if needed
+            if (updated)
+                StatusCallback();
         }
 
         public override bool ChangeChannel(bool down)
