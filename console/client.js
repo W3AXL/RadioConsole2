@@ -1845,6 +1845,15 @@ function createPeerConnection(idx) {
     // List for holding pending ICE candidates
     radios[idx].rtc.pendingCandidates = [];
 
+    // Candidate management for filtering out VPN and reflexive candidates
+    radios[idx].rtc.candidateFilter = {
+        hostCandidates: [],          // Host candidates (direct local network)
+        reflexiveCandidates: [],     // Reflexive candidates (from VPN/NAT)
+        sentCandidates: new Set(),   // Track sent candidates to avoid duplicates
+        gatheringComplete: false,
+        hostCandidateSubnets: new Set()  // Subnets of host candidates
+    };
+
     // Debug print for ICE gathering state
     peer.onicegatheringstatechange = () => {
         console.debug(`[${radios[idx].name}]: new WebRTC peer iceGatheringState: ${peer.iceGatheringState}`);
@@ -1932,11 +1941,42 @@ function createPeerConnection(idx) {
         }
     }
 
-    // Bind the ICE candidate event so we send a new candidate to the daemon whenever one is available
+    // Bind the ICE candidate event with filtering to prevent spam
     peer.onicecandidate = ({ candidate }) => {
-        if (event.candidate) {
-            radios[idx].wsRtc.send(JSON.stringify(candidate));
+        if (candidate) {
+            // Extract candidate info
+            const candStr = candidate.candidate;
+            const parts = candStr.split(' ');
+            const ip = parts[4];
+            const type = parts[7];  // typ host, typ srflx, typ prflx, etc.
+            
+            // Generate unique ID for this candidate to avoid duplicates
+            const candId = `${ip}:${parts[5]}`;
+            
+            if (radios[idx].rtc.candidateFilter.sentCandidates.has(candId)) {
+                console.debug(`[${radios[idx].name}]: Skipping duplicate candidate ${candId}`);
+                return;
+            }
+            
+            // Categorize candidate
+            if (type === 'host') {
+                // Extract subnet from host candidate (first 3 octets for IPv4)
+                const subnet = ip.split('.').slice(0, 3).join('.');
+                radios[idx].rtc.candidateFilter.hostCandidateSubnets.add(subnet);
+                radios[idx].rtc.candidateFilter.hostCandidates.push({ candidate, ip, type, candId });
+                console.debug(`[${radios[idx].name}]: Host candidate: ${ip}`);
+            } else {
+                // Reflexive or peer reflexive candidate
+                radios[idx].rtc.candidateFilter.reflexiveCandidates.push({ candidate, ip, type, candId });
+                console.debug(`[${radios[idx].name}]: Reflexive candidate (${type}): ${ip}`);
+            }
         } else {
+            // Null candidate signals end of gathering - process all collected candidates
+            console.debug(`[${radios[idx].name}]: ICE gathering complete, processing candidates...`);
+            radios[idx].rtc.candidateFilter.gatheringComplete = true;
+            sendPrioritizedCandidates(idx);
+            
+            // Send end-of-candidates marker
             radios[idx].wsRtc.send(JSON.stringify({
                 candidate: null,
                 sdpMid: null,
@@ -2028,6 +2068,50 @@ function createPeerConnection(idx) {
 
     // Return the new peer object
     return peer;
+}
+
+/**
+ * Send prioritized candidates, preferring host candidates and suppressing excessive reflexive candidates
+ * from VPN networks to prevent DTLS handshake disruption
+ */
+function sendPrioritizedCandidates(idx) {
+    const filter = radios[idx].rtc.candidateFilter;
+    
+    console.log(`[${radios[idx].name}]: Sending candidates - ${filter.hostCandidates.length} host, ${filter.reflexiveCandidates.length} reflexive`);
+    
+    // Always send all host candidates first (direct connections)
+    for (const cand of filter.hostCandidates) {
+        radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
+        filter.sentCandidates.add(cand.candId);
+        console.debug(`[${radios[idx].name}]: Sent host candidate: ${cand.ip}`);
+    }
+    
+    // For reflexive candidates, filter out VPN-only candidates if we have host candidates
+    if (filter.hostCandidates.length > 0) {
+        console.debug(`[${radios[idx].name}]: Host candidates available, filtering reflexive candidates to same subnets`);
+        
+        for (const cand of filter.reflexiveCandidates) {
+            // Extract subnet from reflexive candidate
+            const reflexiveSubnet = cand.ip.split('.').slice(0, 3).join('.');
+            
+            // Only send reflexive candidates that match a host candidate's subnet
+            // This suppresses VPN/Tailscale/Zerotier candidates that don't match local network
+            if (filter.hostCandidateSubnets.has(reflexiveSubnet)) {
+                radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
+                filter.sentCandidates.add(cand.candId);
+                console.debug(`[${radios[idx].name}]: Sent matching reflexive candidate: ${cand.ip}`);
+            } else {
+                console.debug(`[${radios[idx].name}]: Filtered out VPN reflexive candidate: ${cand.ip} (subnet ${reflexiveSubnet} not in host subnets)`);
+            }
+        }
+    } else {
+        // No host candidates - send all reflexive candidates
+        console.warn(`[${radios[idx].name}]: No host candidates found, sending all reflexive candidates`);
+        for (const cand of filter.reflexiveCandidates) {
+            radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
+            filter.sentCandidates.add(cand.candId);
+        }
+    }
 }
 
 /**
