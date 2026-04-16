@@ -2071,47 +2071,104 @@ function createPeerConnection(idx) {
 }
 
 /**
- * Send prioritized candidates, preferring host candidates and suppressing excessive reflexive candidates
- * from VPN networks to prevent DTLS handshake disruption
+ * Send prioritized candidates, filtering by local network detection to prevent DTLS disruption
+ * Sends only local network candidates immediately, delaying VPN candidates to allow DTLS handshake
  */
 function sendPrioritizedCandidates(idx) {
     const filter = radios[idx].rtc.candidateFilter;
     
     console.log(`[${radios[idx].name}]: Sending candidates - ${filter.hostCandidates.length} host, ${filter.reflexiveCandidates.length} reflexive`);
     
-    // Always send all host candidates first (direct connections)
+    // Detect local network subnet from candidates
+    // Look for private network ranges: 10.x.x.x, 192.168.x.x, 172.16-31.x.x
+    let localSubnets = new Set();
+    let vpnCandidates = [];
+    
     for (const cand of filter.hostCandidates) {
-        radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
-        filter.sentCandidates.add(cand.candId);
-        console.debug(`[${radios[idx].name}]: Sent host candidate: ${cand.ip}`);
+        const ip = cand.ip;
+        
+        // Check if this is a private/local network address
+        if (isLocalNetworkIP(ip)) {
+            // Extract subnet (first 3 octets for IPv4)
+            if (ip.includes('.')) {
+                const subnet = ip.split('.').slice(0, 3).join('.');
+                localSubnets.add(subnet);
+            }
+        } else {
+            // This is a VPN/link-local/other address
+            vpnCandidates.push(cand);
+        }
     }
     
-    // For reflexive candidates, filter out VPN-only candidates if we have host candidates
-    if (filter.hostCandidates.length > 0) {
-        console.debug(`[${radios[idx].name}]: Host candidates available, filtering reflexive candidates to same subnets`);
-        
-        for (const cand of filter.reflexiveCandidates) {
-            // Extract subnet from reflexive candidate
-            const reflexiveSubnet = cand.ip.split('.').slice(0, 3).join('.');
-            
-            // Only send reflexive candidates that match a host candidate's subnet
-            // This suppresses VPN/Tailscale/Zerotier candidates that don't match local network
-            if (filter.hostCandidateSubnets.has(reflexiveSubnet)) {
-                radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
-                filter.sentCandidates.add(cand.candId);
-                console.debug(`[${radios[idx].name}]: Sent matching reflexive candidate: ${cand.ip}`);
-            } else {
-                console.debug(`[${radios[idx].name}]: Filtered out VPN reflexive candidate: ${cand.ip} (subnet ${reflexiveSubnet} not in host subnets)`);
-            }
-        }
-    } else {
-        // No host candidates - send all reflexive candidates
-        console.warn(`[${radios[idx].name}]: No host candidates found, sending all reflexive candidates`);
-        for (const cand of filter.reflexiveCandidates) {
+    console.debug(`[${radios[idx].name}]: Detected local subnets: ${Array.from(localSubnets).join(', ')}`);
+    
+    // Send local network candidates immediately
+    let localCandidateSent = false;
+    for (const cand of filter.hostCandidates) {
+        if (localSubnets.size === 0 || isLocalNetworkIP(cand.ip)) {
             radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
             filter.sentCandidates.add(cand.candId);
+            console.debug(`[${radios[idx].name}]: Sent local candidate: ${cand.ip}`);
+            localCandidateSent = true;
         }
     }
+    
+    // Send reflexive candidates (if any)
+    for (const cand of filter.reflexiveCandidates) {
+        radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
+        filter.sentCandidates.add(cand.candId);
+        console.debug(`[${radios[idx].name}]: Sent reflexive candidate: ${cand.ip}`);
+    }
+    
+    // Delay VPN candidates to allow DTLS handshake on local network first
+    if (vpnCandidates.length > 0 && localCandidateSent) {
+        console.debug(`[${radios[idx].name}]: Delaying ${vpnCandidates.length} VPN candidates by 5 seconds to allow DTLS handshake on local network`);
+        setTimeout(() => {
+            for (const cand of vpnCandidates) {
+                if (!filter.sentCandidates.has(cand.candId)) {
+                    radios[idx].wsRtc.send(JSON.stringify(cand.candidate));
+                    filter.sentCandidates.add(cand.candId);
+                    console.debug(`[${radios[idx].name}]: Sent delayed VPN candidate: ${cand.ip}`);
+                }
+            }
+        }, 5000);  // 5 second delay for DTLS to complete
+    }
+}
+
+/**
+ * Check if an IP address is in a local/private network range
+ */
+function isLocalNetworkIP(ip) {
+    // Handle IPv6
+    if (ip.includes(':')) {
+        // Suppress certain IPv6 prefixes known to be VPN/link-local
+        if (ip.startsWith('2607:fb90') || ip.startsWith('fe80') || ip.startsWith('169.254')) {
+            return false;  // VPN or link-local
+        }
+        // If it's IPv6 and not a known VPN, treat as local
+        return true;
+    }
+    
+    // IPv4 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    
+    const firstOctet = parseInt(parts[0]);
+    const secondOctet = parseInt(parts[1]);
+    
+    // 10.x.x.x
+    if (firstOctet === 10) return true;
+    
+    // 172.16.x.x - 172.31.x.x
+    if (firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31) return true;
+    
+    // 192.168.x.x
+    if (firstOctet === 192 && secondOctet === 168) return true;
+    
+    // 169.254.x.x (link-local - VPN indicator)
+    if (firstOctet === 169 && secondOctet === 254) return false;
+    
+    return false;  // Not a recognized local network
 }
 
 /**
