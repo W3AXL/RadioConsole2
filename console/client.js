@@ -2134,13 +2134,19 @@ function handleRtcWsClose(event, idx)
  * @param {string} answerType SDP type
  * @param {string} answerSdp SDP
  */
-function gotRtcResponse(idx, answerType, answerSdp) {
-    console.log("Got WebRTC response from server");
-    var answer = {
-        type: answerType,
-        sdp: answerSdp
+async function gotRtcResponse(idx, answerType, answerSdp) {
+    console.debug(`[${radios[idx].name}]: Got WebRTC response from server`);
+    try {
+        var answer = {
+            type: answerType,
+            sdp: answerSdp
+        }
+        await radios[idx].rtc.peer.setRemoteDescription(answer);
+        console.debug(`[${radios[idx].name}]: Successfully set remote description (answer)`)
+    } catch (err) {
+        console.error(`[${radios[idx].name}]: Failed to set remote description:`, err)
     }
-    radios[idx].rtc.peer.setRemoteDescription(answer);
+    
 }
 
 /**
@@ -3056,7 +3062,7 @@ function connectRadio(idx) {
     // Create WebRTC-specific websocket
     radios[idx].wsRtc = new WebSocket("ws://" + radios[idx].address + ":" + radios[idx].port + "/rtc");
     radios[idx].wsRtc.onerror = function(event) { handleRtcWsError(event, idx) };
-    radios[idx].wsRtc.onmessage = function(event) { handleRtcWsMsg(event, idx) };
+    radios[idx].wsRtc.onmessage = async function(event) { await handleRtcWsMsg(event, idx) };
     radios[idx].wsRtc.onclose = function(event) { handleRtcWsClose(event, idx) };
     // Wait for connections
     waitForWebSockets([radios[idx].wsConn, radios[idx].wsRtc], function() { onConnectWebsocket(idx) });
@@ -3195,24 +3201,6 @@ function recvSocketMessage(event, idx) {
                 updateAudio(idx);
                 // Send extension update
                 exUpdateRadio(idx);
-                break;
-
-            // WebRTC SDP answer
-            case "webRtcAnswer":
-                // get params
-                answerType = value['type'];
-                answerSdp = value['sdp'];
-                gotRtcResponse(idx,answerType,answerSdp);
-                break;
-
-            // Speaker audio data
-            case "audioData":
-                // make sure it's actually speaker data
-                if (value['source'] != "speaker") {
-                    break;
-                }
-                // Process it
-                getSpkrData(value['data']);
                 break;
 
             // ACK handler
