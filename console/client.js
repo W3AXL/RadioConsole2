@@ -823,6 +823,7 @@ window.electronAPI.saveRadioConfig((event, radioConfig) => {
 
     // Populate defaults
     newRadio.status = { State: 'Disconnected' };
+    newRadio.network = null;
     newRadio.rtc = {};
     newRadio.wsConn = null;
     newRadio.audioSrc = null;
@@ -1818,6 +1819,82 @@ function stopWebRtc(idx) {
 }
 
 /**
+ * Parses a CIDR notation string (e.g. "10.11.0.0/16") into a base address
+ * as a 32-bit integer and a bitmask.
+ * 
+ * @param {string} cidr - CIDR string like "10.11.0.0/16"
+ * @returns {{base: number, mask: number}}
+ */
+function parseCIDR(cidr) {
+    const [addrStr, prefixLen] = cidr.split('/');
+    const octets = addrStr.split('.').map(Number);
+    const addr = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+    const mask = prefixLen == 0 ? 0 : (~0 << (32 - parseInt(prefixLen))) >>> 0;
+    return { base: addr & mask, mask: mask };
+}
+
+/**
+ * Converts a dotted-decimal IPv4 address to a 32-bit unsigned integer.
+ * Returns null for IPv6 or unparseable addresses.
+ * 
+ * @param {string} ip - IPv4 address like "10.11.0.113"
+ * @returns {number|null}
+ */
+function ipToInt(ip) {
+    // Skip IPv6 addresses
+    if (ip.includes(':')) return null;
+    const octets = ip.split('.');
+    if (octets.length !== 4) return null;
+    return ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+}
+
+/**
+ * Filters ICE candidate lines from an SDP string, keeping only candidates
+ * whose connection address falls within one of the allowed CIDR networks.
+ * Non-candidate lines are passed through unchanged. IPv6 candidates are
+ * removed since the allowed networks are IPv4 CIDR blocks.
+ * 
+ * ICE candidate format (RFC 8839):
+ *   a=candidate:<foundation> <component> <protocol> <priority> <address> <port> typ <type> ...
+ *   The address is at space-separated index 4 (0-based) after stripping "a=candidate:".
+ * 
+ * @param {string} sdp - The full SDP string to filter
+ * @param {string[]} allowedNetworks - Array of CIDR strings, e.g. ["10.11.0.0/16"]
+ * @returns {string} The SDP string with non-matching candidate lines removed
+ */
+function filterCandidateAddresses(sdp, allowedNetworks) {
+    // If no filter is configured, pass everything through
+    if (!allowedNetworks || allowedNetworks.length === 0) return sdp;
+ 
+    // Parse CIDR networks once
+    const networks = allowedNetworks.map(parseCIDR);
+ 
+    return sdp.split('\r\n').filter(line => {
+        // Pass through all non-candidate lines
+        if (!line.startsWith('a=candidate:')) return true;
+ 
+        // Extract the address field (index 4 after "a=candidate:")
+        // Full line: "a=candidate:1234 1 udp 2122260223 10.11.0.113 58382 typ host ..."
+        // After split: ["a=candidate:1234", "1", "udp", "2122260223", "10.11.0.113", "58382", ...]
+        const parts = line.split(' ');
+        if (parts.length < 6) return true;
+ 
+        const ip = parts[4];
+        const addr = ipToInt(ip);
+ 
+        // Drop IPv6 candidates (they won't match any IPv4 CIDR)
+        if (addr === null) return false;
+ 
+        // Check against each allowed network
+        for (const net of networks) {
+            if ((addr & net.mask) === net.base) return true;
+        }
+ 
+        return false;
+    }).join('\r\n');
+}
+
+/**
  * Create a new WebRTC peer connection
  * 
  * We follow Mozilla's perfect WebRTC negotiation pattern:
@@ -1920,7 +1997,17 @@ function createPeerConnection(idx) {
         // Setup the offer
         try {
             radios[idx].rtc.makingOffer = true;
+            
+            // Create the offer
+            var offer = await peer.createOffer();
+
+            // Filter by configured networks
+            offer.sdp = filterCandidateAddresses(offer.sdp, radios[idx].network.allowedNetworks);
+
+            // Set local description
             await peer.setLocalDescription();
+
+            // Send
             radios[idx].wsRtc.send(JSON.stringify(peer.localDescription));
         }
         catch (err) {
@@ -1934,7 +2021,19 @@ function createPeerConnection(idx) {
 
     // Bind the ICE candidate event so we send a new candidate to the daemon whenever one is available
     peer.onicecandidate = ({ candidate }) => {
-        if (event.candidate) {
+        if (candidate) {
+            // Filter by allowed networks
+            const parts = candidate.candidate.split(' ');
+            if (parts.length >= 5 && radios[idx].network.allowedNetworks?.length > 0) {
+                const addr = ipToInt(parts[4]);
+                if (addr === null) return; // drop IPv6
+                const allowed = radios[idx].network.allowedNetworks.map(parseCIDR);
+                if (!allowed.some(net => (addr & net.mask) === net.base)) {
+                    console.debug(`[${radios[idx].name}]: Filtering ICE candidate ${parts[4]}`);
+                    return;
+                }
+            }
+            // Send
             radios[idx].wsRtc.send(JSON.stringify(candidate));
         } else {
             radios[idx].wsRtc.send(JSON.stringify({
@@ -3114,6 +3213,15 @@ function waitForWebSockets(sockets, callback=null) {
 function onConnectWebsocket(idx) {
     //$("#navbar-status").html("Websocket connected");
     console.log(`[${radios[idx].name}]: Websocket connection established`);
+    // Query radio network config
+    console.log(`[${radios[idx].name}]: Querying daemon network config`);
+    radios[idx].wsConn.send(JSON.stringify(
+        {
+            "network": {
+                "command": "query"
+            }
+        }
+    ));
     // Query radio status
     console.log(`[${radios[idx].name}]: Querying radio status`);
     radios[idx].wsConn.send(JSON.stringify(
@@ -3124,23 +3232,23 @@ function onConnectWebsocket(idx) {
         }
     ));
     // Start webrtc
-    waitForRadioStatus(idx, function() { startWebRtc(idx) });
+    waitForRadio(idx, function() { startWebRtc(idx) });
 }
 
 /**
- * Waits for the radiolist to be populated before calling callback
+ * Waits for the radio's status and network objects to be populated before calling the callback
  * @param {int} idx index of radio in radios[]
  * @param {function} callback 
  */
-function waitForRadioStatus(idx, callback) {
+function waitForRadio(idx, callback) {
     setTimeout(
         function() {
-            if (radios[idx].status.State != 'Disconnected') {
+            if (radios[idx].status.State != 'Disconnected' && radios[idx].network != null) {
                 if (callback != null) {
                     callback();
                 }
             } else {
-                waitForRadioStatus(idx, callback);
+                waitForRadio(idx, callback);
             }
         },
     5); // 5 ms timeout
@@ -3203,6 +3311,14 @@ function recvSocketMessage(event, idx) {
                 exUpdateRadio(idx);
                 break;
 
+            // Daemon network configuration
+            case "network":
+                // Update radio's network configuration object
+                radios[idx].network = msgObj['network'];
+                // Debug
+                console.debug(`[${radios[idx].name}]: Got network configuration:`, radios[idx].network);
+                break;
+
             // ACK handler
             case "ack":
                 switch (value) {
@@ -3232,8 +3348,13 @@ function recvSocketMessage(event, idx) {
 
             // NACK handler
             case "nack":
-                console.error("Got NACK from server");
+                console.error(`[${radios[idx].name}]: Got NACK from server`);
                 playSound("sound-error")
+                break;
+
+            // Unhandled message
+            default:
+                console.error(`[${radios[idx].name}]: unhandled WS message`, msgObj);
                 break;
         }
     }
