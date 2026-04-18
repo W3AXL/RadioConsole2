@@ -29,6 +29,11 @@ namespace daemon
         /// Listen port the console client connects to
         /// </summary>
         public int ListenPort = 8801;
+        /// <summary>
+        /// List of allowed IP networks that can connect to the daemon
+        /// This prevents WebRTC from having issues on computers with multiple interfaces/VPNs
+        /// </summary>
+        public List<IPNetwork> AllowedNetworks = new();
     }
 
     /// <summary>

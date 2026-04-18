@@ -12,6 +12,10 @@ daemon:
     listenAddress: 0.0.0.0
     # Listen port
     listenPort: 8801
+    # Allowed IP Networks, this can filter out invalid/unwanted connections from the console on multi-interface PCs
+    allowedNetworks:
+      - 192.168.0.1/24
+      - 10.10.0.0/16
 
 # Radio control configuration
 control:
