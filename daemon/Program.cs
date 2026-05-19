@@ -202,6 +202,34 @@ namespace netcore_cli
             // Switch based on control mode
             switch(Config.Control.ControlMode)
             {
+                case RadioControlMode.VOX:
+                {
+                    VoxRadio voxRadio = null;
+                    Action<AudioFormat> rtcFormatCallback = (audioFormat) =>
+                    {
+                        localAudio.Start(audioFormat);
+                        voxRadio?.ReArmStartupDelay("WebRTC audio negotiation");
+                    };
+
+                    voxRadio = new VoxRadio(
+                        Config.Daemon.Name,
+                        Config.Daemon.Desc,
+                        Config.Control.RxOnly,
+                        Config.Daemon.ListenAddress,
+                        Config.Daemon.ListenPort,
+                        Config.Control.Vox,
+                        localAudio.TxAudioCallback,
+                        16000,
+                        rtcFormatCallback,
+                        Config.Softkeys,
+                        Config.TextLookups.Zone,
+                        Config.TextLookups.Channel
+                    );
+                    radio = voxRadio;
+                    localAudio.RxRawSampleCallback += voxRadio.HandleRxAudioSamples;
+                    localAudio.TxPcmSampleCallback += voxRadio.HandleTxAudioSamples;
+                }
+                break;
                 case RadioControlMode.SB9600:
                 {
                     radio = new MotoSb9600Radio(
@@ -229,7 +257,15 @@ namespace netcore_cli
             }
 
             // Setup RX audio callback
-            localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            if (Config.Control.ControlMode == RadioControlMode.VOX)
+            {
+                localAudio.RxEncodedSampleCallback += ((VoxRadio)radio).HandleRxEncodedSamples;
+                localAudio.Start(GetDefaultAudioFormat());
+            }
+            else
+            {
+                localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            }
 
             // Start radio
             radio.Start(noreset);
@@ -330,6 +366,20 @@ namespace netcore_cli
                 Log.Information("        {codec}", codec.FormatName);
             }
             SDL2Helper.QuitSDL();
+        }
+
+        static AudioFormat GetDefaultAudioFormat()
+        {
+            AudioEncoder audioEncoder = new AudioEncoder();
+            AudioFormat g722 = audioEncoder.SupportedFormats.Find(f => f.FormatName == "G722");
+
+            if (g722.ClockRate == 0)
+            {
+                var audioFormatManager = new MediaFormatManager<AudioFormat>(audioEncoder.SupportedFormats);
+                return audioFormatManager.SelectedFormat;
+            }
+
+            return g722;
         }
     }
 }
