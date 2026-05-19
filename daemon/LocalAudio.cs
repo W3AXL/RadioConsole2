@@ -47,6 +47,10 @@ namespace daemon
         // RX Audio Objects
         private SDL2AudioSource rxSource;
         private AudioEncoder rxEncoder;
+        private AudioEncoder rxMonitorEncoder;
+        private AudioFormat rxAudioFormat = AudioFormat.Empty;
+        private long lastRawRxSampleMs = long.MinValue;
+        private bool started = false;
 
         // TX Audio Objects
         private SDL2AudioEndPoint txEndpoint;
@@ -60,6 +64,8 @@ namespace daemon
 
         // RX audio callback action
         public Action<uint, byte[]> RxEncodedSampleCallback;
+        public Action<AudioSamplingRatesEnum, uint, short[]> RxRawSampleCallback;
+        public Action<short[]> TxPcmSampleCallback;
 
         public LocalAudio(string rxDevice, string txDevice, rc2_core.Radio radio, bool rxOnly = false)
         {
@@ -76,6 +82,7 @@ namespace daemon
 
             // Setup RX audio devices
             rxEncoder = new AudioEncoder();
+            rxMonitorEncoder = new AudioEncoder();
             rxSource = new SDL2AudioSource(rxDevice, rxEncoder);
             rxSource.OnAudioSourceError += (e) => {
                 Log.Logger.Error("Got RX audio error: {error}", e);
@@ -83,7 +90,17 @@ namespace daemon
             // Setup RX sample callback
             rxSource.OnAudioSourceEncodedSample += (uint durationRtpUnits, byte[] samples) => {
                 //Log.Logger.Verbose("Got {count} encoded RX samples", samples.Length);
-                RxEncodedSampleCallback(durationRtpUnits, samples);
+                RxEncodedSampleCallback?.Invoke(durationRtpUnits, samples);
+                if (RxRawSampleCallback != null && Environment.TickCount64 - lastRawRxSampleMs > 1000 && rxAudioFormat.ClockRate > 0)
+                {
+                    short[] pcmSamples = rxMonitorEncoder.DecodeAudio(samples, rxAudioFormat);
+                    uint durationMilliseconds = (uint)(pcmSamples.Length * 1000 / rxAudioFormat.ClockRate);
+                    RxRawSampleCallback(AudioSamplingRatesEnum.Rate16KHz, durationMilliseconds, pcmSamples);
+                }
+            };
+            rxSource.OnAudioSourceRawSample += (AudioSamplingRatesEnum samplingRate, uint durationMilliseconds, short[] samples) => {
+                lastRawRxSampleMs = Environment.TickCount64;
+                RxRawSampleCallback?.Invoke(samplingRate, durationMilliseconds, samples);
             };
             Log.Logger.Information("    RX: {rxDevice}", rxDevice);
             // Setup TX audio devices if we aren't rx-only
@@ -101,6 +118,13 @@ namespace daemon
 
         public void Start(AudioFormat audioFormat)
         {
+            if (started)
+            {
+                Log.Logger.Debug("Audio device(s) already started, keeping existing format {format}/{rate}/{chans}", rxAudioFormat.FormatName, rxAudioFormat.ClockRate, rxAudioFormat.ChannelCount);
+                return;
+            }
+
+            rxAudioFormat = audioFormat;
             // Set audio formats
             rxSource.SetAudioSourceFormat(audioFormat);
             if (!rxOnly)
@@ -114,14 +138,18 @@ namespace daemon
                 txEndpoint.StartAudioSink();
             }
             Log.Logger.Debug("Audio device(s) started using format {format}/{rate}/{chans}", audioFormat.FormatName, audioFormat.ClockRate, audioFormat.ChannelCount);
+            started = true;
         }
 
         public async Task Stop()
         {
-            await rxSource.CloseAudio();
-            if (!rxOnly)
+            if (started)
             {
-                await txEndpoint.CloseAudioSink();
+                await rxSource.CloseAudio();
+                if (!rxOnly)
+                {
+                    await txEndpoint.CloseAudioSink();
+                }
             }
             // De-init SDL2
             SDL2Helper.QuitSDL();
@@ -132,6 +160,7 @@ namespace daemon
         {
             // Do nothing if we're RX only
             if (rxOnly) { return; }
+            TxPcmSampleCallback?.Invoke(pcm16Samples);
             // Convert the short[] samples into byte[] samples
             byte[] pcm16Bytes = new byte[pcm16Samples.Length * 2];
             Buffer.BlockCopy(pcm16Samples, 0, pcm16Bytes, 0, pcm16Samples.Length * 2);

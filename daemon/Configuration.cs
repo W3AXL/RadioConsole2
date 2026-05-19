@@ -64,6 +64,10 @@ namespace daemon
         /// Config for motorola SB9600
         /// </summary>
         public MotoSb9600Config Sb9600 = new MotoSb9600Config();
+        /// <summary>
+        /// Config for VOX audio-level based control
+        /// </summary>
+        public VoxConfig Vox = new VoxConfig();
     }
 
     /// <summary>

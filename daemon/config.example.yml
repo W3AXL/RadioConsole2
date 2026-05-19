@@ -17,7 +17,7 @@ daemon:
 control:
     # Control Mode
     #
-    #   0 - VOX (control of TX/RX states is based on audio levels only) [Not Yet Implemented]
+    #   0 - VOX (control of TX/RX states is based on audio levels only)
     #   1 - TRC (Tone remote control based on EIA tone signalling) [Not Yet Implemented]
     #   2 - SB9600 (emulation of Motorola Astro W-series and MCS2000 model-3 control heads over SB9600)
     #   3 - XCMP Serial (control of Motorola XTL radios via serial)
@@ -26,6 +26,27 @@ control:
 
     # RX Only (TX disabled)
     rxOnly: false
+
+    # VOX configuration
+    vox:
+        # Static zone/channel labels shown by the console
+        zoneName: "VOX"
+        channelName: "Audio"
+        # Audio level in dBFS required to mark RX/TX active.
+        # Less negative is less sensitive; more negative is more sensitive.
+        rxThresholdDb: -45
+        txThresholdDb: -45
+        # Audio must stay above threshold for attackMs before opening,
+        # and stays open for hangMs after dropping below threshold.
+        attackMs: 80
+        hangMs: 800
+        # Ignore audio briefly after startup so USB device-open noise does not trip VOX.
+        startupDelayMs: 1000
+        # During startup/reconnect, learn the idle noise floor and require audio
+        # to exceed it by this margin before opening VOX.
+        noiseMarginDb: 8
+        # After startup/reconnect, require quiet before the next VOX open.
+        requireQuietAfterReset: true
 
     # SB9600 configuration
     sb9600:
