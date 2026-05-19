@@ -60,15 +60,17 @@ namespace daemon
         private readonly bool txDisabled;
         private readonly System.Timers.Timer hangTimer;
         private readonly int startupDelayMs;
+        private readonly Action<short[]> txAudioOutputCallback;
         private long ignoreAudioUntilMs;
         private bool calibrationPending;
+        private bool txRequested;
         private bool started;
 
         public VoxRadio(
             string name, string desc, bool rxOnly,
             IPAddress listenAddress, int listenPort,
             VoxConfig voxConfig,
-            Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
+            Action<short[]> txAudioCallback, Action<short[]> txAudioOutputCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
             List<SoftkeyName> softkeys,
             List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null
             ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
@@ -77,6 +79,7 @@ namespace daemon
             txDisabled = rxOnly;
             RxOnly = rxOnly;
             startupDelayMs = Math.Max(0, this.voxConfig.StartupDelayMs);
+            this.txAudioOutputCallback = txAudioOutputCallback;
 
             rxGate = new VoxGate(
                 this.voxConfig.RxThresholdDb,
@@ -107,6 +110,7 @@ namespace daemon
             lock (stateLock)
             {
                 started = true;
+                txRequested = false;
                 rxGate.Reset();
                 txGate.Reset();
                 Status.ZoneName = voxConfig.ZoneName;
@@ -161,6 +165,7 @@ namespace daemon
             lock (stateLock)
             {
                 started = false;
+                txRequested = false;
                 Status.State = RadioState.Disconnected;
             }
 
@@ -174,6 +179,31 @@ namespace daemon
             {
                 Log.Warning("Ignoring VOX transmit request because this radio is RX-only");
                 return false;
+            }
+
+            RadioState nextState = RadioState.Idle;
+            bool statusChanged = false;
+
+            lock (stateLock)
+            {
+                txRequested = tx;
+
+                if (!tx)
+                {
+                    txGate.Reset();
+                }
+
+                nextState = GetVoxState();
+                if (Status.State != nextState)
+                {
+                    Status.State = nextState;
+                    statusChanged = true;
+                }
+            }
+
+            if (statusChanged)
+            {
+                RadioStatusCallback();
             }
 
             Log.Debug("Acknowledging VOX transmit {state}; radio state will follow TX audio level", tx ? "start" : "stop");
@@ -205,12 +235,20 @@ namespace daemon
 
         public void HandleTxAudioSamples(short[] samples)
         {
-            if (txDisabled)
+            bool shouldForward;
+
+            lock (stateLock)
+            {
+                shouldForward = started && txRequested && !txDisabled;
+            }
+
+            if (!shouldForward)
             {
                 return;
             }
 
             ProcessSamples(txGate, samples, "TX");
+            txAudioOutputCallback?.Invoke(samples);
         }
 
         public void HandleRxEncodedSamples(uint durationRtpUnits, byte[] encodedSamples)
@@ -252,9 +290,10 @@ namespace daemon
                 if (nowMs < ignoreAudioUntilMs)
                 {
                     gate.Calibrate(levelDb);
-                    if (Status.State != RadioState.Idle)
+                    nextState = GetVoxState();
+                    if (Status.State != nextState)
                     {
-                        Status.State = RadioState.Idle;
+                        Status.State = nextState;
                         statusChanged = true;
                     }
                 }
@@ -310,13 +349,12 @@ namespace daemon
 
                 if (nowMs < ignoreAudioUntilMs)
                 {
-                    if (Status.State != RadioState.Idle)
+                    nextState = GetVoxState();
+                    if (Status.State != nextState)
                     {
-                        Status.State = RadioState.Idle;
+                        Status.State = nextState;
                         statusChanged = true;
                     }
-
-                    nextState = RadioState.Idle;
                 }
                 else
                 {
@@ -342,6 +380,11 @@ namespace daemon
 
         private RadioState GetVoxState()
         {
+            if (!txDisabled && txRequested)
+            {
+                return RadioState.Transmitting;
+            }
+
             if (!txDisabled && txGate.Active)
             {
                 return RadioState.Transmitting;

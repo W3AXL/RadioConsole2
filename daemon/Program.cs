@@ -205,6 +205,10 @@ namespace netcore_cli
                 case RadioControlMode.VOX:
                 {
                     VoxRadio voxRadio = null;
+                    Action<short[]> txAudioCallback = (samples) =>
+                    {
+                        voxRadio?.HandleTxAudioSamples(samples);
+                    };
                     Action<AudioFormat> rtcFormatCallback = (audioFormat) =>
                     {
                         localAudio.Start(audioFormat);
@@ -218,6 +222,7 @@ namespace netcore_cli
                         Config.Daemon.ListenAddress,
                         Config.Daemon.ListenPort,
                         Config.Control.Vox,
+                        txAudioCallback,
                         localAudio.TxAudioCallback,
                         16000,
                         rtcFormatCallback,
@@ -227,7 +232,6 @@ namespace netcore_cli
                     );
                     radio = voxRadio;
                     localAudio.RxRawSampleCallback += voxRadio.HandleRxAudioSamples;
-                    localAudio.TxPcmSampleCallback += voxRadio.HandleTxAudioSamples;
                 }
                 break;
                 case RadioControlMode.SB9600:

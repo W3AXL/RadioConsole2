@@ -65,7 +65,6 @@ namespace daemon
         // RX audio callback action
         public Action<uint, byte[]> RxEncodedSampleCallback;
         public Action<AudioSamplingRatesEnum, uint, short[]> RxRawSampleCallback;
-        public Action<short[]> TxPcmSampleCallback;
 
         public LocalAudio(string rxDevice, string txDevice, rc2_core.Radio radio, bool rxOnly = false)
         {
@@ -160,7 +159,6 @@ namespace daemon
         {
             // Do nothing if we're RX only
             if (rxOnly) { return; }
-            TxPcmSampleCallback?.Invoke(pcm16Samples);
             // Convert the short[] samples into byte[] samples
             byte[] pcm16Bytes = new byte[pcm16Samples.Length * 2];
             Buffer.BlockCopy(pcm16Samples, 0, pcm16Bytes, 0, pcm16Samples.Length * 2);
