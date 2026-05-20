@@ -44,7 +44,8 @@ namespace daemon
         TRC = 1,
         SB9600 = 2,
         XCMP_SER = 3,
-        XCMP_USB = 4
+        XCMP_USB = 4,
+        SDRTrunk = 5
     }
 
     /// <summary>
@@ -64,6 +65,10 @@ namespace daemon
         /// Config for motorola SB9600
         /// </summary>
         public MotoSb9600Config Sb9600 = new MotoSb9600Config();
+        /// <summary>
+        /// Config for direct sdrtrunk audio stream ingest
+        /// </summary>
+        public SdrTrunkConfig SdrTrunk = new SdrTrunkConfig();
     }
 
     /// <summary>

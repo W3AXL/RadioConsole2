@@ -22,10 +22,35 @@ control:
     #   2 - SB9600 (emulation of Motorola Astro W-series and MCS2000 model-3 control heads over SB9600)
     #   3 - XCMP Serial (control of Motorola XTL radios via serial)
     #   4 - XCMP USB (control of Motorola XPR and APX radios via USB)
+    #   5 - SDRTrunk (RX-only direct Icecast-compatible source ingest from sdrtrunk)
     controlMode: 2
 
     # RX Only (TX disabled)
     rxOnly: false
+
+    # SDRTrunk direct stream configuration
+    sdrTrunk:
+        # Address/port where sdrtrunk should connect as an Icecast source.
+        listenAddress: 127.0.0.1
+        listenPort: 8000
+        # Mount point configured in sdrtrunk.
+        mount: "/sdrtrunk"
+        # Optional source password. Leave empty to accept local unauthenticated sources.
+        sourcePassword: ""
+        # Static zone/channel labels shown by the console.
+        zoneName: "SDRTrunk"
+        channelName: "Stream"
+        # Audio level in dBFS required to mark the stream receiving.
+        rxThresholdDb: -45
+        # Audio must stay above threshold for attackMs before opening,
+        # and stays open for hangMs after dropping below threshold.
+        attackMs: 0
+        hangMs: 3000
+        # Sample rate forwarded to RC2 before final WebRTC encoding.
+        outputSampleRate: 16000
+        # If sdrtrunk connects but sends no decodable MP3 frames, close the
+        # source so sdrtrunk reconnects without manually toggling the stream.
+        sourceNoAudioRestartMs: 10000
 
     # SB9600 configuration
     sb9600:

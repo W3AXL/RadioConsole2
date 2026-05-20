@@ -1,0 +1,53 @@
+#
+#   RadioConsole2 Daemon Config File - SDRTrunk Direct Stream
+#
+
+daemon:
+    name: "SDRTrunk"
+    desc: "Direct sdrtrunk audio stream"
+    # RC2 console connects to this address/port.
+    listenAddress: 0.0.0.0
+    listenPort: 8804
+
+audio:
+    # Not used by SDRTrunk mode.
+    txDevice: ""
+    rxDevice: ""
+
+control:
+    # 5 - SDRTrunk direct Icecast-compatible source ingest
+    controlMode: 5
+    rxOnly: true
+
+    sdrTrunk:
+        # sdrtrunk should publish its stream to this listener.
+        listenAddress: 127.0.0.1
+        listenPort: 8000
+        mount: "/sdrtrunk"
+
+        # Leave empty for local testing. Set this if you configure a source
+        # password in sdrtrunk.
+        sourcePassword: ""
+
+        # Static labels shown in RC2.
+        zoneName: "SDRTrunk"
+        channelName: "Stream"
+
+        # Less negative is less sensitive; more negative is more sensitive.
+        rxThresholdDb: -45
+
+        # Open quickly on activity, then hold through short stream gaps.
+        attackMs: 0
+        hangMs: 3000
+
+        # Audio rate sent into RC2 before WebRTC encoding.
+        outputSampleRate: 16000
+
+        # If sdrtrunk connects but sends no decodable MP3 frames, close the
+        # source so sdrtrunk reconnects without manually toggling the stream.
+        sourceNoAudioRestartMs: 10000
+
+softkeys:
+    - MON
+    - HOME
+    - SEL

@@ -195,13 +195,30 @@ namespace netcore_cli
                     .CreateLogger();
             }
 
-            // Setup Audio Devices
-            Log.Logger.Debug("Configuring local audio");
-            localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, radio, Config.Control.RxOnly);
+            if (Config.Control.ControlMode != RadioControlMode.SDRTrunk)
+            {
+                // Setup Audio Devices
+                Log.Logger.Debug("Configuring local audio");
+                localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, radio, Config.Control.RxOnly);
+            }
 
             // Switch based on control mode
             switch(Config.Control.ControlMode)
             {
+                case RadioControlMode.SDRTrunk:
+                {
+                    radio = new SdrTrunkRadio(
+                        Config.Daemon.Name,
+                        Config.Daemon.Desc,
+                        Config.Daemon.ListenAddress,
+                        Config.Daemon.ListenPort,
+                        Config.Control.SdrTrunk,
+                        Config.Softkeys,
+                        Config.TextLookups.Zone,
+                        Config.TextLookups.Channel
+                    );
+                }
+                break;
                 case RadioControlMode.SB9600:
                 {
                     radio = new MotoSb9600Radio(
@@ -230,7 +247,14 @@ namespace netcore_cli
             }
 
             // Setup RX audio callback
-            localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            if (Config.Control.ControlMode == RadioControlMode.SDRTrunk)
+            {
+                // sdrtrunk mode receives audio from its own Icecast-compatible source listener.
+            }
+            else
+            {
+                localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            }
 
             // Start radio
             radio.Start(noreset);
@@ -241,7 +265,10 @@ namespace netcore_cli
             // Stop radio
             Log.Information("Shutting down...");
             radio.Stop();
-            await localAudio.Stop();
+            if (localAudio != null)
+            {
+                await localAudio.Stop();
+            }
             Log.CloseAndFlush();
 
             Environment.Exit(0);
