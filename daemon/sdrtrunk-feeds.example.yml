@@ -1,0 +1,76 @@
+#
+#   RadioConsole2 SDRTrunk Feed Launcher Config
+#
+# Run with:
+#   .\start-sdrtrunk-feeds.ps1 -Config .\sdrtrunk-feeds.yml
+# Or double-click:
+#   start-sdrtrunk-feeds.cmd
+#
+
+# Path to the daemon executable. Relative paths are resolved from this file.
+daemonPath: ".\\daemon.exe"
+
+# Generated per-feed daemon configs and logs. Relative paths are resolved from this file.
+generatedConfigDirectory: ".\\generated-sdrtrunk"
+logDirectory: ".\\logs"
+
+# Add/update these feeds in the RC2 console radio config before starting daemons.
+updateRc2Config: true
+rc2ConfigPath: "%APPDATA%\\rc2-console\\config.json"
+
+# Pass -d to each daemon instance.
+debug: true
+
+defaults:
+  rc2ListenAddress: "0.0.0.0"
+  rc2Address: "127.0.0.1"
+  sourceListenAddress: "0.0.0.0"
+  sourcePassword: ""
+  rxThresholdDb: -45
+  attackMs: 0
+  hangMs: 3000
+  outputSampleRate: 16000
+  # Newer SDRTrunk daemon builds have this default built in. Set
+  # emitSourceNoAudioRestartMs: true only if your daemon supports the config key.
+  sourceNoAudioRestartMs: 10000
+  emitSourceNoAudioRestartMs: false
+  softkeys: ["MON", "HOME", "SEL"]
+  color: "blue"
+  pan: 0
+
+feeds:
+  - id: fire
+    enabled: true
+    name: "SDRTrunk Fire"
+    desc: "SDRTrunk fire talkgroups"
+    rc2Port: 8804
+    sourcePort: 8004
+    mount: "/fire"
+    zoneName: "SDRTrunk"
+    channelName: "Fire"
+    color: "red"
+    pan: -0.5
+
+  - id: law
+    enabled: true
+    name: "SDRTrunk Law"
+    desc: "SDRTrunk law talkgroups"
+    rc2Port: 8805
+    sourcePort: 8005
+    mount: "/law"
+    zoneName: "SDRTrunk"
+    channelName: "Law"
+    color: "purple"
+    pan: 0
+
+  - id: ems
+    enabled: true
+    name: "SDRTrunk EMS"
+    desc: "SDRTrunk EMS talkgroups"
+    rc2Port: 8806
+    sourcePort: 8006
+    mount: "/ems"
+    zoneName: "SDRTrunk"
+    channelName: "EMS"
+    color: "green"
+    pan: 0.5

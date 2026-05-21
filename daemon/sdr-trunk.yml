@@ -1,0 +1,92 @@
+#
+#   RadioConsole2 SDRTrunk Feed Launcher Config
+#
+# Run with:
+#   .\start-sdrtrunk-feeds.ps1 -Config .\sdrtrunk-feeds.yml
+#
+
+# Path to the daemon executable. Relative paths are resolved from this file.
+daemonPath: ".\\daemon.exe"
+
+# Generated per-feed daemon configs and logs. Relative paths are resolved from this file.
+generatedConfigDirectory: ".\\generated-sdrtrunk"
+logDirectory: ".\\logs"
+
+# Add/update these feeds in the RC2 console radio config before starting daemons.
+updateRc2Config: true
+rc2ConfigPath: "%APPDATA%\\rc2-console\\config.json"
+
+# Pass -d to each daemon instance.
+debug: true
+
+defaults:
+  rc2ListenAddress: "0.0.0.0"
+  sourceListenAddress: "0.0.0.0"
+  sourcePassword: ""
+  rxThresholdDb: -45
+  attackMs: 0
+  hangMs: 3000
+  outputSampleRate: 16000
+  sourceNoAudioRestartMs: 10000
+  softkeys: ["MON", "HOME", "SEL"]
+
+feeds:
+  - id: 81FIREMS
+    enabled: true
+    name: "81FIREMS"
+    desc: "SDRTrunk fire talkgroups"
+    rc2Port: 7804
+    sourcePort: 8004
+    mount: "/81FIREMS"
+    zoneName: "Van Wert County"
+    channelName: "81FIREMS"
+    color: "purple"
+    pan: 0
+
+  - id: SO81DISP
+    enabled: true
+    name: "SO81DISP"
+    desc: "SDRTrunk law talkgroups"
+    rc2Port: 7805
+    sourcePort: 8005
+    mount: "/SO81DISP"
+    zoneName: "Van Wert County"
+    channelName: "SO81DISP"
+    color: "purple"
+    pan: 0
+
+  - id: VWFDPG3
+    enabled: true
+    name: "VWFDPG3"
+    desc: "SDRTrunk Paging talkgroups"
+    rc2Port: 7806
+    sourcePort: 8006
+    mount: "/VWFDPG3"
+    zoneName: "Van Wert County"
+    channelName: "VWFDPG3"
+    color: "purple"
+    pan: 0
+
+  - id: VWCPD1
+    enabled: true
+    name: "VWCPD1"
+    desc: "SDRTrunk Police talkgroups"
+    rc2Port: 7807
+    sourcePort: 8007
+    mount: "/VWCPD1"
+    zoneName: "Van Wert County"
+    channelName: "VWCPD1"
+    color: "purple"
+    pan: 0
+
+  - id: 81EMA
+    enabled: true
+    name: "81EMA"
+    desc: "SDRTrunk EMA talkgroups"
+    rc2Port: 7808
+    sourcePort: 8008
+    mount: "/81EMA"
+    zoneName: "Van Wert County"
+    channelName: "81EMA"
+    color: "purple"
+    pan: 081

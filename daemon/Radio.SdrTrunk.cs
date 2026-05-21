@@ -80,6 +80,7 @@ namespace daemon
         private long sourceBytesRead;
         private long lastSourceStatsBytes;
         private byte[] sourcePrefix = Array.Empty<byte>();
+        private string lastMetadataTitle = "";
         private bool gateActive;
         private bool metadataActive;
         private bool sourceActive;
@@ -310,6 +311,7 @@ namespace daemon
             double levelDb = CalculateRmsDb(samples);
             bool shouldForward;
             bool statusChanged = false;
+            bool displayChanged = false;
             bool becameActive = false;
             RadioState nextState;
 
@@ -321,8 +323,9 @@ namespace daemon
                 }
 
                 bool wasReceiving = IsReceiving();
-                UpdateGate(levelDb, nowMs);
-                nextState = IsReceiving() ? RadioState.Receiving : RadioState.Idle;
+                statusChanged = UpdateGate(levelDb, nowMs, out displayChanged);
+                bool receiving = IsReceiving();
+                nextState = receiving ? RadioState.Receiving : RadioState.Idle;
                 becameActive = !wasReceiving && nextState == RadioState.Receiving;
 
                 if (Status.State != nextState)
@@ -331,12 +334,16 @@ namespace daemon
                     statusChanged = true;
                 }
 
-                shouldForward = true;
+                shouldForward = receiving;
             }
 
-            if (statusChanged)
+            if (statusChanged || displayChanged)
             {
-                Log.Debug("sdrtrunk stream level {level:0.0} dBFS changed radio state to {state}", levelDb, nextState);
+                if (statusChanged)
+                {
+                    Log.Debug("sdrtrunk stream level {level:0.0} dBFS changed radio state to {state}", levelDb, nextState);
+                }
+
                 RadioStatusCallback();
             }
 
@@ -380,29 +387,46 @@ namespace daemon
             bool statusChanged = false;
             bool displayChanged = false;
             RadioState nextState;
+            long nowMs = Environment.TickCount64;
 
             lock (stateLock)
             {
                 if (active)
                 {
                     string callerId = ExtractCallerId(song);
-                    metadataActive = true;
-                    lastMetadataActiveMs = Environment.TickCount64;
-                    displayChanged =
-                        !string.Equals(Status.ChannelName, song, StringComparison.Ordinal) ||
-                        !string.Equals(Status.CallerId, callerId, StringComparison.Ordinal);
-                    Status.ChannelName = song;
-                    Status.CallerId = callerId;
+                    bool titleChanged = !string.Equals(song, lastMetadataTitle, StringComparison.Ordinal);
+                    bool audioRecent = HasRecentAudioActivity(nowMs);
 
-                    if (!sourceActive)
+                    if (titleChanged || audioRecent)
+                    {
+                        metadataActive = true;
+                        lastMetadataActiveMs = nowMs;
+                        lastMetadataTitle = song;
+                        displayChanged =
+                            !string.Equals(Status.ChannelName, song, StringComparison.Ordinal) ||
+                            !string.Equals(Status.CallerId, callerId, StringComparison.Ordinal);
+                        Status.ChannelName = song;
+                        Status.CallerId = callerId;
+                    }
+
+                    if (!sourceActive && (titleChanged || audioRecent))
                     {
                         Log.Warning("sdrtrunk metadata indicates an active call but no SOURCE audio stream is connected");
                     }
                 }
                 else
                 {
-                    // Keep receiving briefly after Scanning... metadata so queued audio has time to finish.
-                    ExpireGate(Environment.TickCount64);
+                    // Keep the displayed talkgroup while queued audio drains, but allow the
+                    // next real call on the same talkgroup to be accepted as fresh metadata.
+                    if (metadataActive && lastMetadataActiveMs != long.MinValue)
+                    {
+                        lastMetadataActiveMs = Math.Min(lastMetadataActiveMs, nowMs - Math.Max(1, streamConfig.HangMs));
+                    }
+
+                    lastMetadataTitle = "";
+
+                    statusChanged = ExpireGate(nowMs, out bool expiredDisplayChanged);
+                    displayChanged |= expiredDisplayChanged;
                 }
 
                 nextState = IsReceiving() ? RadioState.Receiving : RadioState.Idle;
@@ -421,8 +445,10 @@ namespace daemon
             }
         }
 
-        private void UpdateGate(double levelDb, long nowMs)
+        private bool UpdateGate(double levelDb, long nowMs, out bool displayChanged)
         {
+            displayChanged = false;
+
             if (levelDb >= streamConfig.RxThresholdDb)
             {
                 lastAboveThresholdMs = nowMs;
@@ -433,16 +459,17 @@ namespace daemon
                     gateActive = true;
                 }
 
-                return;
+                return false;
             }
 
             aboveThresholdSinceMs = null;
-            ExpireGate(nowMs);
+            return ExpireGate(nowMs, out displayChanged);
         }
 
         private void ExpireGate()
         {
             bool statusChanged = false;
+            bool callbackNeeded = false;
 
             lock (stateLock)
             {
@@ -451,31 +478,50 @@ namespace daemon
                     return;
                 }
 
-                statusChanged = ExpireGate(Environment.TickCount64);
-                LogSourceStats(Environment.TickCount64);
-                CheckSourceWatchdog(Environment.TickCount64);
+                long nowMs = Environment.TickCount64;
+                statusChanged = ExpireGate(nowMs, out bool displayChanged);
+                LogSourceStats(nowMs);
+                CheckSourceWatchdog(nowMs);
+                callbackNeeded = statusChanged || displayChanged;
             }
 
-            if (statusChanged)
+            if (callbackNeeded)
             {
-                Log.Debug("sdrtrunk stream hang timer changed radio state to Idle");
+                if (statusChanged)
+                {
+                    Log.Debug("sdrtrunk stream hang timer changed radio state to Idle");
+                }
+
                 RadioStatusCallback();
             }
         }
 
         private bool ExpireGate(long nowMs)
         {
-            if (metadataActive && lastMetadataActiveMs != long.MinValue && nowMs - lastMetadataActiveMs >= Math.Max(1, streamConfig.HangMs))
-            {
-                metadataActive = false;
-                Status.ChannelName = streamConfig.ChannelName;
-                Status.CallerId = "";
-            }
+            return ExpireGate(nowMs, out _);
+        }
+
+        private bool ExpireGate(long nowMs, out bool displayChanged)
+        {
+            displayChanged = false;
 
             if (gateActive && lastAboveThresholdMs != long.MinValue && nowMs - lastAboveThresholdMs >= Math.Max(1, streamConfig.HangMs))
             {
                 gateActive = false;
                 aboveThresholdSinceMs = null;
+            }
+
+            if (metadataActive &&
+                !gateActive &&
+                lastMetadataActiveMs != long.MinValue &&
+                nowMs - lastMetadataActiveMs >= Math.Max(1, streamConfig.HangMs))
+            {
+                metadataActive = false;
+                displayChanged =
+                    !string.Equals(Status.ChannelName, streamConfig.ChannelName, StringComparison.Ordinal) ||
+                    !string.IsNullOrEmpty(Status.CallerId);
+                Status.ChannelName = streamConfig.ChannelName;
+                Status.CallerId = "";
             }
 
             RadioState nextState = IsReceiving() ? RadioState.Receiving : RadioState.Idle;
@@ -495,11 +541,19 @@ namespace daemon
             aboveThresholdSinceMs = null;
             lastAboveThresholdMs = long.MinValue;
             lastMetadataActiveMs = long.MinValue;
+            lastMetadataTitle = "";
         }
 
         private bool IsReceiving()
         {
-            return gateActive || metadataActive;
+            return gateActive;
+        }
+
+        private bool HasRecentAudioActivity(long nowMs)
+        {
+            return gateActive ||
+                (lastAboveThresholdMs != long.MinValue &&
+                nowMs - lastAboveThresholdMs < Math.Max(1, streamConfig.HangMs));
         }
 
         private void LogAudioStats(double levelDb, long nowMs)
