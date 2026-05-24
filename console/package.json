@@ -16,7 +16,6 @@
         "productName": "RadioConsole2 GUI",
         "copyright": "Copyright © 2023 W3AXL",
         "win": {
-            "publisherName": "W3AXL",
             "target": [
                 "portable"
             ],
@@ -24,7 +23,9 @@
         },
         "linux": {
             "icon": "console-icon-576x576.png",
-            "target": ["AppImage"]
+            "target": [
+                "AppImage"
+            ]
         },
         "portable": {
             "artifactName": "rc2-console.exe"
@@ -37,14 +38,14 @@
     },
     "keywords": [],
     "devDependencies": {
-        "cross-env": "^7.0.3",
-        "electron": "^28.3.3",
-        "electron-builder": "^25.1.8"
+        "cross-env": "^10.1.0",
+        "electron": "^35.7.5",
+        "electron-builder": "^26.8.1"
     },
     "dependencies": {
-        "electron-builder-squirrel-windows": "25.1.8",
-        "serialport": "^13.0.0",
-        "@julusian/midi": "^3.6.1"
+        "@julusian/midi": "^3.6.1",
+        "electron-builder-squirrel-windows": "26.8.1",
+        "serialport": "^13.0.0"
     },
     "pnpm": {
         "neverBuiltDependencies": []

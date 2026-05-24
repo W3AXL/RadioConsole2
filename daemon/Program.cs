@@ -210,6 +210,7 @@ namespace netcore_cli
                         Config.Control.RxOnly,
                         Config.Daemon.ListenAddress,
                         Config.Daemon.ListenPort,
+                        Config.Daemon.AllowedNetworks,
                         Config.Control.Sb9600,
                         localAudio.TxAudioCallback,
                         16000,
