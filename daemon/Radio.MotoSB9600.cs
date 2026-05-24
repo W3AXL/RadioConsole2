@@ -71,12 +71,12 @@ namespace moto_sb9600
         /// <param name="txAudioSampleRate">samplerate for tx audio</param>
         public MotoSb9600Radio(
             string name, string desc, bool rxOnly,
-            IPAddress listenAddress, int listenPort,
+            IPAddress listenAddress, int listenPort, List<IPNetwork> allowedNetworks,
             MotoSb9600Config sb9600Config,
             Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
             List<SoftkeyName> softkeys,
             List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null
-            ) : base(name, desc, rxOnly, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
+            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
         {
             // Save softkey lookups
             softkeyBindings = sb9600Config.SoftkeyBindings;
