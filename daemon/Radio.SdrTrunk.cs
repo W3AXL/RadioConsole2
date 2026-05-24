@@ -94,11 +94,11 @@ namespace daemon
 
         public SdrTrunkRadio(
             string name, string desc,
-            IPAddress listenAddress, int listenPort,
+            IPAddress listenAddress, int listenPort, List<IPNetwork> allowedNetworks,
             SdrTrunkConfig streamConfig,
             List<SoftkeyName> softkeys,
             List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null
-            ) : base(name, desc, true, listenAddress, listenPort, softkeys, zoneLookups, chanLookups, null, 8000, null)
+            ) : base(name, desc, true, listenAddress, listenPort, allowedNetworks, softkeys, zoneLookups, chanLookups, null, 8000, null)
         {
             this.streamConfig = streamConfig ?? new SdrTrunkConfig();
             RxOnly = true;

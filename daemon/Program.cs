@@ -218,6 +218,7 @@ namespace netcore_cli
                         Config.Daemon.Desc,
                         Config.Daemon.ListenAddress,
                         Config.Daemon.ListenPort,
+                        Config.Daemon.AllowedNetworks,
                         Config.Control.SdrTrunk,
                         Config.Softkeys,
                         Config.TextLookups.Zone,
