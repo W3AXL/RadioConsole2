@@ -47,6 +47,10 @@ namespace daemon
         // RX Audio Objects
         private SDL2AudioSource rxSource;
         private AudioEncoder rxEncoder;
+        private AudioEncoder rxMonitorEncoder;
+        private AudioFormat rxAudioFormat = AudioFormat.Empty;
+        private long lastRawRxSampleMs = long.MinValue;
+        private bool started = false;
 
         // TX Audio Objects
         private SDL2AudioEndPoint txEndpoint;
@@ -60,6 +64,9 @@ namespace daemon
 
         // RX audio callback action
         public Action<uint, byte[]> RxEncodedSampleCallback;
+        // Optional raw PCM monitor used by VOX mode to detect RX activity without
+        // changing the encoded audio path used by normal radios.
+        public Action<AudioSamplingRatesEnum, uint, short[]> RxRawSampleCallback;
 
         public LocalAudio(string rxDevice, string txDevice, rc2_core.Radio radio, bool rxOnly = false)
         {
@@ -76,6 +83,7 @@ namespace daemon
 
             // Setup RX audio devices
             rxEncoder = new AudioEncoder();
+            rxMonitorEncoder = new AudioEncoder();
             rxSource = new SDL2AudioSource(rxDevice, rxEncoder);
             rxSource.OnAudioSourceError += (e) => {
                 Log.Logger.Error("Got RX audio error: {error}", e);
@@ -83,7 +91,20 @@ namespace daemon
             // Setup RX sample callback
             rxSource.OnAudioSourceEncodedSample += (uint durationRtpUnits, byte[] samples) => {
                 //Log.Logger.Verbose("Got {count} encoded RX samples", samples.Length);
-                RxEncodedSampleCallback(durationRtpUnits, samples);
+                RxEncodedSampleCallback?.Invoke(durationRtpUnits, samples);
+                if (RxRawSampleCallback != null && Environment.TickCount64 - lastRawRxSampleMs > 1000 && rxAudioFormat.ClockRate > 0)
+                {
+                    // Some SDL backends only provide encoded callbacks. Decode a monitor
+                    // copy so VOX still receives audio levels, but rate-limit it behind
+                    // direct raw callbacks to avoid duplicate gate updates.
+                    short[] pcmSamples = rxMonitorEncoder.DecodeAudio(samples, rxAudioFormat);
+                    uint durationMilliseconds = (uint)(pcmSamples.Length * 1000 / rxAudioFormat.ClockRate);
+                    RxRawSampleCallback(AudioSamplingRatesEnum.Rate16KHz, durationMilliseconds, pcmSamples);
+                }
+            };
+            rxSource.OnAudioSourceRawSample += (AudioSamplingRatesEnum samplingRate, uint durationMilliseconds, short[] samples) => {
+                lastRawRxSampleMs = Environment.TickCount64;
+                RxRawSampleCallback?.Invoke(samplingRate, durationMilliseconds, samples);
             };
             Log.Logger.Information("    RX: {rxDevice}", rxDevice);
             // Setup TX audio devices if we aren't rx-only
@@ -101,6 +122,16 @@ namespace daemon
 
         public void Start(AudioFormat audioFormat)
         {
+            if (started)
+            {
+                // VOX can request Start from both initial setup and later WebRTC format
+                // negotiation. Keep the first active device session instead of reopening
+                // SDL devices mid-call.
+                Log.Logger.Debug("Audio device(s) already started, keeping existing format {format}/{rate}/{chans}", rxAudioFormat.FormatName, rxAudioFormat.ClockRate, rxAudioFormat.ChannelCount);
+                return;
+            }
+
+            rxAudioFormat = audioFormat;
             // Set audio formats
             rxSource.SetAudioSourceFormat(audioFormat);
             if (!rxOnly)
@@ -114,14 +145,18 @@ namespace daemon
                 txEndpoint.StartAudioSink();
             }
             Log.Logger.Debug("Audio device(s) started using format {format}/{rate}/{chans}", audioFormat.FormatName, audioFormat.ClockRate, audioFormat.ChannelCount);
+            started = true;
         }
 
         public async Task Stop()
         {
-            await rxSource.CloseAudio();
-            if (!rxOnly)
+            if (started)
             {
-                await txEndpoint.CloseAudioSink();
+                await rxSource.CloseAudio();
+                if (!rxOnly)
+                {
+                    await txEndpoint.CloseAudioSink();
+                }
             }
             // De-init SDL2
             SDL2Helper.QuitSDL();

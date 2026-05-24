@@ -202,6 +202,45 @@ namespace netcore_cli
             // Switch based on control mode
             switch(Config.Control.ControlMode)
             {
+                case RadioControlMode.VOX:
+                {
+                    VoxRadio voxRadio = null;
+                    // WebRTC TX audio enters through the base RC2 radio callback. Capture
+                    // the VoxRadio after construction so the callback can feed the TX gate.
+                    Action<short[]> txAudioCallback = (samples) =>
+                    {
+                        voxRadio?.HandleTxAudioSamples(samples);
+                    };
+                    Action<AudioFormat> rtcFormatCallback = (audioFormat) =>
+                    {
+                        // Start local SDL audio using the negotiated WebRTC format, then
+                        // restart VOX warmup so device-open noise is ignored.
+                        localAudio.Start(audioFormat);
+                        voxRadio?.ReArmStartupDelay("WebRTC audio negotiation");
+                    };
+
+                    voxRadio = new VoxRadio(
+                        Config.Daemon.Name,
+                        Config.Daemon.Desc,
+                        Config.Control.RxOnly,
+                        Config.Daemon.ListenAddress,
+                        Config.Daemon.ListenPort,
+                        Config.Daemon.AllowedNetworks,
+                        Config.Control.Vox,
+                        txAudioCallback,
+                        localAudio.TxAudioCallback,
+                        16000,
+                        rtcFormatCallback,
+                        Config.Softkeys,
+                        Config.TextLookups.Zone,
+                        Config.TextLookups.Channel
+                    );
+                    radio = voxRadio;
+                    // Raw RX samples drive VOX state; encoded RX samples are forwarded
+                    // separately only while VoxRadio reports Receiving.
+                    localAudio.RxRawSampleCallback += voxRadio.HandleRxAudioSamples;
+                }
+                break;
                 case RadioControlMode.SB9600:
                 {
                     radio = new MotoSb9600Radio(
@@ -230,7 +269,17 @@ namespace netcore_cli
             }
 
             // Setup RX audio callback
-            localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            if (Config.Control.ControlMode == RadioControlMode.VOX)
+            {
+                // VOX needs a default format before a peer negotiates so local RX can
+                // start and begin detecting audio. Re-negotiation may update this later.
+                localAudio.RxEncodedSampleCallback += ((VoxRadio)radio).HandleRxEncodedSamples;
+                localAudio.Start(GetDefaultAudioFormat());
+            }
+            else
+            {
+                localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            }
 
             // Start radio
             radio.Start(noreset);
@@ -331,6 +380,20 @@ namespace netcore_cli
                 Log.Information("        {codec}", codec.FormatName);
             }
             SDL2Helper.QuitSDL();
+        }
+
+        static AudioFormat GetDefaultAudioFormat()
+        {
+            AudioEncoder audioEncoder = new AudioEncoder();
+            AudioFormat g722 = audioEncoder.SupportedFormats.Find(f => f.FormatName == "G722");
+
+            if (g722.ClockRate == 0)
+            {
+                var audioFormatManager = new MediaFormatManager<AudioFormat>(audioEncoder.SupportedFormats);
+                return audioFormatManager.SelectedFormat;
+            }
+
+            return g722;
         }
     }
 }
