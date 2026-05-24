@@ -29,6 +29,10 @@ namespace daemon
         /// Listen port the console client connects to
         /// </summary>
         public int ListenPort = 8801;
+        /// <summary>
+        /// List of allowed networks which can connect to the daemon. Defaults to all (0.0.0.0/0)
+        /// </summary>
+        public List<IPNetwork> AllowedNetworks = new List<IPNetwork> { IPNetwork.Parse("0.0.0.0/0") };
     }
 
     /// <summary>
