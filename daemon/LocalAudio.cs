@@ -64,6 +64,8 @@ namespace daemon
 
         // RX audio callback action
         public Action<uint, byte[]> RxEncodedSampleCallback;
+        // Optional raw PCM monitor used by VOX mode to detect RX activity without
+        // changing the encoded audio path used by normal radios.
         public Action<AudioSamplingRatesEnum, uint, short[]> RxRawSampleCallback;
 
         public LocalAudio(string rxDevice, string txDevice, rc2_core.Radio radio, bool rxOnly = false)
@@ -92,6 +94,9 @@ namespace daemon
                 RxEncodedSampleCallback?.Invoke(durationRtpUnits, samples);
                 if (RxRawSampleCallback != null && Environment.TickCount64 - lastRawRxSampleMs > 1000 && rxAudioFormat.ClockRate > 0)
                 {
+                    // Some SDL backends only provide encoded callbacks. Decode a monitor
+                    // copy so VOX still receives audio levels, but rate-limit it behind
+                    // direct raw callbacks to avoid duplicate gate updates.
                     short[] pcmSamples = rxMonitorEncoder.DecodeAudio(samples, rxAudioFormat);
                     uint durationMilliseconds = (uint)(pcmSamples.Length * 1000 / rxAudioFormat.ClockRate);
                     RxRawSampleCallback(AudioSamplingRatesEnum.Rate16KHz, durationMilliseconds, pcmSamples);
@@ -119,6 +124,9 @@ namespace daemon
         {
             if (started)
             {
+                // VOX can request Start from both initial setup and later WebRTC format
+                // negotiation. Keep the first active device session instead of reopening
+                // SDL devices mid-call.
                 Log.Logger.Debug("Audio device(s) already started, keeping existing format {format}/{rate}/{chans}", rxAudioFormat.FormatName, rxAudioFormat.ClockRate, rxAudioFormat.ChannelCount);
                 return;
             }

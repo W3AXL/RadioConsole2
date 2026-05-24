@@ -205,12 +205,16 @@ namespace netcore_cli
                 case RadioControlMode.VOX:
                 {
                     VoxRadio voxRadio = null;
+                    // WebRTC TX audio enters through the base RC2 radio callback. Capture
+                    // the VoxRadio after construction so the callback can feed the TX gate.
                     Action<short[]> txAudioCallback = (samples) =>
                     {
                         voxRadio?.HandleTxAudioSamples(samples);
                     };
                     Action<AudioFormat> rtcFormatCallback = (audioFormat) =>
                     {
+                        // Start local SDL audio using the negotiated WebRTC format, then
+                        // restart VOX warmup so device-open noise is ignored.
                         localAudio.Start(audioFormat);
                         voxRadio?.ReArmStartupDelay("WebRTC audio negotiation");
                     };
@@ -221,6 +225,7 @@ namespace netcore_cli
                         Config.Control.RxOnly,
                         Config.Daemon.ListenAddress,
                         Config.Daemon.ListenPort,
+                        Config.Daemon.AllowedNetworks,
                         Config.Control.Vox,
                         txAudioCallback,
                         localAudio.TxAudioCallback,
@@ -231,6 +236,8 @@ namespace netcore_cli
                         Config.TextLookups.Channel
                     );
                     radio = voxRadio;
+                    // Raw RX samples drive VOX state; encoded RX samples are forwarded
+                    // separately only while VoxRadio reports Receiving.
                     localAudio.RxRawSampleCallback += voxRadio.HandleRxAudioSamples;
                 }
                 break;
@@ -264,6 +271,8 @@ namespace netcore_cli
             // Setup RX audio callback
             if (Config.Control.ControlMode == RadioControlMode.VOX)
             {
+                // VOX needs a default format before a peer negotiates so local RX can
+                // start and begin detecting audio. Re-negotiation may update this later.
                 localAudio.RxEncodedSampleCallback += ((VoxRadio)radio).HandleRxEncodedSamples;
                 localAudio.Start(GetDefaultAudioFormat());
             }
