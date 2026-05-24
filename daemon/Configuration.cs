@@ -66,7 +66,9 @@ namespace daemon
         /// </summary>
         public MotoSb9600Config Sb9600 = new MotoSb9600Config();
         /// <summary>
-        /// Config for direct sdrtrunk audio stream ingest
+        /// Config for direct sdrtrunk audio stream ingest. This is separate from the
+        /// daemon listen address because the console connects to the daemon while
+        /// sdrtrunk connects to the source listener.
         /// </summary>
         public SdrTrunkConfig SdrTrunk = new SdrTrunkConfig();
     }

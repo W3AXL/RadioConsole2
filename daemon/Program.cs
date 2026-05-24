@@ -195,6 +195,9 @@ namespace netcore_cli
                     .CreateLogger();
             }
 
+            // SDRTrunk mode gets RX audio from an incoming stream, so it skips SDL2
+            // local audio devices. Hardware-backed control modes still need SDL2 for
+            // microphone/speaker audio between the radio and WebRTC peers.
             if (Config.Control.ControlMode != RadioControlMode.SDRTrunk)
             {
                 // Setup Audio Devices
@@ -207,6 +210,9 @@ namespace netcore_cli
             {
                 case RadioControlMode.SDRTrunk:
                 {
+                    // This radio acts as an RX-only bridge: sdrtrunk connects to the
+                    // configured Icecast-compatible listener, and decoded stream audio is
+                    // forwarded through the normal RC2 WebRTC radio path.
                     radio = new SdrTrunkRadio(
                         Config.Daemon.Name,
                         Config.Daemon.Desc,
@@ -249,7 +255,8 @@ namespace netcore_cli
             // Setup RX audio callback
             if (Config.Control.ControlMode == RadioControlMode.SDRTrunk)
             {
-                // sdrtrunk mode receives audio from its own Icecast-compatible source listener.
+                // SdrTrunkRadio calls RxSendPCM16Samples itself after decoding MP3 frames,
+                // so there is no local encoded-audio callback to attach here.
             }
             else
             {

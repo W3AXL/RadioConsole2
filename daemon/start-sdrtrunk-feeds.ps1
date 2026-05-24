@@ -10,6 +10,8 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
+# The launcher intentionally uses a tiny YAML reader so Windows installs do not need an
+# extra PowerShell module before they can generate per-feed daemon configs.
 function Remove-Rc2YamlComment {
     param([string]$Line)
 
@@ -69,6 +71,8 @@ function ConvertFrom-Rc2YamlScalar {
 function ConvertFrom-Rc2FeedYaml {
     param([string]$Path)
 
+    # The feed file only uses a small subset of YAML: top-level defaults and a list of
+    # feeds. Parse just that shape and fail loudly if an unsupported line is added.
     $root = [ordered]@{
         defaults = [ordered]@{}
         feeds = @()
@@ -128,6 +132,8 @@ function Resolve-Rc2Path {
         [string]$BaseDirectory
     )
 
+    # Paths in the feed file are relative to that file, not the caller's current
+    # directory, so the launcher behaves the same from a shell or a shortcut.
     $expandedPath = [Environment]::ExpandEnvironmentVariables($Path)
     if ([System.IO.Path]::IsPathRooted($expandedPath)) {
         return [System.IO.Path]::GetFullPath($expandedPath)

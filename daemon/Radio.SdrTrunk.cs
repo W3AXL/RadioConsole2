@@ -60,6 +60,9 @@ namespace daemon
 
     /// <summary>
     /// RX-only radio fed by a direct Icecast-compatible source connection from sdrtrunk.
+    /// It receives MP3 frames from sdrtrunk, decodes them to mono PCM, opens the RC2
+    /// receive state when audio crosses the configured threshold, and forwards active
+    /// audio to connected WebRTC clients.
     /// </summary>
     internal sealed class SdrTrunkRadio : rc2_core.Radio
     {
@@ -67,6 +70,8 @@ namespace daemon
         private readonly SdrTrunkConfig streamConfig;
         private readonly IcecastSourceServer sourceServer;
         private readonly System.Timers.Timer hangTimer;
+        // Gate state is driven by decoded audio level; metadata only controls labels so
+        // stale sdrtrunk metadata cannot hold the radio in Receiving without audio.
         private long? aboveThresholdSinceMs;
         private long lastAboveThresholdMs = long.MinValue;
         private long lastMetadataActiveMs = long.MinValue;
@@ -119,6 +124,8 @@ namespace daemon
             Log.Information("Starting new sdrtrunk stream radio instance");
             base.Start(reset);
 
+            // Reset all transient stream state before listening so a previous source
+            // connection cannot leave stale receive/channel state on restart.
             lock (stateLock)
             {
                 started = true;
@@ -176,6 +183,9 @@ namespace daemon
 
         private async Task HandleSource(IcecastSourceRequest request, CancellationToken token)
         {
+            // This method owns one accepted source connection from IcecastSourceServer.
+            // It validates useful headers, resets per-connection counters, optionally
+            // strips inline metadata, and then blocks while the MP3 body is decoded.
             if (request.Headers.TryGetValue("content-type", out string contentType) &&
                 !contentType.Contains("mpeg", StringComparison.OrdinalIgnoreCase) &&
                 !contentType.Contains("mp3", StringComparison.OrdinalIgnoreCase))
@@ -234,6 +244,8 @@ namespace daemon
 
         private void DecodeMp3Stream(Stream sourceStream, CancellationToken token)
         {
+            // NAudio's MP3 decompressor locks to the format of the first frame, which is
+            // fine for sdrtrunk streams and avoids reopening ACM state for every packet.
             AcmMp3FrameDecompressor decompressor = null;
             byte[] buffer = null;
             WaveFormat waveFormat = null;
@@ -307,6 +319,9 @@ namespace daemon
                 return;
             }
 
+            // Every decoded PCM block updates the audio gate first. Only samples that
+            // arrive while the gate is open are forwarded, which prevents scanning noise
+            // or idle MP3 padding from creating console RX traffic.
             long nowMs = Environment.TickCount64;
             double levelDb = CalculateRmsDb(samples);
             bool shouldForward;
@@ -363,12 +378,16 @@ namespace daemon
 
         private void HandleMetadata(IcecastSourceRequest request)
         {
+            // sdrtrunk sends external metadata through Icecast's admin endpoint as a
+            // query-string song value, usually containing the active talkgroup/caller.
             string song = GetQueryValue(request.Mount, "song");
             ApplyMetadataTitle(song, "metadata");
         }
 
         private void HandleInlineMetadata(string metadata)
         {
+            // Some source configurations carry the same title data inside the stream
+            // using ICY metadata blocks instead of separate admin requests.
             string song = GetInlineMetadataTitle(metadata);
             if (string.IsNullOrWhiteSpace(song))
             {
@@ -381,6 +400,8 @@ namespace daemon
 
         private void ApplyMetadataTitle(string song, string source)
         {
+            // sdrtrunk posts "Scanning..." between calls. Treat it as inactive metadata
+            // while keeping any already-buffered call audio alive through the hang timer.
             bool active = !string.IsNullOrWhiteSpace(song) &&
                 !song.Equals("Scanning...", StringComparison.OrdinalIgnoreCase);
 
@@ -449,6 +470,8 @@ namespace daemon
         {
             displayChanged = false;
 
+            // Attack time requires audio to stay above threshold before opening RX.
+            // Hang time is applied by ExpireGate once audio falls below threshold.
             if (levelDb >= streamConfig.RxThresholdDb)
             {
                 lastAboveThresholdMs = nowMs;
@@ -505,6 +528,9 @@ namespace daemon
         {
             displayChanged = false;
 
+            // The audio gate and display metadata expire separately: audio controls the
+            // radio state, and metadata is allowed to linger only long enough to label
+            // delayed buffered audio already being forwarded.
             if (gateActive && lastAboveThresholdMs != long.MinValue && nowMs - lastAboveThresholdMs >= Math.Max(1, streamConfig.HangMs))
             {
                 gateActive = false;
@@ -603,6 +629,8 @@ namespace daemon
 
             lock (stateLock)
             {
+                // Keep a short prefix for diagnostics when a source connects but sends
+                // unexpected bytes instead of MP3 frames.
                 if (sourcePrefix.Length >= 64)
                 {
                     return;
@@ -623,6 +651,8 @@ namespace daemon
                 return;
             }
 
+            // If bytes continue arriving but no MP3 frames decode, closing the source is
+            // the least invasive way to make sdrtrunk reconnect and renegotiate headers.
             long thresholdMs = Math.Max(1000, streamConfig.SourceNoAudioRestartMs);
             bool noDecodedFrames = decodedFrameCount == 0 && sourceConnectedAtMs != long.MinValue && nowMs - sourceConnectedAtMs >= thresholdMs;
             bool decodedFramesStalled = decodedFrameCount > 0 && lastDecodedFrameMs != long.MinValue && nowMs - lastDecodedFrameMs >= thresholdMs;
@@ -653,6 +683,8 @@ namespace daemon
 
         private static string GetQueryValue(string pathAndQuery, string key)
         {
+            // Metadata requests arrive as a path plus query string rather than a parsed
+            // Uri because Icecast mount paths can be relative and do not include a host.
             int queryStart = pathAndQuery.IndexOf('?');
             if (queryStart < 0 || queryStart == pathAndQuery.Length - 1)
             {
@@ -710,6 +742,8 @@ namespace daemon
 
         private static short[] ConvertPcm16ToMono(byte[] buffer, int byteCount, WaveFormat waveFormat)
         {
+            // RC2 forwards mono PCM. If sdrtrunk sends stereo MP3, average the channels
+            // before resampling so downstream audio handling stays unchanged.
             int channels = Math.Max(1, waveFormat.Channels);
             int frameSize = channels * sizeof(short);
             int frameCount = byteCount / frameSize;
@@ -738,6 +772,8 @@ namespace daemon
                 return samples;
             }
 
+            // The source stream rate is controlled by sdrtrunk; normalize it to the rate
+            // expected by the RC2 WebRTC path without pulling in another resampler here.
             int outputLength = Math.Max(1, (int)Math.Round(samples.Length * (double)outputRate / inputRate));
             short[] output = new short[outputLength];
             double ratio = (double)inputRate / outputRate;
@@ -782,6 +818,8 @@ namespace daemon
 
         private sealed class PositionTrackingReadStream : Stream
         {
+            // Mp3Frame.LoadFromStream reads directly from the stream. Wrapping the source
+            // lets the watchdog and diagnostics know whether bytes are still arriving.
             private readonly Stream inner;
             private readonly Action<byte[], int, int> bytesReadCallback;
 
@@ -867,6 +905,8 @@ namespace daemon
             {
                 int totalRead = 0;
 
+                // Icecast inline metadata is interleaved after every N audio bytes. This
+                // stream strips those metadata blocks so the MP3 decoder sees audio only.
                 while (totalRead < count)
                 {
                     if (audioBytesUntilMetadata == 0)

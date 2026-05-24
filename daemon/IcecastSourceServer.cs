@@ -5,6 +5,9 @@ using System.Text;
 
 namespace daemon
 {
+    /// <summary>
+    /// Parsed source or metadata request from the small Icecast-compatible listener.
+    /// </summary>
     internal sealed class IcecastSourceRequest
     {
         public string Method { get; init; } = "";
@@ -15,6 +18,11 @@ namespace daemon
         public IPEndPoint RemoteEndPoint { get; init; }
     }
 
+    /// <summary>
+    /// Minimal Icecast source listener used only for sdrtrunk ingest.
+    /// It accepts SOURCE/PUT/POST audio streams and the /admin/metadata updates
+    /// that sdrtrunk sends, then hands the accepted stream to SdrTrunkRadio.
+    /// </summary>
     internal sealed class IcecastSourceServer
     {
         private readonly IPAddress listenAddress;
@@ -24,6 +32,8 @@ namespace daemon
         private readonly Func<IcecastSourceRequest, CancellationToken, Task> sourceHandler;
         private readonly Action<IcecastSourceRequest> metadataHandler;
         private readonly object clientLock = new object();
+        // sdrtrunk should have exactly one active source stream for a mount; replacing
+        // the old client mirrors Icecast behavior and lets the source reconnect cleanly.
         private TcpListener listener;
         private TcpClient activeClient;
         private CancellationTokenSource stopCts;
@@ -102,6 +112,9 @@ namespace daemon
 
         private async Task AcceptLoop(CancellationToken token)
         {
+            // Keep accepting new TCP clients until Stop cancels the listener. Each client
+            // is handled on a background task so metadata updates do not block the source
+            // stream and a reconnect can replace the current source.
             while (!token.IsCancellationRequested)
             {
                 TcpClient client;
@@ -143,6 +156,8 @@ namespace daemon
 
                     if (IsMetadataRequest(request))
                     {
+                        // Metadata updates are short HTTP GETs to Icecast's admin path.
+                        // They update display labels but do not carry audio.
                         Log.Debug("Accepting sdrtrunk metadata update {mount}", request.Mount);
                         metadataHandler?.Invoke(request);
                         await WriteResponse(stream, request, "200 OK", token);
@@ -184,6 +199,8 @@ namespace daemon
 
                     if (request.Headers.TryGetValue("expect", out string expect) && expect.Contains("100-continue", StringComparison.OrdinalIgnoreCase))
                     {
+                        // Some source clients wait for this interim response before they
+                        // send the MP3 body, so acknowledge it before the final 200 OK.
                         byte[] continueBytes = Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n");
                         await stream.WriteAsync(continueBytes, token);
                     }
@@ -267,6 +284,8 @@ namespace daemon
         {
             List<byte> bytes = new List<byte>();
 
+            // Icecast source headers are small ASCII lines. Reading byte-by-byte keeps
+            // this parser from consuming the first bytes of the MP3 stream body.
             while (true)
             {
                 byte[] buffer = new byte[1];
@@ -298,6 +317,8 @@ namespace daemon
                 return true;
             }
 
+            // sdrtrunk and Icecast-compatible clients may send either HTTP Basic auth or
+            // the older ice-password header, so accept both forms.
             if (headers.TryGetValue("authorization", out string authorization) &&
                 authorization.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
             {
@@ -338,6 +359,7 @@ namespace daemon
 
             if (request.Method.Equals("SOURCE", StringComparison.OrdinalIgnoreCase))
             {
+                // Legacy SOURCE clients expect the terse HTTP/1.0-style Icecast response.
                 response = $"HTTP/1.0 {status}\r\n{extraHeaders}\r\n";
             }
             else
