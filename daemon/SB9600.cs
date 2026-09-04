@@ -797,6 +797,8 @@ namespace moto_sb9600
         {
             Port = new SerialPort(config.SerialPort);
             Port.BaudRate = 9600;
+            Port.ReadTimeout = 100;
+            Port.WriteTimeout = 100;
             ControlHead = config.ControlHeadType;
             useLedsForRx = config.UseLedsForRx;
             invertBusy = config.InvertBusy;
@@ -887,55 +889,101 @@ namespace moto_sb9600
             return sendSb9600(msg);
         }
 
-        private bool sendSb9600(SB9600Msg msg, int attempts = 3)
+        private bool sendSb9600(SB9600Msg msg, int attempts = 8)
         {
+            // Ignore if we're passively monitoring
             if (passiveMon)
             {
                 Log.Warning("SB9600 passive monitor enabled, ignoring send command");
                 return false;
             }
+
             // Wait for busy to drop
-            while (getBusy())
+            while (getBusy() && !ct.IsCancellationRequested)
             {
                 Log.Debug("Waiting for BUSY to drop");
                 Thread.Sleep(2);
             }
-            // Grab busy
+
+            // Grab busy, we will hold this during the entire TX attempt
             setBusy(true);
             Log.Verbose("SB9600 BUSY: {0}", "ASSERTED");
+            
             // Encode
             byte[] data = msg.Encode();
+            
             // flag for successful send
             bool sent = false;
-            while (!sent && attempts > 0)
+            
+            // Try to send
+            while (!sent && attempts > 0 && !ct.IsCancellationRequested)
             {
-                // flush the buffers
+                // Decrement attempts first
+                attempts--;
+
+                // flush the buffers and send the message
                 Port.DiscardInBuffer();
                 Port.DiscardOutBuffer();
-                // Send the msg
                 Port.Write(data, 0, data.Length);
-                attempts--;
-                // Wait for RX bytes to come back
-                while (Port.BytesToRead < data.Length) { Thread.Sleep(1); }
-                // Verify sent
+                
+                // Wait for the echo of the message we just sent to come in
+                // SB9600 is a bidirectional bus so we should always be able to read the message we sent
+                int waited = 0;
+                const int maxWaitMs = 20;
+                while (Port.BytesToRead < data.Length && waited < maxWaitMs)
+                {
+                    Thread.Sleep(1);
+                    waited++;
+                }
+                if (Port.BytesToRead < data.Length)
+                {
+                    Log.Warning("TX echo not received within {ms}ms, aborting attempt", maxWaitMs);
+                    continue;
+                }
                 byte[] rx = new byte[data.Length];
                 Port.Read(rx, 0, rx.Length);
                 if (!rx.SequenceEqual(data))
                 {
-                    sent = false;
                     Log.Error("Failed to verify SB9600 message TX. Sent {SentBytes}, Recieved {ReceivedBytes}. ({Attempts} attempts left)", data, rx, attempts);
+                    continue;
                 }
-                else
+
+                // If we did recieve our own message back, then we proceed to the next part of the SB9600 spec
+                // We wait 3-4 packet times and check for a NAK from the target device
+                Thread.Sleep(3);
+
+                // Release BUSY, wait a sec, and then sample BUSY to look for a NAK
+                setBusy(false);
+                Thread.Sleep(1);
+                bool nak = getBusy();
+                // If we got a NAK, re-assert BUSY and retry
+                if (nak)
                 {
-                    Log.Debug("Sent message {SentMessage} successfully!", data);
-                    sent = true;
+                    Log.Debug("Got NAK from listener, retrying message ({Attempts} attempts left)", attempts);
+                    setBusy(true);
+                    continue;
                 }
+
+                // If everything went well above, we sent the message
+                Log.Debug("Sent message {sent} successfully, no NAK", data);
+                sent = true;
             }
-            // return success or failure
+
+            // Flush the serial buffers
             Port.DiscardInBuffer();
             Port.DiscardOutBuffer();
-            setBusy(false);
+
+            // If we didn't send the message, error and ensure BUSY is de-asserted here
+            if (!sent)
+            {
+                Log.Error("Failed to send SB9600 message after all attempts");
+                setBusy(false);
+            }
+
+            // Final log
             Log.Verbose("SB9600 BUSY: {0}", "CLEARED");
+
+            // Return success or failure
             return sent;
         }
 
@@ -1220,20 +1268,27 @@ namespace moto_sb9600
                         /// Button Control Opcode
                         ///
                         case (byte)SB9600Opcodes.BUTCTL:
-                            // Lookup the button
-                            ControlHeads.ButtonName buttonName = ControlHeads.GetButton(ControlHead, msg.Data[0]);
-                            // Ignore knobs for now
-                            if (buttonName == ControlHeads.ButtonName.knob_vol) { }
-                            else
+                            try
                             {
-                                if (msg.Data[1] == 0x01)
-                                {
-                                    Log.Information("Button {Button} pressed", buttonName);
-                                }
+                                // Lookup the button
+                                ControlHeads.ButtonName buttonName = ControlHeads.GetButton(ControlHead, msg.Data[0]);
+                                // Ignore knobs for now
+                                if (buttonName == ControlHeads.ButtonName.knob_vol) { }
                                 else
                                 {
-                                    Log.Information("Button {Button} released", buttonName);
+                                    if (msg.Data[1] == 0x01)
+                                    {
+                                        Log.Information("Button {Button} pressed", buttonName);
+                                    }
+                                    else
+                                    {
+                                        Log.Information("Button {Button} released", buttonName);
+                                    }
                                 }
+                            }
+                            catch (ArgumentException ex)
+                            {
+                                Log.Warning(ex, "Unknown button code {Code:X2}, ignoring", msg.Data[0]);
                             }
                             break;
                         ///
@@ -1406,167 +1461,174 @@ namespace moto_sb9600
                                 continue;
                             }
                             // Get the name & state
-                            ControlHeads.Indicator indicator = ControlHeads.GetIndicator(ControlHead, codes[i]);
-                            indicator.State = (ControlHeads.IndicatorStates)states[i];
-                            Log.Verbose("Indicator {indicator} ({code}) state is now {state}", indicator.Name, indicator.Code, indicator.State);
-
-                            // Check for RX state by indicator state, if enabled
-                            if (useLedsForRx)
+                            try
                             {
-                                // Detect RX state from W9 head using pri/non-pri LEDs
-                                if (indicator.Name == ControlHeads.IndicatorName.non_pri || indicator.Name == ControlHeads.IndicatorName.pri)
-                                {
-                                    if (indicator.State != ControlHeads.IndicatorStates.OFF)
-                                    {
-                                        if (radio.Status.State != RadioState.Receiving)
-                                        {
-                                            Log.Information("Radio now receiving, source: {indicator name}", indicator.Name.ToString());
-                                            radio.Status.State = RadioState.Receiving;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
-                                        {
-                                            Log.Information("Radio no longer receiving, source: {indicator name}", indicator.Name.ToString());
-                                            radio.Status.State = RadioState.Idle;
-                                        }
-                                    }
-                                }
-                            }
+                                ControlHeads.Indicator indicator = ControlHeads.GetIndicator(ControlHead, codes[i]);
+                                indicator.State = (ControlHeads.IndicatorStates)states[i];
+                                Log.Verbose("Indicator {indicator} ({code}) state is now {state}", indicator.Name, indicator.Code, indicator.State);
 
-                            // For M3 we update certain statuses based on the screen indicators
-                            if (ControlHead == HeadType.M3)
-                            {
-                                switch (indicator.Name)
+                                // Check for RX state by indicator state, if enabled
+                                if (useLedsForRx)
                                 {
-                                    // Scanning Icon (the "Z")
-                                    case ControlHeads.IndicatorName.scan:
-                                        Log.Verbose("Got new scanning state: {scanState}", indicator.State);
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radio.Status.ScanState = ScanState.Scanning;
-                                        else if (indicator.State == ControlHeads.IndicatorStates.OFF)
-                                            radio.Status.ScanState = ScanState.NotScanning;
-                                        break;
-                                    // Scan priority dot (Z.)
-                                    case ControlHeads.IndicatorName.scan_pri:
-                                        Log.Verbose("Got new scan priority state: {priState}", indicator.State);
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radio.Status.PriorityState = PriorityState.Priority1;
-                                        else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1)
-                                            radio.Status.PriorityState = PriorityState.Priority2;
-                                        else if (indicator.State == ControlHeads.IndicatorStates.OFF)
-                                            radio.Status.PriorityState = PriorityState.NoPriority;
-                                        break;
-                                    // Low power L icon
-                                    // TODO: implement this
-                                    /*
-                                    case ControlHeads.IndicatorName.:
-                                        Log.Verbose("Got new low power state: {lpState}", indicator.State);
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radio.Status.PowerState = PowerState.LowPower;
-                                        else
-                                            radio.Status.PowerState = PowerState.HighPower;
-                                        break;*/
-                                    // Monitor Icon (the speaker)
-                                    case ControlHeads.IndicatorName.monitor:
-                                        Log.Verbose("Got new monitor state: {monState}", indicator.State);
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radio.Status.Monitor = true;
-                                        else
-                                            radio.Status.Monitor = false;
-                                        break;
-                                    // Talkaround Icon
-                                    case ControlHeads.IndicatorName.direct:
-                                        Log.Verbose("Got new direct state: {state}", indicator.State);
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                            radio.Status.Direct = true;
-                                        else
-                                            radio.Status.Direct = false;
-                                        break;
-                                    // Amber LED/busy icon - we use this as a fallback for detecting RX state if the status message doesn't work for whatever reason
-                                    case ControlHeads.IndicatorName.busy:
-                                        if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                    // Detect RX state from W9 head using pri/non-pri LEDs
+                                    if (indicator.Name == ControlHeads.IndicatorName.non_pri || indicator.Name == ControlHeads.IndicatorName.pri)
+                                    {
+                                        if (indicator.State != ControlHeads.IndicatorStates.OFF)
                                         {
                                             if (radio.Status.State != RadioState.Receiving)
                                             {
-                                                Log.Information("Radio now receiving, source: busy indicator");
+                                                Log.Information("Radio now receiving, source: {indicator name}", indicator.Name.ToString());
                                                 radio.Status.State = RadioState.Receiving;
-                                                newStatus = true;
                                             }
                                         }
-                                        else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                        else
                                         {
                                             if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
                                             {
-                                                Log.Information("Radio now idle, source: busy indicator");
+                                                Log.Information("Radio no longer receiving, source: {indicator name}", indicator.Name.ToString());
                                                 radio.Status.State = RadioState.Idle;
-                                                newStatus = true;
                                             }
                                         }
-                                        break;
-                                }
-                            }
-
-                            // W9 and M3 can get softkey statuses from the top & bottom indicators, respectively
-                            string indicatorNameString = Enum.GetName(typeof(ControlHeads.IndicatorName), indicator.Name);
-                            if ((ControlHead == HeadType.W9 && indicatorNameString.Contains("top_")) || (ControlHead == HeadType.M3 && indicatorNameString.Contains("bot_")))
-                            {
-                                // Append btn_ to get the corresponding button name
-                                string btnNameString = "btn_" + indicatorNameString;
-
-                                // Convert to button name
-                                ControlHeads.ButtonName btnName;
-                                if (!Enum.TryParse(btnNameString, out btnName))
-                                {
-                                    throw new ArgumentException($"Button name {btnNameString} is not valid!");
-                                }
-
-                                // See if this button is present in our button bindings
-                                if (softkeyBindings.ContainsKey(btnName))
-                                {
-                                    // Get the softkey name from our mapping list
-                                    SoftkeyName mappedKeyName = softkeyBindings[btnName];
-                                    // Find the softkey in the radio's softkey list and update its state accordingly
-                                    if (radio.Status.Softkeys.Any(c => c.Name == mappedKeyName))
-                                    {
-                                        foreach ( Softkey softkey in radio.Status.Softkeys.Where(k => k.Name == mappedKeyName))
-                                        {
-                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                                softkey.State = SoftkeyState.On;
-                                            else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1 || indicator.State == ControlHeads.IndicatorStates.FLASHING_2)
-                                                softkey.State = SoftkeyState.Flashing;
-                                            else
-                                                softkey.State = SoftkeyState.Off;
-                                        }
                                     }
-                                    // Update non-softkey radio states (SCAN, MON, etc) based on softkey name
-                                    switch (mappedKeyName)
+                                }
+
+                                // For M3 we update certain statuses based on the screen indicators
+                                if (ControlHead == HeadType.M3)
+                                {
+                                    switch (indicator.Name)
                                     {
-                                        // Scan softkey maps to scan state
-                                        case SoftkeyName.SCAN:
-                                            Log.Debug("Got new scan state from indicator {ind}", indicator.Name);
+                                        // Scanning Icon (the "Z")
+                                        case ControlHeads.IndicatorName.scan:
+                                            Log.Verbose("Got new scanning state: {scanState}", indicator.State);
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 radio.Status.ScanState = ScanState.Scanning;
                                             else if (indicator.State == ControlHeads.IndicatorStates.OFF)
                                                 radio.Status.ScanState = ScanState.NotScanning;
                                             break;
-                                        case SoftkeyName.LPWR:
-                                            Log.Debug("Got new low power state from indicator {ind}", indicator.Name);
+                                        // Scan priority dot (Z.)
+                                        case ControlHeads.IndicatorName.scan_pri:
+                                            Log.Verbose("Got new scan priority state: {priState}", indicator.State);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.PriorityState = PriorityState.Priority1;
+                                            else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1)
+                                                radio.Status.PriorityState = PriorityState.Priority2;
+                                            else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                                radio.Status.PriorityState = PriorityState.NoPriority;
+                                            break;
+                                        // Low power L icon
+                                        // TODO: implement this
+                                        /*
+                                        case ControlHeads.IndicatorName.:
+                                            Log.Verbose("Got new low power state: {lpState}", indicator.State);
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 radio.Status.PowerState = PowerState.LowPower;
-                                            else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                            else
                                                 radio.Status.PowerState = PowerState.HighPower;
+                                            break;*/
+                                        // Monitor Icon (the speaker)
+                                        case ControlHeads.IndicatorName.monitor:
+                                            Log.Verbose("Got new monitor state: {monState}", indicator.State);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.Monitor = true;
+                                            else
+                                                radio.Status.Monitor = false;
                                             break;
-                                        case SoftkeyName.DIR:
-                                            Log.Debug("Got new direct state from indicator {ind}", indicator.Name);
+                                        // Talkaround Icon
+                                        case ControlHeads.IndicatorName.direct:
+                                            Log.Verbose("Got new direct state: {state}", indicator.State);
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 radio.Status.Direct = true;
                                             else
                                                 radio.Status.Direct = false;
                                             break;
+                                        // Amber LED/busy icon - we use this as a fallback for detecting RX state if the status message doesn't work for whatever reason
+                                        case ControlHeads.IndicatorName.busy:
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                            {
+                                                if (radio.Status.State != RadioState.Receiving)
+                                                {
+                                                    Log.Information("Radio now receiving, source: busy indicator");
+                                                    radio.Status.State = RadioState.Receiving;
+                                                    newStatus = true;
+                                                }
+                                            }
+                                            else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                            {
+                                                if (radio.Status.State != RadioState.Idle && radio.Status.State != RadioState.Transmitting)
+                                                {
+                                                    Log.Information("Radio now idle, source: busy indicator");
+                                                    radio.Status.State = RadioState.Idle;
+                                                    newStatus = true;
+                                                }
+                                            }
+                                            break;
                                     }
                                 }
+
+                                // W9 and M3 can get softkey statuses from the top & bottom indicators, respectively
+                                string indicatorNameString = Enum.GetName(typeof(ControlHeads.IndicatorName), indicator.Name);
+                                if ((ControlHead == HeadType.W9 && indicatorNameString.Contains("top_")) || (ControlHead == HeadType.M3 && indicatorNameString.Contains("bot_")))
+                                {
+                                    // Append btn_ to get the corresponding button name
+                                    string btnNameString = "btn_" + indicatorNameString;
+
+                                    // Convert to button name
+                                    ControlHeads.ButtonName btnName;
+                                    if (!Enum.TryParse(btnNameString, out btnName))
+                                    {
+                                        throw new ArgumentException($"Button name {btnNameString} is not valid!");
+                                    }
+
+                                    // See if this button is present in our button bindings
+                                    if (softkeyBindings.ContainsKey(btnName))
+                                    {
+                                        // Get the softkey name from our mapping list
+                                        SoftkeyName mappedKeyName = softkeyBindings[btnName];
+                                        // Find the softkey in the radio's softkey list and update its state accordingly
+                                        if (radio.Status.Softkeys.Any(c => c.Name == mappedKeyName))
+                                        {
+                                            foreach ( Softkey softkey in radio.Status.Softkeys.Where(k => k.Name == mappedKeyName))
+                                            {
+                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                    softkey.State = SoftkeyState.On;
+                                                else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1 || indicator.State == ControlHeads.IndicatorStates.FLASHING_2)
+                                                    softkey.State = SoftkeyState.Flashing;
+                                                else
+                                                    softkey.State = SoftkeyState.Off;
+                                            }
+                                        }
+                                        // Update non-softkey radio states (SCAN, MON, etc) based on softkey name
+                                        switch (mappedKeyName)
+                                        {
+                                            // Scan softkey maps to scan state
+                                            case SoftkeyName.SCAN:
+                                                Log.Debug("Got new scan state from indicator {ind}", indicator.Name);
+                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                    radio.Status.ScanState = ScanState.Scanning;
+                                                else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                                    radio.Status.ScanState = ScanState.NotScanning;
+                                                break;
+                                            case SoftkeyName.LPWR:
+                                                Log.Debug("Got new low power state from indicator {ind}", indicator.Name);
+                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                    radio.Status.PowerState = PowerState.LowPower;
+                                                else if (indicator.State == ControlHeads.IndicatorStates.OFF)
+                                                    radio.Status.PowerState = PowerState.HighPower;
+                                                break;
+                                            case SoftkeyName.DIR:
+                                                Log.Debug("Got new direct state from indicator {ind}", indicator.Name);
+                                                if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                    radio.Status.Direct = true;
+                                                else
+                                                    radio.Status.Direct = false;
+                                                break;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (ArgumentException ex)
+                            {
+                                Log.Warning(ex, "Unknown indicator code {Code:X2}, ignoring", codes[i]);
                             }
                         }
                         newStatus = true;
@@ -1656,7 +1718,10 @@ namespace moto_sb9600
 
             // If we have an initial BUSY on startup, wait for that to clear and then flush the buffer
             Log.Verbose("Waiting for BUSY to clear...");
-            while (getBusy() && !token.IsCancellationRequested) { }
+            while (getBusy() && !token.IsCancellationRequested)
+            {
+                Thread.Sleep(2);
+            }
 
             // Clear buffers
             Log.Verbose("Clearing serial buffers...");
@@ -1722,39 +1787,83 @@ namespace moto_sb9600
                     if (inSbep)
                     {
                         List<byte> sbepHeader = new List<byte>();
+                        // Flag for if we timed out while reading
+                        bool sbepTimedOut = false;
                         // Wait until we get at least 4 bytes, so we can read the expected size
                         Log.Verbose("Waiting for 4 SBEP bytes to determine size");
                         while (sbepHeader.Count < 4)
                         {
-                            byte nextByte = (byte)Port.ReadByte();
+                            // Handle a timeout properly
+                            byte nextByte;
+                            try { nextByte = (byte)Port.ReadByte(); }
+                            catch (TimeoutException)
+                            {
+                                Log.Warning("Timed out waiting for SBEP header bytes, aborting SBEP");
+                                sbepTimedOut = true;
+                                break;
+                            }
                             // Ignore SBEP ACKs before our header
                             if (nextByte == 0x50 && sbepHeader.Count == 0)
                             {
                                 Log.Verbose("Ignoring leading 0x50 SBEP ACK");
+                                continue;
+                            }
+                            sbepHeader.Add(nextByte);
+                        }
+                        // Check if we timed out
+                        if (sbepTimedOut)
+                        {
+                            inSbep = false;
+                        }
+                        else
+                        {
+                            // Decode the SBEP size
+                            int sbepLength = SBEPMsg.CalcLength(sbepHeader.ToArray());
+                            // Validate size
+                            if (sbepLength <= 4 || sbepLength > RX_BUFFER_SIZE)
+                            {
+                                Log.Warning("Invalid SBEP length {length}, aborting SBEP", sbepLength);
+                                inSbep = false;
                             }
                             else
                             {
-                                sbepHeader.Add(nextByte);
+                                // Timeout variables
+                                int waited = 0;
+                                const int maxSbepWaitMs = 200;
+                                // Wait for the expected amount of additional bytes before we try and process
+                                while (Port.BytesToRead < (sbepLength - 4) && waited < maxSbepWaitMs)
+                                {
+                                    Thread.Sleep(2);
+                                    waited += 2;
+                                }
+                                // Ensure we got bytes
+                                if (Port.BytesToRead < (sbepLength - 4))
+                                {
+                                    Log.Warning("Timed out waiting for SBEP body, aborting");
+                                    inSbep = false;
+                                }
+                                else
+                                {
+                                    // Create a buffer for the entire SBEP message and copy the read bytes to it
+                                    byte[] sbepMsg = new byte[sbepLength];
+                                    Buffer.BlockCopy(sbepHeader.ToArray(), 0, sbepMsg, 0, 4);
+                                    // Read the remaining bytes from the port
+                                    try
+                                    {
+                                        Port.Read(sbepMsg, 4, sbepLength - 4);
+                                        // Process the message
+                                        processSBEP(sbepMsg);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Warning(ex, "Failed to process SBEP message, aborting");
+                                    }
+                                    // Exit SBEP
+                                    inSbep = false;
+                                    Log.Verbose("Exiting SBEP");
+                                }
                             }
-                            Thread.Sleep(2);
                         }
-                        // Decode the SBEP size
-                        int sbepLength = SBEPMsg.CalcLength(sbepHeader.ToArray());
-                        // Wait for the expected amount of additional bytes before we try and process
-                        while (Port.BytesToRead < (sbepLength - 4))
-                        {
-                            Thread.Sleep(2);
-                        }
-                        // Create a buffer for the entire SBEP message and copy the read bytes to it
-                        byte[] sbepMsg = new byte[sbepLength];
-                        Buffer.BlockCopy(sbepHeader.ToArray(), 0, sbepMsg, 0, 4);
-                        // Read the remaining bytes from the port
-                        Port.Read(sbepMsg, 4, sbepLength - 4);
-                        // Process the message
-                        processSBEP(sbepMsg);
-                        // Exit SBEP
-                        inSbep = false;
-                        Log.Verbose("Exiting SBEP");
                     }
 
                     // Next, handle SB9600
@@ -1764,21 +1873,41 @@ namespace moto_sb9600
                         while (sb9600Buffer.Count + Port.BytesToRead >= 5 && !inSbep)
                         {
                             Log.Verbose("Got at least 5 bytes for an SB9600, trying to parse");
+                            // Timeout flag
+                            bool timedOut = false;
                             // Get 5 bytes into our buffer so we can process them
                             while (sb9600Buffer.Count < 5)
                             {
-                                byte newByte = (byte)Port.ReadByte();
+                                // Try to read a byte and handle a timeout in the middle of a message
+                                byte newByte;
+                                try
+                                {
+                                    newByte = (byte)Port.ReadByte();
+                                }
+                                catch (TimeoutException)
+                                {
+                                    Log.Debug("Read timeout while assembling SB9600 message, discarding partial buffer");
+                                    sb9600Buffer.Clear();
+                                    timedOut = true;
+                                    break;
+                                }
                                 // Ignore a trailing 0x50 ACK from previous SBEP message
                                 if (sb9600Buffer.Count == 0 && newByte == 0x50)
                                 {
                                     Log.Debug("Skipping 0x50 ACK byte from previous SBEP message sequence");
+                                    continue;
                                 }
                                 sb9600Buffer.Add(newByte);
                             }
+
+                            // Check for a timeout and don't try to parse if we did
+                            if (timedOut)
+                                break;
+                            
                             // Process the message
                             if (!processSB9600(sb9600Buffer.ToArray()))
                             {
-                                throw new Exception("Failed to decode SB9600 message!");
+                                Log.Error("SB9600 decode failed, clearing buffer");
                             }
                             // Flush the SB9600 buffer
                             sb9600Buffer.Clear();
@@ -1825,6 +1954,7 @@ namespace moto_sb9600
                     // Give the CPU a break
                     Thread.Sleep(2);
                 }
+                // Catch any unhandled exceptions here and teardown the connection
                 catch (Exception ex)
                 {
                     Log.Error(ex, "Got exception in SB9600 thread");
