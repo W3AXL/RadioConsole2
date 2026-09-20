@@ -6,10 +6,13 @@
     "license": "MIT",
     "main": "main.js",
     "scripts": {
+        "build": "esbuild client.ts --bundle --outfile=dist/client.bundle.js --platform=browser --format=iife --sourcemap",
+        "build:watch": "pnpm build --watch",
+        "typecheck": "tsc --noEmit",
+        "start": "pnpm build && electron .",
         "pack": "electron-builder --dir",
         "dist": "electron-builder",
-        "dist-multi": "electron-builder -wl",
-        "start": "electron ."
+        "dist-multi": "electron-builder -wl"
     },
     "build": {
         "appId": "rc2-console",
@@ -40,7 +43,9 @@
     "devDependencies": {
         "cross-env": "^10.1.0",
         "electron": "^35.7.5",
-        "electron-builder": "^26.8.1"
+        "electron-builder": "^26.8.1",
+        "esbuild": "^0.28.2",
+        "typescript": "^7.0.2"
     },
     "dependencies": {
         "@julusian/midi": "^3.6.1",
