@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using daemon;
 using rc2_core;
+using RadioConsole.Protocol;
 
 namespace moto_sb9600
 {
@@ -1533,32 +1534,32 @@ namespace moto_sb9600
                                         foreach ( Softkey softkey in radio.Status.Softkeys.Where(k => k.Name == mappedKeyName))
                                         {
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
-                                                softkey.State = SoftkeyState.On;
+                                                softkey.State = SoftkeyState.SoftkeyOn;
                                             else if (indicator.State == ControlHeads.IndicatorStates.FLASHING_1 || indicator.State == ControlHeads.IndicatorStates.FLASHING_2)
-                                                softkey.State = SoftkeyState.Flashing;
+                                                softkey.State = SoftkeyState.SoftkeyFlashing;
                                             else
-                                                softkey.State = SoftkeyState.Off;
+                                                softkey.State = SoftkeyState.SoftkeyOff;
                                         }
                                     }
                                     // Update non-softkey radio states (SCAN, MON, etc) based on softkey name
                                     switch (mappedKeyName)
                                     {
                                         // Scan softkey maps to scan state
-                                        case SoftkeyName.SCAN:
+                                        case SoftkeyName.SoftkeyScan:
                                             Log.Debug("Got new scan state from indicator {ind}", indicator.Name);
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 radio.Status.ScanState = ScanState.Scanning;
                                             else if (indicator.State == ControlHeads.IndicatorStates.OFF)
                                                 radio.Status.ScanState = ScanState.NotScanning;
                                             break;
-                                        case SoftkeyName.LPWR:
+                                        case SoftkeyName.SoftkeyLpwr:
                                             Log.Debug("Got new low power state from indicator {ind}", indicator.Name);
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 radio.Status.PowerState = PowerState.LowPower;
                                             else if (indicator.State == ControlHeads.IndicatorStates.OFF)
                                                 radio.Status.PowerState = PowerState.HighPower;
                                             break;
-                                        case SoftkeyName.DIR:
+                                        case SoftkeyName.SoftkeyDir:
                                             Log.Debug("Got new direct state from indicator {ind}", indicator.Name);
                                             if (indicator.State == ControlHeads.IndicatorStates.ON)
                                                 radio.Status.Direct = true;
@@ -1921,7 +1922,7 @@ namespace moto_sb9600
                     break;
                 case HeadType.M3:
                     // M3 channel up/down is defined by programming, so we first idenfity the softkey name and then find it in the mapping list
-                    SoftkeyName name = down ? SoftkeyName.CHDN : SoftkeyName.CHUP;
+                    SoftkeyName name = down ? SoftkeyName.SoftkeyChdn : SoftkeyName.SoftkeyChup;
                     ToggleButton(getButtonCodeFromSoftkeyBinding(name));
                     break;
                 default:

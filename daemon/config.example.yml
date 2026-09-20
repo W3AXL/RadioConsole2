@@ -70,6 +70,8 @@ audio:
     txDevice: "C-Media USB Headphone Set, USB Audio"
     # RX audio device (microphone)
     rxDevice: "C-Media USB Headphone Set, USB Audio"
+    # Sample rate to use for audio devices
+    sampleRate: 48000
 
 # Text lookups for Zone/Channel text replacement with single-line displays
 textLookups:

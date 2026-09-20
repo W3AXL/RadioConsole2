@@ -25,16 +25,11 @@ using Serilog.Sinks.File;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
-using SIPSorcery.Net;
-using SIPSorceryMedia.Abstractions;
-using SIPSorcery.Media;
-using SIPSorceryMedia.SDL2;
-
-using Org.BouncyCastle.Asn1.IsisMtt.X509;
 using daemon;
 using System.Runtime;
 using rc2_core;
 using moto_sb9600;
+using RadioConsole.Protocol;
 
 namespace netcore_cli
 {
@@ -72,28 +67,6 @@ namespace netcore_cli
                 ListAudioDeices();
             });
             cmdRoot.Add(cmdListAudio);
-            
-            // Get audio device info command
-            Command cmdGetAudio = new Command("get-audio")
-            {
-                Description = "Get audio device information for device name"
-            };
-            Option<string> optDeviceName = new Option<string>("--device")
-            {
-                Description = "Device name"
-            };
-            cmdGetAudio.Options.Add(optDeviceName);
-            cmdGetAudio.SetAction(parseResult =>
-            {
-                string devName = parseResult.GetValue(optDeviceName);
-                if (devName == null)
-                {
-                    Log.Error("No device name specified!");
-                    return;
-                }
-                GetAudioDeviceInfo(devName);
-            });
-            cmdRoot.Add(cmdGetAudio);
 
             // Define root command arguments
             Option<FileInfo> optConfigFile = new Option<FileInfo>("--config", "-c")
@@ -179,6 +152,13 @@ namespace netcore_cli
             // Read config from toml
             ReadConfig(configFile);
 
+            // Parse out softkeys into a true list
+            List<SoftkeyName> softkeys = new List<SoftkeyName>();
+            foreach (string name in Config.Softkeys)
+            {
+                softkeys.Add(GetSoftkeyName(name));
+            }
+
             // Set up file logging (we do this after config reading)
             if (log)
             {
@@ -197,7 +177,7 @@ namespace netcore_cli
 
             // Setup Audio Devices
             Log.Logger.Debug("Configuring local audio");
-            localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, radio, Config.Control.RxOnly);
+            localAudio = new LocalAudio(Config.Audio.RxDevice, Config.Audio.TxDevice, Config.Audio.SampleRate, Config.Control.RxOnly);
 
             // Switch based on control mode
             switch(Config.Control.ControlMode)
@@ -212,10 +192,8 @@ namespace netcore_cli
                         Config.Daemon.ListenPort,
                         Config.Daemon.AllowedNetworks,
                         Config.Control.Sb9600,
-                        localAudio.TxAudioCallback,
                         16000,
-                        localAudio.Start,
-                        Config.Softkeys,
+                        softkeys,
                         Config.TextLookups.Zone,
                         Config.TextLookups.Channel
                     );
@@ -229,8 +207,15 @@ namespace netcore_cli
                 break;
             }
 
-            // Setup RX audio callback
-            localAudio.RxEncodedSampleCallback += radio.RxSendEncodedSamples;
+            // Setup audio callbacks
+            localAudio.RxAudioAvailable += radio.SendRxPCM16Samples;
+            if (!Config.Control.RxOnly)
+            {
+                radio.OnTxAudio += localAudio.PlayTxSamples;
+            }
+
+            // Start local audio
+            localAudio.Start();
 
             // Start radio
             radio.Start(noreset);
@@ -245,6 +230,51 @@ namespace netcore_cli
             Log.CloseAndFlush();
 
             Environment.Exit(0);
+        }
+
+        private static Dictionary<String, SoftkeyName> SoftkeyNameMap = new Dictionary<string, SoftkeyName>
+        {
+            {"CALL", SoftkeyName.SoftkeyCall},
+            {"CHAN", SoftkeyName.SoftkeyChan},
+            {"CHUP", SoftkeyName.SoftkeyChup},
+            {"CHDN", SoftkeyName.SoftkeyChdn},
+            {"DEL", SoftkeyName.SoftkeyDel},
+            {"DIR", SoftkeyName.SoftkeyDir},
+            {"EMER", SoftkeyName.SoftkeyEmer},
+            {"DYNP", SoftkeyName.SoftkeyDynp},
+            {"HOME", SoftkeyName.SoftkeyHome},
+            {"LOCK", SoftkeyName.SoftkeyLock},
+            {"LPWR", SoftkeyName.SoftkeyLpwr},
+            {"MON", SoftkeyName.SoftkeyMon},
+            {"PAGE", SoftkeyName.SoftkeyPage},
+            {"PHON", SoftkeyName.SoftkeyPhon},
+            {"RAB1", SoftkeyName.SoftkeyRab1},
+            {"RAB2", SoftkeyName.SoftkeyRab2},
+            {"RCL", SoftkeyName.SoftkeyRcl},
+            {"SCAN", SoftkeyName.SoftkeyScan},
+            {"SEC", SoftkeyName.SoftkeySec},
+            {"SEL", SoftkeyName.SoftkeySel},
+            {"SITE", SoftkeyName.SoftkeySite},
+            {"TCH1", SoftkeyName.SoftkeyTch1},
+            {"TCH2", SoftkeyName.SoftkeyTch2},
+            {"TCH3", SoftkeyName.SoftkeyTch3},
+            {"TCH4", SoftkeyName.SoftkeyTch4},
+            {"TGRP", SoftkeyName.SoftkeyTgrp},
+            {"TMS", SoftkeyName.SoftkeyTms},
+            {"TMSQ", SoftkeyName.SoftkeyTmsq},
+            {"ZNUP", SoftkeyName.SoftkeyZnup},
+            {"ZNDN", SoftkeyName.SoftkeyZndn},
+            {"ZONE", SoftkeyName.SoftkeyZone}
+        };
+
+        /// <summary>
+        /// Parses a config-style softkey name (MON, SCAN, etc) to the Protobuf Softkey name enum
+        /// </summary>
+        /// <param name="configName"></param>
+        /// <returns></returns>
+        internal static SoftkeyName GetSoftkeyName(string keyName)
+        {
+            return SoftkeyNameMap[keyName];
         }
 
         internal static void ReadConfig(FileInfo configFile)
@@ -276,61 +306,42 @@ namespace netcore_cli
             }
         }
 
+        /// <summary>
+        /// List the available PortAudio devices on the machine running the daemon
+        /// </summary>
         static void ListAudioDeices()
         {
             Log.Information("Displaying available audio devices");
 
-            SDL2Helper.InitSDL();
-
             // Enumerate
-            List<string> sdlInputs = SDL2Helper.GetAudioRecordingDevices();
-            List<string> sdlOutputs = SDL2Helper.GetAudioPlaybackDevices();
+            List<string> inputs = Audio.GetInputDeviceNames();
+            List<string> outputs = Audio.GetOutputDeviceNames();
 
-            if ((sdlInputs == null) || (sdlInputs.Count == 0))
+            if ((inputs == null) || (inputs.Count == 0))
             {
                 Log.Error("No audio inputs detected!");
             }
             else
             {
                 Log.Information("Available audio input devices:");
-                for (int i = 0; i < sdlInputs.Count; i++)
+                for (int i = 0; i < inputs.Count; i++)
                 {
-                    Log.Information("    {Index}: {Name}", i, sdlInputs[i]);
+                    Log.Information("    {Index}: {Name}", i, inputs[i]);
                 }
             }
 
-            if ((sdlOutputs == null) || (sdlOutputs.Count == 0))
+            if ((outputs == null) || (outputs.Count == 0))
             {
                 Log.Error("No audio outputs detected!");
             }
             else
             {
                 Log.Information("Available audio output devices");
-                for (int i=0; i < sdlOutputs.Count; i++)
+                for (int i=0; i < outputs.Count; i++)
                 {
-                    Log.Information("    {Index}: {Name}", i, sdlOutputs[i]);
+                    Log.Information("    {Index}: {Name}", i, outputs[i]);
                 }
             }
-
-            SDL2Helper.QuitSDL();
-        }
-
-        static void GetAudioDeviceInfo(string devName)
-        {
-            Log.Information("Getting audio device information for {devName}", devName);
-            SDL2Helper.InitSDL();
-            AudioEncoder audioEncoder = new AudioEncoder();
-            var audioFormatManager = new MediaFormatManager<AudioFormat>(audioEncoder.SupportedFormats);
-            AudioFormat audioFormat = audioFormatManager.SelectedFormat;
-            var audioSpec = SDL2Helper.GetAudioSpec(audioFormat.ClockRate, 1);
-            uint devIdx = SDL2Helper.OpenAudioPlaybackDevice(devName, ref audioSpec);
-            Log.Information("    Device index: {index}", devIdx);
-            Log.Information("    Suppported codecs:");
-            foreach (var codec in audioEncoder.SupportedFormats)
-            {
-                Log.Information("        {codec}", codec.FormatName);
-            }
-            SDL2Helper.QuitSDL();
         }
     }
 }

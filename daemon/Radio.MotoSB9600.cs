@@ -1,5 +1,4 @@
 ﻿using daemon;
-using FFmpeg.AutoGen;
 using rc2_core;
 using Serilog;
 using System;
@@ -8,7 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
-using SIPSorceryMedia.Abstractions;
+using RadioConsole.Protocol;
 
 namespace moto_sb9600
 {
@@ -73,10 +72,10 @@ namespace moto_sb9600
             string name, string desc, bool rxOnly,
             IPAddress listenAddress, int listenPort, List<IPNetwork> allowedNetworks,
             MotoSb9600Config sb9600Config,
-            Action<short[]> txAudioCallback, int txAudioSampleRate, Action<AudioFormat> rtcFormatCallback,
+            int txAudioSampleRate,
             List<SoftkeyName> softkeys,
             List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null
-            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, softkeys, zoneLookups, chanLookups, txAudioCallback, txAudioSampleRate, rtcFormatCallback)
+            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, softkeys, zoneLookups, chanLookups, txAudioSampleRate)
         {
             // Save softkey lookups
             softkeyBindings = sb9600Config.SoftkeyBindings;
@@ -117,12 +116,12 @@ namespace moto_sb9600
             return sb9600.SetTransmit(tx);
         }
 
-        public override bool PressButton(rc2_core.SoftkeyName name)
+        public override bool PressButton(SoftkeyName name)
         {
             return sb9600.PressButton(name);
         }
 
-        public override bool ReleaseButton(rc2_core.SoftkeyName name)
+        public override bool ReleaseButton(SoftkeyName name)
         {
             return sb9600.ReleaseButton(name);
         }

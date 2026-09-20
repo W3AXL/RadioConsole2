@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using RadioConsole.Protocol;
 
 namespace daemon
 {
@@ -79,6 +80,10 @@ namespace daemon
         /// RX audio device for radio (microphone)
         /// </summary>
         public string RxDevice = "";
+        /// <summary>
+        /// Sample rate to open the devices at
+        /// </summary>
+        public int SampleRate = 48000;
     }
 
     public class TextLookupConfig
@@ -109,6 +114,6 @@ namespace daemon
         /// <summary>
         /// Softkey list
         /// </summary>
-        public List<rc2_core.SoftkeyName> Softkeys = new List<rc2_core.SoftkeyName>();
+        public List<String> Softkeys = new List<String>();
     }
 }
