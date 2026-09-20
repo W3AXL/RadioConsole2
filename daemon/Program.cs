@@ -153,10 +153,10 @@ namespace netcore_cli
             ReadConfig(configFile);
 
             // Parse out softkeys into a true list
-            List<SoftkeyName> softkeys = new List<SoftkeyName>();
+            List<SoftkeyName> consoleSoftkeys = new List<SoftkeyName>();
             foreach (string name in Config.Softkeys)
             {
-                softkeys.Add(GetSoftkeyName(name));
+                consoleSoftkeys.Add(ConfigMapping.GetSoftkeyName(name));
             }
 
             // Set up file logging (we do this after config reading)
@@ -184,6 +184,7 @@ namespace netcore_cli
             {
                 case RadioControlMode.SB9600:
                 {
+                    // Create the radio
                     radio = new MotoSb9600Radio(
                         Config.Daemon.Name,
                         Config.Daemon.Desc,
@@ -192,8 +193,8 @@ namespace netcore_cli
                         Config.Daemon.ListenPort,
                         Config.Daemon.AllowedNetworks,
                         Config.Control.Sb9600,
-                        16000,
-                        softkeys,
+                        Config.Audio.SampleRate,
+                        consoleSoftkeys,
                         Config.TextLookups.Zone,
                         Config.TextLookups.Channel
                     );
@@ -230,51 +231,6 @@ namespace netcore_cli
             Log.CloseAndFlush();
 
             Environment.Exit(0);
-        }
-
-        private static Dictionary<String, SoftkeyName> SoftkeyNameMap = new Dictionary<string, SoftkeyName>
-        {
-            {"CALL", SoftkeyName.SoftkeyCall},
-            {"CHAN", SoftkeyName.SoftkeyChan},
-            {"CHUP", SoftkeyName.SoftkeyChup},
-            {"CHDN", SoftkeyName.SoftkeyChdn},
-            {"DEL", SoftkeyName.SoftkeyDel},
-            {"DIR", SoftkeyName.SoftkeyDir},
-            {"EMER", SoftkeyName.SoftkeyEmer},
-            {"DYNP", SoftkeyName.SoftkeyDynp},
-            {"HOME", SoftkeyName.SoftkeyHome},
-            {"LOCK", SoftkeyName.SoftkeyLock},
-            {"LPWR", SoftkeyName.SoftkeyLpwr},
-            {"MON", SoftkeyName.SoftkeyMon},
-            {"PAGE", SoftkeyName.SoftkeyPage},
-            {"PHON", SoftkeyName.SoftkeyPhon},
-            {"RAB1", SoftkeyName.SoftkeyRab1},
-            {"RAB2", SoftkeyName.SoftkeyRab2},
-            {"RCL", SoftkeyName.SoftkeyRcl},
-            {"SCAN", SoftkeyName.SoftkeyScan},
-            {"SEC", SoftkeyName.SoftkeySec},
-            {"SEL", SoftkeyName.SoftkeySel},
-            {"SITE", SoftkeyName.SoftkeySite},
-            {"TCH1", SoftkeyName.SoftkeyTch1},
-            {"TCH2", SoftkeyName.SoftkeyTch2},
-            {"TCH3", SoftkeyName.SoftkeyTch3},
-            {"TCH4", SoftkeyName.SoftkeyTch4},
-            {"TGRP", SoftkeyName.SoftkeyTgrp},
-            {"TMS", SoftkeyName.SoftkeyTms},
-            {"TMSQ", SoftkeyName.SoftkeyTmsq},
-            {"ZNUP", SoftkeyName.SoftkeyZnup},
-            {"ZNDN", SoftkeyName.SoftkeyZndn},
-            {"ZONE", SoftkeyName.SoftkeyZone}
-        };
-
-        /// <summary>
-        /// Parses a config-style softkey name (MON, SCAN, etc) to the Protobuf Softkey name enum
-        /// </summary>
-        /// <param name="configName"></param>
-        /// <returns></returns>
-        internal static SoftkeyName GetSoftkeyName(string keyName)
-        {
-            return SoftkeyNameMap[keyName];
         }
 
         internal static void ReadConfig(FileInfo configFile)

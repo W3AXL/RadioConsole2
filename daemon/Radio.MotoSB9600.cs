@@ -43,14 +43,14 @@ namespace moto_sb9600
         /// <summary>
         /// Softkey binding dictionary
         /// </summary>
-        public Dictionary<ControlHeads.ButtonName, SoftkeyName> SoftkeyBindings;
+        public Dictionary<ControlHeads.ButtonName, string> SoftkeyBindings;
     }
 
     public class MotoSb9600Radio : rc2_core.Radio
     {
         private SB9600 sb9600;
 
-        private Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings;
+        internal Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings = new();
 
         /// <summary>
         /// Initialize a new Motorola SB9600 radio
@@ -63,7 +63,7 @@ namespace moto_sb9600
         /// <param name="serialPortName">Serial port name for SB9600</param>
         /// <param name="headType">SB9600 head type</param>
         /// <param name="useLedsForRx">Whether to use the RX leds on the control head as an RX status indicator</param>
-        /// <param name="softkeys">list of softkeys</param>
+        /// <param name="consoleSoftkeys">list of softkeys the daemon has been configured to provide</param>
         /// <param name="zoneLookups">list of zone text lookups</param>
         /// <param name="chanLookups">list of channel text lookups</param>
         /// <param name="txAudioCallback">callback for tx audio samples</param>
@@ -73,12 +73,15 @@ namespace moto_sb9600
             IPAddress listenAddress, int listenPort, List<IPNetwork> allowedNetworks,
             MotoSb9600Config sb9600Config,
             int txAudioSampleRate,
-            List<SoftkeyName> softkeys,
+            List<SoftkeyName> consoleSoftkeys,
             List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null
-            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, softkeys, zoneLookups, chanLookups, txAudioSampleRate)
+            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, consoleSoftkeys, zoneLookups, chanLookups, txAudioSampleRate)
         {
-            // Save softkey lookups
-            softkeyBindings = sb9600Config.SoftkeyBindings;
+            // Parse the softkey config dict into the correct SoftkeyName mappings
+            foreach (KeyValuePair<ControlHeads.ButtonName, string> binding in sb9600Config.SoftkeyBindings)
+            {
+                softkeyBindings.Add(binding.Key, ConfigMapping.GetSoftkeyName(binding.Value));
+            }
             // Init SB9600
             sb9600 = new SB9600(sb9600Config, this);
             sb9600.StatusCallback += () => {

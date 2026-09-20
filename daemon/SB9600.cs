@@ -352,8 +352,6 @@ namespace moto_sb9600
         public delegate void Callback();
         public Callback StatusCallback { get; set; }
 
-        private Dictionary<ControlHeads.ButtonName, SoftkeyName> softkeyBindings;
-
         private bool newStatus = false;
 
         private bool resetOnConnect = true;
@@ -802,7 +800,6 @@ namespace moto_sb9600
             useLedsForRx = config.UseLedsForRx;
             invertBusy = config.InvertBusy;
             passiveMon = config.PassiveMonitor;
-            softkeyBindings = config.SoftkeyBindings;
             resetOnConnect = config.ResetOnConnect;
             this.radio = radio;
         }
@@ -1524,10 +1521,10 @@ namespace moto_sb9600
                                 }
 
                                 // See if this button is present in our button bindings
-                                if (softkeyBindings.ContainsKey(btnName))
+                                if (radio.softkeyBindings.ContainsKey(btnName))
                                 {
                                     // Get the softkey name from our mapping list
-                                    SoftkeyName mappedKeyName = softkeyBindings[btnName];
+                                    SoftkeyName mappedKeyName = radio.softkeyBindings[btnName];
                                     // Find the softkey in the radio's softkey list and update its state accordingly
                                     if (radio.Status.Softkeys.Any(c => c.Name == mappedKeyName))
                                     {
@@ -1845,10 +1842,10 @@ namespace moto_sb9600
         private byte getButtonCodeFromSoftkeyBinding(SoftkeyName name)
         {
             // Identify button name based on softkey name & mapping
-            if (softkeyBindings.ContainsValue(name))
+            if (radio.softkeyBindings.ContainsValue(name))
             {
                 // Get button name from softkey
-                ControlHeads.ButtonName buttonName = softkeyBindings.First(mapping => mapping.Value == name).Key;
+                ControlHeads.ButtonName buttonName = radio.softkeyBindings.First(mapping => mapping.Value == name).Key;
                 // Get button code from button name based on head type
                 switch (ControlHead)
                 {
