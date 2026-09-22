@@ -25,9 +25,9 @@ let midiInput = new midi.Input();
 ***********************************************************************************/
 
 /**
- * Reads the config file and returns the JSON inside
+ * Reads the config file and returns the JSON inside, or null if the config could not be read
  */
-async function readConfig(defaultConfig) {
+async function readConfig() {
     // Check for existing config file
     if (!fs.existsSync(configPath)) {
         console.warn("No config.json file found, creating default at " + configPath);
@@ -52,8 +52,7 @@ async function readConfig(defaultConfig) {
         }
         catch (e) {
             alert(`Failed to parse config JSON ${configJson}: ${e}`);
-            console.warning('Using default config');
-            return defaultConfig;
+            return null;
         }
     }
 }

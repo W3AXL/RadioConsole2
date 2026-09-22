@@ -443,6 +443,34 @@ ion-icon {
     height: 100%;
     box-sizing: border-box;
     padding: 4px;
+    overflow: scroll;
+}
+
+/********************************
+    Global Scrollbar Styling
+********************************/
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 10px;
+  border: 2px solid #1e1e1e;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /********************************

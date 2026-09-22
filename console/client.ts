@@ -1,47 +1,105 @@
 /***********************************************************************************
+    Imports
+***********************************************************************************/
+
+// Local file imports
+import * as Cfg from "./lib/Config"
+import { RequestTracker } from './lib/RequestTracker'
+import { handleHello, nowMicros } from "./lib/Protocol"
+import { RadioAudioReceiver, MicCaptureManager } from "./lib/AudioPipeline"
+import { Envelope, RadioCommandType, RadioStatus, RadioState, SoftkeyName, ScanState, PriorityState } from "./generated/RC2Proto"
+
+/***********************************************************************************
     Global Variables
 ***********************************************************************************/
 
-// Config, read from main.js on page load
-var config = null;
-
-// Default config values
-const defaultConfig = {
-    Radios: [],
-    Autoconnect: false,
-    ClockFormat: "UTC",
-    Audio: {
-        ButtonSounds: true,
-        UnselectedVol: -9.0,
-        ToneVolume: -9.0,
-        UseAGC: true,
+// Default Config, overwritten from main.js on page load
+var config: Cfg.Configuration = {
+    version: Cfg.ConfigVersion,
+    radios: [],
+    autoConnect: false,
+    clockFormat: Cfg.ClockFormat.UTC,
+    audio: {
+        unselectedVolume: -9.0,
+        toneVolume: -9.0,
+        buttonSounds: true,
+        useAGC: true
     },
-    Extension: {
+    extension: {
+        enabled: false,
         address: "127.0.0.1",
         port: 5555
     },
-    Peripherals: {
-        serialPort: "",
-        useCtsForPtt: false
-    },
-    Midi: {
-        port: -1,
-        enabled: false,
-        ccs: {
-            masterPtt: {
-                chan: null,
-                num: null,
-            },
-            masterVol: {
-                chan: null,
-                num: null,
-            },
+    peripherals: {
+        midi: {
+            enabled: false,
+            port: 0,
+            masterPtt: null,
+            masterVol: null
+        },
+        serial: {
+            enabled: false,
+            port: "",
+            pttLine: null
         }
     }
 }
 
-// Radio List (read from radio config initially and populated with audio sources/sinks and rtc connections)
-var radios = [];
+/**
+ * Storage for radio card HTML elements
+ */
+interface RadioHtmlElements {
+    idBase: string,
+    card?: HTMLDivElement,
+    txBar?: HTMLDivElement,
+    rxBar?: HTMLDivElement
+}
+
+/**
+ * Interface representing an instantiated radio loaded from config
+ * All config parameters are stored in the corresponding config.radios item
+ */
+interface Radio {
+    cfg: Cfg.Radio,
+    status?: RadioStatus,
+    requests?: RequestTracker,
+    handshakeComplete: boolean,
+    connection?: WebSocket,
+    envSeq: number,
+    audioReceiver?: RadioAudioReceiver,
+    elements: RadioHtmlElements
+}
+
+// Master list of radios, populated after config is read and used for all radio connections
+var radios: Radio[] = [];
+
+/**
+ * Objects required for the input (mic) audio chain
+ */
+interface AudioInputChain {
+    analyzer: AnalyserNode,
+    volume: GainNode,
+    meter: HTMLElement
+}
+
+/**
+ * Objects required for the output (speaker) audio chain
+ */
+interface AudioOutputChain {
+    analyzer: AnalyserNode,
+    volume: GainNode,
+    meter: HTMLElement
+}
+
+/**
+ * Interface representing the console's audio objects, settings, and nodes
+ */
+interface Audio {
+    context: AudioContext,
+    running: boolean,
+    inputChain: AudioInputChain,
+    outputChain: AudioOutputChain
+}
 
 // Audio variables
 var audio = {
@@ -126,28 +184,6 @@ const dtmfTiming = {
     "digitDelay": 100
 }
 
-// WebRTC Variables
-const rtcConf = {
-    // Audio codec
-    bitrate: 16000,
-    codec: "opus/48000/2",  // stereo opus
-    //codec: "PCMU/8000",
-    
-    // Base audio encoding/decoding latency. This is added to the current webRTC round trip time when audio functions are called so that actions align with the audio
-    // This is found experimentally and varies slightly depending on daemon system performance, but ~350ms is about right for most of the tested codecs
-    rxBaseLatency: 350,
-    txBaseLatency: 350,
-    // RTT (round-trip time) parameters for RTC connection
-    rttLimit: 0.25,
-    rttSize: 25,
-
-    // Periodic WebRTC latency check time (ms)
-    statCheckTime: 3000,
-    
-    // Whether to disable FEC and enable CBR (this actually causes more latency annoyingly)
-    cbr: false
-}
-
 // Midi Message Types
 const midiMsgTypes = {
     NOTE_OFF:       0x8,
@@ -180,19 +216,11 @@ var alertStopTimeout = null;
 // Stuck button timeout
 var stuckButtonTimeout = null;
 
-testInput = null;
-
-// This side of the WebRTC connection will be impolite
-var polite = false;
-
 // Radio Card Tempalte
-const radioCardTemplate = document.querySelector('#card-template');
+const radioCardTemplate : HTMLTemplateElement = document.querySelector<HTMLTemplateElement>('#card-template');
 
 // Alert Dialog Template
 const alertTemplate = document.querySelector("#alert-dialog-template");
-
-// Radio JSON validation
-const validColors = ["red","amber", "yellow", "green", "teal", "blue", "purple"];
 
 // Extension websocket connection
 var extensionWs = null;
@@ -205,7 +233,7 @@ var editingRadioIdx = -1;
 ***********************************************************************************/
 
 // Detected timezone
-timeZone = "";
+var timeZone = "";
 // Selected radio
 var selectedRadio = null;
 var selectedRadioIdx = null;
@@ -566,9 +594,9 @@ function populateRadios() {
         console.info("Adding radio " + radio.name);
         console.debug(radio);
         // Add the radio card
-        addRadioCard(index, "radio" + String(index), radio.name, radio.color);
+        addRadioCard(index);
         // Update edit list
-        addRadioToEditTable(radio);
+        addRadioToEditTable(index);
         // Populate its text
         updateRadioCard(index);
     });
@@ -588,18 +616,22 @@ function clearRadios() {
 
 /**
  * Add a radio card with the specified id and name
- * @param {string} id ID of the card element
- * @param {string} name Name to display in header
+ * @param {idx} index of the radio in the radios[] list
  */
-function addRadioCard(idx, id, name, color) {
-    // Log
-    console.debug(`Adding card for radio ${idx} (${name}), html id ${id}`);
+function addRadioCard(idx: number) {
+    // Get radio from list
+    const radio = radios[idx];
 
-    // New, much easier way to add new cards
-    var newCard = radioCardTemplate.content.cloneNode(true);
-    newCard.querySelector(".radio-card").classList.add(color);
-    newCard.querySelector(".radio-card").id = id;
-    newCard.querySelector(".radio-card .header h2").textContent = name;
+    // Log
+    console.debug(`Adding card for radio ${idx} (${radio.cfg.name}), html id ${radio.elements.idBase}`);
+
+    // Clone the radio card template
+    var newCard : DocumentFragment = <DocumentFragment>radioCardTemplate.content.cloneNode(true);
+
+    // Update basic info
+    newCard.querySelector(".radio-card").classList.add(radio.cfg.color);
+    newCard.querySelector(".radio-card").id = radio.elements.idBase;
+    newCard.querySelector(".radio-card .header h2").textContent = radio.cfg.name;
 
     // Bind click events, etc
     newCard.querySelector(".radio-card").addEventListener('click', function (event) {
@@ -607,38 +639,34 @@ function addRadioCard(idx, id, name, color) {
         event.stopPropagation();
         event.stopImmediatePropagation();
         // Select the radio
-        selectRadio(id);
+        selectRadio(radio.elements.idBase);
     });
 
-    // Bind the minimize button
-    $(".minimize-radio-card").click(function (event) {
-
-    })
-
-    $("#main-layout").append(newCard);
-
-    radios[idx].elements = {};
+    // Add the card to the main layout
+    document.querySelector("#main-layout").append(newCard);
 
     // Retrieve and store the new element as a javascript object in the radio array
-    radios[idx].elements.card = document.querySelector(`#${id}`);
+    radios[idx].elements.card = document.querySelector(`#${radio.elements.idBase}`);
 
     // Store the audio bars as discrete elements, so we can update them in the animation callback without querying for them every time
-    radios[idx].elements.rxbar = radios[idx].elements.card.querySelector("#rx-bar");
-    radios[idx].elements.txbar = radios[idx].elements.card.querySelector("#tx-bar");
+    radios[idx].elements.rxBar = radios[idx].elements.card.querySelector("#rx-bar");
+    radios[idx].elements.txBar = radios[idx].elements.card.querySelector("#tx-bar");
 }
 
 /**
- * Add a radio to the edit radios table
- * @param {Radio} radio radio object to add
- * @param {int} index optional index in the table to overwrite
+ * Add the specified radio to the radio edit table
+ * @param idx index of the radio in the radios[] list
  */
-function addRadioToEditTable(radio, index = null) {
+function addRadioToEditTable(idx: number) {
+    // Get the radio
+    const radio = radios[idx];
+
     // Get nice pretty display value for pan
     let panValue = "C";
-    if (radio.pan != 0)
+    if (radio.cfg.pan != 0)
     {
-        const panPercent = Math.abs(radio.pan / 1.0).toFixed(2) * 100;
-        if (radio.pan < 0)
+        const panPercent: number = Math.abs(radio.cfg.pan / 1.0).toFixed(2) * 100;
+        if (radio.cfg.pan < 0)
         {
             panValue = `L ${panPercent}%`;
         }
@@ -647,30 +675,37 @@ function addRadioToEditTable(radio, index = null) {
             panValue = `R ${panPercent}%`;
         }
     }
+
     // Create HTML content
     const tableRowHtml = `
-        <td class="radio-table-name">${radio.name}</td>
-        <td class="radio-table-address">${radio.address}</td>
-        <td class="radio-table-port">${radio.port}</td>
-        <td class="radio-table-color">${radio.color}</td>
+        <td class="radio-table-name">${radio.cfg.name}</td>
+        <td class="radio-table-address">${radio.cfg.address}</td>
+        <td class="radio-table-port">${radio.cfg.port}</td>
+        <td class="radio-table-color">${radio.cfg.color}</td>
         <td class="radio-table-pan">${panValue}</td>
         <td class="radio-table-actions">
-            <a href="#" onclick="editRadio(this, '${radio.name}')" title="Edit"><ion-icon name="create-sharp"></ion-icon></a>
+            <a href="#" onclick="editRadio(this, '${radio.cfg.name}')" title="Edit"><ion-icon name="create-sharp"></ion-icon></a>
             &nbsp;
-            <a href="#" onclick="deleteRadio(this, '${radio.name}')" title="Delete">
+            <a href="#" onclick="deleteRadio(this, '${radio.cfg.name}')" title="Delete">
                 <ion-icon name='trash-bin-sharp'></ion-icon>
             </a>
         </td>
     `
-    if (index != null)
-    {
-        console.debug(`Updating edit table row ${index} for radio ${radio.name}`);
-        $(`#edit-radios-table tr:eq(${index})`).html(tableRowHtml);
+    const tableRow = document.createElement("tr");
+    tableRow.innerHTML = tableRowHtml;
+
+    // Get the edit radios table
+    const editRadiosTable : HTMLTableElement = <HTMLTableElement>document.querySelector("#edit-radios-table");
+
+    // If the index is smaller than the length of radios in the table right now, update the radio at that index
+    if (idx < editRadiosTable.rows.length) {
+        console.debug(`Updating edit radio table entry at index ${idx}`)
+        editRadiosTable.rows[idx].replaceWith(tableRow);
     }
-    else
-    {
-        console.debug(`Adding edit table row for radio ${radio.name} to end of table`);
-        $("#edit-radios-table tr:last").after(`<tr>${tableRowHtml}</tr>`);
+    // Otherwise, add the new row to the end
+    else {
+        console.debug(`Adding new radio to edit radio table`);
+        editRadiosTable.appendChild(tableRow);
     }
 }
 
@@ -749,7 +784,7 @@ window.electronAPI.cancelRadioConfig(() => {
 /**
  * New handler for getting new radio configurations from the radio config window
  */
-window.electronAPI.saveRadioConfig((event, radioConfig) => {
+window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
     // Debug print
     console.debug('Got new radio config from radio edit window!');
     console.debug(radioConfig);
@@ -766,21 +801,13 @@ window.electronAPI.saveRadioConfig((event, radioConfig) => {
         editingRadioIdx = -1;
         
         // Update radio config at index
-        config.Radios[idx] = radioConfig;
-        saveConfig();
+        radios[idx].cfg = radioConfig;
 
         // Disconnect radio if connected
-        if (radios[idx].status.State != 'Disconnected')
+        if (radios[idx].status.state != RadioState.DISCONNECTED)
         {
             disconnectRadio(idx);
         }
-
-        // Update radio in main list
-        radios[idx].name = radioConfig.name;
-        radios[idx].address = radioConfig.address;
-        radios[idx].port = radioConfig.port;
-        radios[idx].color = radioConfig.color;
-        radios[idx].pan = radioConfig.pan;
 
         // Find the table row for this radio and get its index
         let editTableRow = $(`#edit-radios-table tr:contains('${radioConfig.name}')`);
@@ -791,60 +818,54 @@ window.electronAPI.saveRadioConfig((event, radioConfig) => {
 
         // Update card
         updateRadioCard(idx);
+    }
+    // Otherwise, we're adding a new radio
+    else
+    {
+        // Validate radio doesn't already exist
+        if (radios.some(radio => radio.cfg.name === radioConfig.name))
+        {
+            alert(`Radio with name ${radioConfig.name} already exists!`);
+            return;
+        }
+        if (radios.some(radio => radio.cfg.address === radioConfig.address) && radios.some(radio => radio.cfg.port === radioConfig.port))
+        {
+            alert(`Radio at destination ${radioConfig.address}:${radioConfig.port} already exists!`);
+            return;
+        }
+
+        // Log
+        console.log("Adding radio " + radioConfig.name);
+
+        // Get the index for this new radio (will be at the end of the list)
+        const newRadioIdx = radios.length;
+
+        // Add radio to the list
+        radios.push({
+            cfg: radioConfig,
+            handshakeComplete: false,
+            envSeq: 0,
+            elements: {
+                idBase: `radio${newRadioIdx}`
+            }
+        });
+
+        // Save config, which will copy the radio config to the main config object
+        saveConfig();
         
-        // Return
-        return;
+        // Add the radio card
+        addRadioCard(newRadioIdx);
+        
+        // Populate its text
+        updateRadioCard(newRadioIdx);
+        
+        // Update edit list
+        addRadioToEditTable(newRadio);
     }
 
-    // Validate radio doesn't already exist
-    if (config.Radios.some(radio => radio.name === radioConfig.name))
-    {
-        alert(`Radio with name ${radioConfig.name} already exists!`);
-        return;
-    }
-    if (config.Radios.some(radio => radio.address === radioConfig.address) && config.Radios.some(radio => radio.port === radioConfig.port))
-    {
-        alert(`Radio at destination ${radioConfig.address}:${radioConfig.port} already exists!`);
-        return;
-    }
-    // Validate color selection
-    if (!validColors.includes(radioConfig.color))
-    {
-        alert(`Invalid radio color selected: ${radioConfig.color}`);
-        return;
-    }
-    
-    // Save new radio
-    config.Radios.push(radioConfig);
+    // Save config, which will copy out the radios config objects to the master config
     saveConfig();
-    
-    // Copy config to a new radio object (this gets added to our current radios)
-    var newRadio = radioConfig;
 
-    // Populate defaults
-    newRadio.status = { State: 'Disconnected' };
-    newRadio.rtc = {};
-    newRadio.wsConn = null;
-    newRadio.audioSrc = null;
-
-    // Get the index for this new radio (will be at the end of the list)
-    const newRadioIdx = radios.length;
-
-    // Append to config
-    radios.push(newRadio);
-
-    // Populate new radio
-    console.log("Adding radio " + newRadio.name);
-    
-    // Add the radio card
-    addRadioCard(newRadioIdx, "radio" + String(newRadioIdx), newRadio.name, newRadio.color);
-    
-    // Populate its text
-    updateRadioCard(newRadioIdx);
-    
-    // Update edit list
-    addRadioToEditTable(newRadio);
-    
     // Clear form
     newRadioClear();
 });
@@ -856,118 +877,115 @@ function stopClick(event, obj) {
 
 function updateRadioCard(idx) {
     // Get radio from radioList
-    var radio = radios[idx];
+    const radio = radios[idx];
+    const radioCard = radio.elements.card;
 
-    // Get card object
-    var radioCard = $("#radio" + String(idx));
-
-    // Update card name & description
-    radioCard.find(".radio-name").html(radio.status.Name ? radio.status.Name : radio.name);
-    radioCard.find(".radio-name").attr("title", radio.status.Description);
+    // Update radio name in card from status, or fallback to configured name
+    radioCard.querySelector(".radio-name").innerHTML = radio.status ? radio.status.name : radio.cfg.name;
+    radioCard.querySelector(".radio-name").setAttribute("title", radio.status ? radio.status.description : "");
 
     // Update color if changed
-    if (!radioCard.hasClass(radio.color))
+    if (!radioCard.classList.contains(radio.cfg.color))
     {
-        const cardClasses = radioCard.attr('class').split(/\s+/);
+        // Get the current list of classes for the card
+        const cardClasses = radioCard.classList;
+        // Iterate over them until we find a valid color
         cardClasses.forEach((className) => {
-            if (validColors.some(color => color === className))
+            if (Cfg.parseCardColor(className) != undefined)
             {
                 const oldColor = className
-                console.debug(`Updating radio card color from ${oldColor} to ${radio.color}`);
-                radioCard.removeClass(oldColor);
-                radioCard.addClass(radio.color);
+                console.debug(`Updating radio card color from ${oldColor} to ${radio.cfg.color}`);
+                radioCard.classList.remove(oldColor);
+                radioCard.classList.add(radio.cfg.color);
             }
         })
-        
+    }
+
+    // Update pan from config (which in turn sets the actual audio pan from the onChanged event)
+    radioCard.querySelector('.radio-pan').setAttribute('value', radios[idx].cfg.pan.toString());
+
+    // Only update any status-related items if we have a status
+    if (!radio.status) {
+        console.debug("No radio status received yet");
+        return;
     }
 
     // Limit zone & channel text to 27/18 characters
     // TODO: figure out dynamic scaling of channel/zone text so we don't have to do this
-    if (radio.status.ZoneName != null) {
-        const shortZone = radio.status.ZoneName.substring(0,28);
-        radioCard.find("#zone-text").html(shortZone);
+    if (radio.status.zoneName != null) {
+        const shortZone = radio.status.zoneName.substring(0,28);
+        radioCard.querySelector("#zone-text").innerHTML = shortZone;
     }
-
-    if (radio.status.ChannelName != null) {
-        const shortChan = radio.status.ChannelName.substring(0,19);
-        radioCard.find("#channel-text").html(shortChan);
+    if (radio.status.channelName != null) {
+        const shortChan = radio.status.channelName.substring(0,19);
+        radioCard.querySelector("#channel-text").innerHTML = shortChan;
     }
     
-    // Remove all current classes
-    setTimeout(function() {
-        radioCard.removeClass("transmitting");
-    }, radios[idx].rtc.txLatency);
-    setTimeout(function () {
-        radioCard.removeClass("receiving");
-        radioCard.removeClass("encrypted");
-    }, radios[idx].rtc.rxLatency);
-    radioCard.removeClass("disconnected");
+    // Remove all current status classes
+    radioCard.classList.remove("transmitting");
+    radioCard.classList.remove("receiving");
+    radioCard.classList.remove("encrypted");
+    radioCard.classList.remove("disconnected");
 
     // Update radio state
-    switch (radio.status.State) {
-        case "Transmitting":
-            setTimeout(function() {
-                radioCard.addClass("transmitting");
-                // Check audio meter state
-                checkAudioMeterCallback();
-            }, radios[idx].rtc.txLatency);
+    switch (radio.status.state) {
+        case RadioState.TRANSMITTING:
+            radioCard.classList.add("transmitting");
+            // Check audio meter state
+            checkAudioMeterCallback();
             break;
-        case "Receiving":
-            setTimeout(function() {
-                radioCard.addClass("receiving");
-                // Check audio meter state
-                checkAudioMeterCallback();
-            }, radios[idx].rtc.rxLatency); // used to unmute after latency delay but this makes sure we don't miss anything
+        case RadioState.RECEIVING:
+            radioCard.classList.add("receiving");
+            // Check audio meter state
+            checkAudioMeterCallback();
             break;
-        case "Encrypted":
-            setTimeout(function() {
-                radioCard.addClass("encrypted");
-                checkAudioMeterCallback();
-            }, radios[idx].rtc.rxLatency);
+        case RadioState.ENCRYPTED:
+            radioCard.classList.add("encrypted");
+            checkAudioMeterCallback();
             break;
-        case "Disconnected":
-            radioCard.addClass("disconnected");
+        case RadioState.DISCONNECTED:
+            radioCard.classList.add("disconnected");
             break;
     }
 
     // Update alert icon
-    if (radio.status.Error) {
-        radioCard.find("#icon-alert").addClass("alerting");
+    if (radio.status.errorMsg) {
+        radioCard.querySelector("#icon-alert").classList.add("alerting");
     } else {
-        radioCard.find("#icon-alert").removeClass("alerting");
+        radioCard.querySelector("#icon-alert").classList.remove("alerting");
     }
 
     // Update Scan Icon
-    radioCard.find('.scan-icons').removeClass("scanning");
-    radioCard.find('.scan-icons').removeClass("priority");
-    radioCard.find('.scan-icons').removeClass("priority2");
-    switch (radio.status.ScanState) {
-        case "Priority2":
-            console.debug("Got priority 2 status");
-            radioCard.find('.scan-icons').addClass("priority2");
-            break;
-        case "Priority1":
-            console.debug("Got priority 1 status");
-            radioCard.find('.scan-icons').addClass("priority");
-            break;
-        case "Scanning":
-            console.debug("Got scanning status");
-            radioCard.find('.scan-icons').addClass("scanning");
-            break;
-        default:
-            console.debug("Radio not scanning");
-            break;
+    const radioScanIcons = radioCard.querySelector('.scan-icons');
+    radioScanIcons.classList.remove("scanning");
+    radioScanIcons.classList.remove("priority");
+    radioScanIcons.classList.remove("priority2");
+    if (radio.status.scanState == ScanState.SCANNING) {
+        switch (radio.status.priorityState) {
+            case PriorityState.PRIORITY_2:
+                radioScanIcons.classList.add("priority2")
+                console.debug("Radio scanning, priority 2");
+                break;
+            case PriorityState.PRIORITY_1:
+                radioScanIcons.classList.add("priority")
+                console.debug("Radio scanning, priority 1");
+                break;
+            default:
+                radioScanIcons.classList.add("scanning");
+                console.debug("Radio scanning, no priority");
+                break;
+        }
+        console.debug("Radio scanning")
+    } else {
+        console.debug("Radio not scanning");
     }
 
     // Update secure icon
-    radioCard.find('.secure-icon').removeClass('secure');
-    if (radio.status.Secure)
+    radioCard.querySelector('.secure-icon').classList.remove('secure');
+    if (radio.status.secure)
     {
-        radioCard.find('.secure-icon').addClass('secure');
+        radioCard.querySelector('.secure-icon').classList.add('secure');
     }
-
-    // Update pan from config (which in turn is set when you adjust the pan slider)
-    radioCard.find('.radio-pan').attr('value', radios[idx].pan);
 }
 
 /**
@@ -1039,16 +1057,49 @@ function connectButton(event, obj) {
 }
 
 /***********************************************************************************
+
     Radio Backend Functions
+
 ***********************************************************************************/
+
+/**
+ * Prepare and send an envelope message 
+ * @param idx the radio index in radios[]
+ * @param payload the envelope payload to send
+ */
+function sendEnvelope(idx: number, payload: Partial<Envelope>): void {
+    const radio = radios[idx];
+    const env: Envelope = Envelope.fromPartial({
+        envelopeSeq: radio.envSeq++,
+        timestampUs: nowMicros(),
+        ...payload
+    });
+    radio.connection.send(Envelope.encode(env).finish());
+}
+
+/**
+ * Send a command to the specified radio
+ * @param idx the index of the radio
+ * @param command the command to send
+ * @param softkey an optional softkey
+ * @returns a promise that resolves once the command is sent
+ */
+async function sendRadioCommand(idx: number, command: Proto.RadioCommandType, softkey?: Proto.SoftkeyName): Promise<void> {
+    // Register this command in our request tracker and get the async promise
+    const { requestId, promise } = radios[idx].requests.register(command);
+    // Send the command
+    sendEnvelope(idx, { control: { radioCommand: { command, softkey, requestId } } } );
+    // Return the promise
+    return promise;
+}
 
 /**
  * Start radio PTT
  */
 function startPtt(micActive) {
     if (!pttActive && selectedRadio) {
-        // Only send the TX command and unmute the mic if we have a valid socket
-        if (radios[selectedRadioIdx].wsConn) {
+        // Only send the TX command and unmute the mic if we're fully connected
+        if (radios[selectedRadioIdx].handshakeComplete) {
             console.log("Starting PTT on " + selectedRadio);
             pttActive = true;
 
@@ -1063,13 +1114,7 @@ function startPtt(micActive) {
             // Flag that we want the mic to unmute or not
             txUnmuteMic = micActive;
             // Send the command
-            radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-                {
-                    "radio": {
-                        "command": "startTx"
-                    }
-                }
-            ));
+            sendRadioCommand(selectedRadioIdx, RadioCommandType.START_TX);
         }
     } else if (!pttActive && !selectedRadio) {
         pttActive = true;
@@ -1313,7 +1358,7 @@ function dialNumber(radioId, number, digitTime, delayTime) {
         setTimeout(()=> {
             enableDTMFKeypad(radioId, true);
             clearDTMFDialpad(radioId);
-        }, startTime + ((digitTime + delayTime) * number.length) + rtcConf.txBaseLatency);
+        }, startTime + ((digitTime + delayTime) * number.length));
     }
 }
 
@@ -1472,10 +1517,10 @@ function closePopup(obj = null) {
 function updateClock() {
     if (!config) {return;}
     var timestr = "HH:mm:ss"
-    if (config.ClockFormat == "Local") {
+    if (config.clockFormat == Cfg.ClockFormat.Local) {
         var time = getTimeLocal(timestr);
         $("#clock").html(time + " " + timeZone);
-    } else if (config.ClockFormat == "UTC") {
+    } else if (config.clockFormat == Cfg.ClockFormat.UTC) {
         $("#clock").html(getTimeUTC(timestr + " UTC"));
     } else {
         console.error("Invalid time format!")
@@ -1561,142 +1606,197 @@ function getRadioIndex(id) {
 async function readConfig() {
 
     // Read config via IPC
-    config = await window.electronAPI.readConfig(defaultConfig);
+    const configObj = await window.electronAPI.readConfig();
+
+    // Validate we got something
+    if (configObj) {
+        console.debug("Successfully read config from file");
+    } else {
+        console.error("Failed to read config from file, using defaults");
+    }
+
+    // Check if this is a recent config that has a version
+    if (configObj.hasOwnProperty('version')) {
+        // Ensure the version is current or older
+        if (configObj.version <= config.version) {
+            config = configObj as Cfg.Configuration;
+            console.debug(`Loaded version ${config.version} config from file`);
+            console.debug(config);
+        } else {
+            console.error(`Incompatible config version ${configObj.version} loaded! Using defaults`);
+        }
+
+        // Apply the loaded config
+        applyConfig();
+        
+    // Otherwise, we try to load the legacy config file
+    } else {
+        console.warn("Non-versioned config loaded, attempting to convert to new format");
+        
+        // Populate top-level configs
+        if (configObj.hasOwnProperty('Autoconnect')) {
+            config.autoConnect = configObj.Autoconnect;
+        }
+        if (configObj.hasOwnProperty('ClockFormat')) {
+            config.clockFormat = Cfg.ClockFormat[configObj.ClockFormat as string];
+        }
+
+        // Populate audio config
+        if (configObj.hasOwnProperty('Audio')) {
+            const audioObj = configObj.Audio;
+            if (audioObj.hasOwnProperty('ButtonSounds')) {
+                config.audio.buttonSounds = audioObj.ButtonSounds;
+            }
+            if (audioObj.hasOwnProperty('UnselectedVol')) {
+                config.audio.unselectedVolume = audioObj.UnselectedVol;
+            }
+            if (audioObj.hasOwnProperty('ToneVolume')) {
+                config.audio.toneVolume = audioObj.ToneVolume;
+            }
+            if (audioObj.hasOwnProperty('UseAGC')) {
+                config.audio.useAGC = audioObj.UseAGC;
+            }
+        }
+
+        // Populate radios from config
+        if (configObj.hasOwnProperty('Radios')) {
+            configObj.Radios.forEach(radio => {
+                config.radios.push({
+                    address: radio.address,
+                    port: radio.port,
+                    name: radio.name || "",
+                    pan: radio.pan,
+                    color: Cfg.parseCardColor(radio.color),
+                    midiPttCC: radio.midiPttCC || null,
+                    midiVolumeCC: radio.midiVolumeCC || null
+                });
+            });
+            console.debug("Radio list initialized");
+        }
+
+        // Populate extension config
+        if (configObj.hasOwnProperty('Extension')) {
+            const extObj = configObj.Extension;
+            if (extObj.hasOwnProperty('address')) {
+                config.extension.address = extObj.address;
+            }
+            if (extObj.hasOwnProperty('port')) {
+                config.extension.port = extObj.port;
+            }
+        }
+
+        // Populate Peripheral Config
+        if (configObj.hasOwnProperty('Peripherals')) {
+            const periphObj = configObj.Peripherals;
+            if (periphObj.hasOwnProperty('serialPort')) {
+                config.peripherals.serial.port = periphObj.serialPort;
+            }
+            if (periphObj.hasOwnProperty('useCtsForPtt')) {
+                if (periphObj.useCtsForPtt) {
+                    config.peripherals.serial.pttLine = Cfg.SerialControlInput.CTS;
+                    config.peripherals.serial.enabled = true;
+                }
+            }
+        }
+
+        // Populate Midi config
+        if (configObj.hasOwnProperty('Midi')) {
+            const midiObj = configObj.Midi;
+            if (midiObj.hasOwnProperty("port")) {
+                config.peripherals.midi.port = midiObj.port;
+            }
+            if (midiObj.hasOwnProperty("enabled")) {
+                config.peripherals.midi.enabled = midiObj.enabled;
+            }
+            if (midiObj.hasOwnProperty("ccs")) {
+                if (midiObj.ccs.hasOwnProperty('masterPtt')) {
+                    config.peripherals.midi.masterPtt = {
+                        channel: midiObj.ccs.masterPtt.chan,
+                        number: midiObj.ccs.masterPtt.num
+                    }
+                }
+                if (midiObj.ccs.hasOwnProperty('masterVol')) {
+                    config.peripherals.midi.masterVol = {
+                        channel: midiObj.ccs.masterVol.chan,
+                        number: midiObj.ccs.masterVol.num
+                    }
+                }
+            }
+        }
+
+        console.warn("Parsed old config format");
+        console.debug(config);
+
+        // Apply the loaded config
+        applyConfig();
+
+        // Warn the user that they need to save the config to apply the conversion
+        alert("Old config format loaded, please save the current configuration to update your config file");
+    }
+}
+
+function applyConfig() {
+
+    // Populate the config UI checkboxes
+    $("#daemon-autoconnect").prop('checked', config.autoConnect);
+    $("#client-timeformat").val(config.clockFormat);
+    $("#client-rxagc").prop("checked", config.audio.useAGC);
+    $(`#unselected-vol option[value=${config.audio.unselectedVolume}]`).attr('selected', 'selected');
+    $(`#tone-vol option[value=${config.audio.toneVolume}]`).attr('selected', 'selected');
+    $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVolume));
+    $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVolume));
+    $('#sound-click').prop("volume", dbToGain(config.audio.toneVolume));
+    $("#extension-address").val(config.extension.address);
+    $("#extension-port").val(config.extension.port);
+
+    // Try to open midi port if enabled
+    if (config.peripherals.midi.enabled) {
+        window.electronAPI.openMidiPort(config.peripherals.midi.port);
+    }
     
-    console.debug("Successfully read config");
-    console.debug(config);
-
-    let configUpdated = false;
-
-    // Init radios if not present
-    if (!config.hasOwnProperty('Radios'))
-    {
-        config.Radios = defaultConfig.Radios;
-        configUpdated = true;
-        console.warn("Radio list initialized");
-    }
-
-    // Populate peripheral config if it's missing
-    if (!config.hasOwnProperty('Peripherals'))
-    {
-        config.Peripherals = defaultConfig.Peripherals;
-        configUpdated = true;
-        console.warn("Peripherals config was missing, added default & saved");
-    }
-
-    // Populate default midi config if it's missing
-    if (!config.hasOwnProperty('Midi'))
-    {
-        config.Midi = defaultConfig.Midi;
-        configUpdated = true;
-        console.warn("MIDI config was missing, added default & saved");
-    }
-
-    // Populate default audio config if it's missing
-    if (!config.hasOwnProperty('Audio'))
-    {
-        config.Audio = defaultConfig.Audio;
-        configUpdated = true;
-        console.warn("Audio config was missing, added default & saved");
-    }
-
-    // Populate default extension config if it's missing
-    if (!config.hasOwnProperty('Extension'))
-    {
-        config.Extension = defaultConfig.Extension;
-        configUpdated = true;
-        console.warn("Extension config was missing, added default & saved");
-    }
-
-    if (configUpdated) { saveConfig(); }
-
-    // Try to open midi port
-    window.electronAPI.openMidiPort(config.Midi.port);
-
-    // Autoconnect on launch
-    $("#daemon-autoconnect").prop('checked', config.Autoconnect);
-    // Clock Format
-    $("#client-timeformat").val(config.ClockFormat);
-    // Audio stuff
-    $("#client-rxagc").prop("checked", config.Audio.UseAGC);
-    // Unselected Volume
-    $(`#unselected-vol option[value=${config.Audio.UnselectedVol}]`).attr('selected', 'selected');
-    // Tone volume elements
-    $(`#tone-vol option[value=${config.Audio.ToneVolume}]`).attr('selected', 'selected');
-    $('#sound-ptt').prop("volume", dbToGain(config.Audio.ToneVolume));
-    $('#sound-ptt-end').prop("volume", dbToGain(config.Audio.ToneVolume));
-    $('#sound-click').prop("volume", dbToGain(config.Audio.ToneVolume));
-    // Update extension popup values
-    $("#extension-address").val(config.Extension.address);
-    $("#extension-port").val(config.Extension.port);
-
-    // Get radios
-    radios = config.Radios;
-
-    // Create an empty list if we didn't load any
-    if (radios == null)
-    {
-        radios = []
-    }
-
-    // Update initial status for each radio
-    radios = radios.map(v => ({
-        ...v,
-        status: {
-            State: 'Disconnected'
-        },
-        rtc: {},
-        wsConn: null,
-        audioSrc: null,
-    }));
-
-    // Validate Radio Config
-    radios.forEach((radio, idx) => {
-        // Validate Color
-        if (!validColors.includes(radios[idx].color)) {
-            console.warn(`Color ${radios[idx].color} not valid, defaulting to blue`);
-            radios[idx].color = "blue";
-        }
-        // Default pan
-        if (!Object.hasOwn(radios[idx], 'pan')) {
-            console.debug(`Radio ${idx} has no pan property, defaulting to 0`);
-            radios[idx].pan = 0;
-        }
-        // Default mute (not muted)
-        radios[idx].mute = false;
+    // Initialize master radio array
+    config.radios.forEach( (radio, idx) => {
+        radios.push({
+            cfg: radio,
+            handshakeComplete: false,
+            envSeq: 0,
+            elements: {
+                idBase: `radio${idx}`
+            }
+        });
     });
 
     // Populate radio cards
     populateRadios();
 
     // If autoconnect is specified, autoconnect!
-    if (config.Autoconnect) {
+    if (config.autoConnect) {
         connectAllButton();
     }
 }
 
 async function saveConfig() {
 
-    // Client config values
-    const clockFormat = $("#client-timeformat").val();
-    const useAgc = $("#client-rxagc").is(":checked");
-    const unselectedVol = $("#unselected-vol").val();
-    const toneVol = $("#tone-vol").val();
-    config.ClockFormat = clockFormat;
-    config.Audio.UseAGC = useAgc;
-    config.Audio.UnselectedVol = parseFloat(unselectedVol);
-    config.Audio.ToneVolume = parseFloat(toneVol);
+    // Store client config values into our config object
+    const clockFormat = $("#client-timeformat").val() as string;
+    const useAgc = $("#client-rxagc").is(":checked") as boolean;
+    const unselectedVol = $("#unselected-vol").val() as number;
+    const toneVol = $("#tone-vol").val() as number;
+    config.clockFormat = Cfg.ClockFormat[clockFormat];
+    config.audio.useAGC = useAgc;
+    config.audio.unselectedVolume = unselectedVol;
+    config.audio.toneVolume = toneVol;
 
-    // Extension config values
-    const extensionAddress = $("#extension-address").val();
-    const extensionPort = $("#extension-port").val();
-    config.Extension.address = extensionAddress;
-    config.Extension.port = parseInt(extensionPort);
+    // Store extension config values
+    const extensionAddress = $("#extension-address").val() as string;
+    const extensionPort = $("#extension-port").val() as number;
+    config.extension.address = extensionAddress;
+    config.extension.port = extensionPort;
 
-    // Update tone audio
-    $('#sound-ptt').prop("volume", dbToGain(config.Audio.ToneVolume));
-    $('#sound-ptt-end').prop("volume", dbToGain(config.Audio.ToneVolume));
-    $('#sound-click').prop("volume", dbToGain(config.Audio.ToneVolume));
+    // Update tone audio gains
+    $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVolume));
+    $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVolume));
+    $('#sound-click').prop("volume", dbToGain(config.audio.toneVolume));
 
     // Update radio audio
     if (audio.context) {
@@ -1718,557 +1818,51 @@ function newRadioClear() {
 }
 
 /***********************************************************************************
-    WebRTC Functions
-
-    These are adapted/borrowed from:
-    https://github.com/webrtc/samples/tree/gh-pages/src/content/peerconnection/audio
-***********************************************************************************/
-
-function dummyTrack() {
-    osc = audio.context.createOscillator();
-    dst = osc.connect(audio.context.createMediaStreamDestination());
-    osc.start();
-    return Object.assign(dst.stream.getAudioTracks()[0], {enabled: false});
-}
-
-/**
- * Initiate WebRTC connection with server
- * @param {int} idx index of radio in radios[]
- * @returns {boolean} true if connection starts successfully
- */
-function startWebRtc(idx) {
-    // Wait for audio to be running first
-    if (!audio.running) {
-        console.warn(`[${radios[idx].name}]: Waiting for mic services to be running`);
-        setTimeout(startWebRtc, 100, idx);
-        return;
-    }
-
-    console.log(`[${radios[idx].name}]: Starting WebRTC session`);
-    // Restart mic track if needed
-    if (!audio.inputDest.stream.active) {
-        console.warn(`[${radios[idx].name}]: Mic stream was inactive, restarting`);
-        restartMicTrack();
-    }
-    // Create peer
-    radios[idx].rtc.peer = createPeerConnection(idx);
-    if (radios[idx].rtc.peer) {
-        console.log(`[${radios[idx].name}]: Created peer connection`);
-    } else {
-        console.error(`[${radios[idx].name}]: Failed to create peer connection`);
-        return false
-    }
-    // Connect track
-    console.log(`[${radios[idx].name}]: Adding mic track to WebRTC peer connection`);
-    radios[idx].rtc.peer.addTrack(audio.inputTrack);
-}
-
-/**
- * Stop RTC session for radio at index
- * @param {int} idx index of radio in radios[]
- * @returns 
- */
-function stopWebRtc(idx) {
-    console.debug(`[${radios[idx].name}]: Stopping WebRTC`);
-    
-    // Return if there was never a peer connection to begin with
-    if (!radios[idx].rtc.hasOwnProperty('peer')) {
-        console.debug(`[${radios[idx].name}]: No peer connection created`);
-        return
-    }
-
-    // Return if peer is null
-    if (radios[idx].rtc.peer === null) {
-        console.debug(`[${radios[idx].name}]: Peer already closed & dispoed`);
-        return;
-    }
-
-    // Return if stuff is already closed
-    if (radios[idx].rtc.peer.connectionState === "closed") {
-        console.debug(`[${radios[idx].name}]: RTC peer connection already closed`);
-        return
-    }
-
-    // Close any local audio
-    /*radios[idx].rtc.peer.getSenders().forEach(function(sender, idx) {
-        console.debug(`Stopping RTC sender ${idx}`);
-        sender.track.stop();
-    });*/
-
-    // Close any active peer transceivers
-    if (radios[idx].rtc.peer.getTransceivers) {
-        radios[idx].rtc.peer.getTransceivers().forEach(function(tx, txidx) {
-            console.debug(`[${radios[idx].name}]: Stopping WebRTC peer txcvr ${txidx}`);
-            if (tx.stop) {
-                tx.stop();
-            }
-        });
-    }
-
-    // Close the peer connection
-    console.log(`[${radios[idx].name}]: Closing WebRTC peer connection`);
-    radios[idx].rtc.peer.close();
-    radios[idx].rtc.peer = null;
-
-    // Close the WebRTC websocket connection
-    radios[idx].wsRtc.close();
-
-    // Reset audio routing
-    radios[idx].audioSrc = null;
-}
-
-/**
- * Create a new WebRTC peer connection
- * 
- * We follow Mozilla's perfect WebRTC negotiation pattern:
- * https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
- * 
- * @param {int} idx the index of the radio in radios[]
- * @returns {RTCPeerConnection} the created peer connection object
- */
-function createPeerConnection(idx) {
-
-    // Create config object
-    var rtcConfig = {
-        sdpSemantics: 'unified-plan',
-        iceServers: [],
-    };
-
-    // Create peer
-    var peer = new RTCPeerConnection(rtcConfig);
-
-    // Flags for WebRTC connection states
-    radios[idx].rtc.makingOffer = false;
-    radios[idx].rtc.ignoreOffer = false;
-    radios[idx].rtc.isSettingRemoteAnswerPending = false;
-
-    // List for holding pending ICE candidates
-    radios[idx].rtc.pendingCandidates = [];
-
-    // Debug print for ICE gathering state
-    peer.onicegatheringstatechange = () => {
-        console.debug(`[${radios[idx].name}]: new WebRTC peer iceGatheringState: ${peer.iceGatheringState}`);
-    }
-
-    // Handler for ICE connection state change
-    peer.oniceconnectionstatechange = () => {
-        console.debug(`[${radios[idx].name}]: new WebRTC peer iceConnectionState: ${peer.iceConnectionState}`);
-        if (peer.iceConnectionState == "connected") {
-            // We're almost there
-            $(`#radio${idx} .icon-connect`).parent().prop('title','WebRTC ICE connected, waiting for final connection');
-        } else if (peer.iceConnectionState == "failed") {
-            // Disconnect the client if we had an error (for now, maybe auto-reconnect later?)
-            console.error(`[${radios[idx].name}]: WebRTC ICE connection failed`);
-            if (radios[idx].status.State != 'Disconnected') {
-                disconnectRadio(idx);
-            }
-            //radios[idx].wsConn.close();
-        } else if (peer.iceConnectionState == "disconnected") {
-            console.error(`[${radios[idx].name}]: WebRTC ICE connection disconnected`);
-            if (radios[idx].status.State != 'Disconnected') {
-                disconnectRadio(idx);
-            }
-        }
-    };
-
-    // Handler for any signaling state changes
-    peer.onsignalingstatechange = () => {
-        console.debug(`[${radios[idx].name}]: new WebRTC peer signallingState: ${peer.signalingState}`);
-    };
-
-    // Handler for any overall connection state changes
-    peer.onconnectionstatechange = () => {
-        console.debug(`[${radios[idx].name}]: new WebRTC peer connectionState: ${peer.connectionState}`);
-        if (peer.connectionState === "connecting") {
-            $(`#radio${idx} .icon-connect`).removeClass('connected');
-            $(`#radio${idx} .icon-connect`).removeClass('disconnected');
-            $(`#radio${idx} .icon-connect`).addClass('connecting');
-            $(`#radio${idx} .icon-connect`).parent().prop('title','WebRTC Connecting');
-        }
-        else if (peer.connectionState === "connected") {
-            // update UI
-            radioConnected(idx);
-            // Create array for averaging roundTripTime
-            radios[idx].rtc.rttArray = new Array(rtcConf.rttSize).fill(0);
-            // Start monitoring roundTripTime
-            checkRoundTripTime(idx);
-        }
-        else if (peer.connectionState === "disconnected") {
-            $(`#radio${idx} .icon-connect`).removeClass('connecting');
-            $(`#radio${idx} .icon-connect`).removeClass('connected');
-            $(`#radio${idx} .icon-connect`).addClass('disconnected');
-            $(`#radio${idx} .icon-connect`).parent().prop('title','WebRTC Disconnected');
-            if (radios[idx].status.State != 'Disconnected') {
-                disconnectRadio(idx);
-            }
-        }
-        else if (peer.connectionState === "failed") {
-            $(`#radio${idx} .icon-connect`).removeClass('connecting');
-            $(`#radio${idx} .icon-connect`).removeClass('connected');
-            $(`#radio${idx} .icon-connect`).addClass('disconnected');
-            $(`#radio${idx} .icon-connect`).parent().prop('title','WebRTC Failed');
-            if (radios[idx].status.State != 'Disconnected') {
-                disconnectRadio(idx);
-            }
-        }
-    };
-
-    // Setup the handler for any time connection negotiation is needed
-    peer.onnegotiationneeded = async () => {
-        // Log print
-        console.warn(`[${radios[idx].name}]: WebRTC ICE negotiation needed`);
-        // Setup the offer
-        try {
-            radios[idx].rtc.makingOffer = true;
-            await peer.setLocalDescription();
-            radios[idx].wsRtc.send(JSON.stringify(peer.localDescription));
-        }
-        catch (err) {
-            console.error(`[${radios[idx].name}]: Got exception while sending WebRTC SDP offer:`);
-            console.error(err);
-        }
-        finally {
-            radios[idx].rtc.makingOffer = false;
-        }
-    }
-
-    // Bind the ICE candidate event so we send a new candidate to the daemon whenever one is available
-    peer.onicecandidate = ({ candidate }) => {
-        if (event.candidate) {
-            radios[idx].wsRtc.send(JSON.stringify(candidate));
-        } else {
-            radios[idx].wsRtc.send(JSON.stringify({
-                candidate: null,
-                sdpMid: null,
-                sdpMLineIndex: null
-            }));
-        }
-    }
-
-    // Print initial states
-    console.log(`[${radios[idx].name}]: initial WebRTC peer iceGatheringState: ${peer.iceGatheringState}`);
-    console.log(`[${radios[idx].name}]: initial WebRTC peer iceConnectionState: ${peer.iceConnectionState}`);
-    console.log(`[${radios[idx].name}]: initial WebRTC peer signallingState: ${peer.signalingState}`);
-
-    // Handle a new audio track from the WebRTC connection
-    peer.ontrack = ({ track, streams }) => {
-        if (track.kind == 'audio') {
-            console.log(`[${radios[idx].name}]: Got new audio track`);
-
-            // Create a new MediaStream from the track we want
-            var newStream = new MediaStream([ track ]);
-
-            // Create a dummy stream element (chrome bug means the stream won't play if you don't do this)
-            var newDummy = new Audio();
-            newDummy.muted = true;
-            newDummy.srcObject = newStream;
-            newDummy.play();
-            audio.dummyOutputs.push(newDummy);
-            console.debug(`[${radios[idx].name}]: Started dummy audio element`);
-
-            // If we already created the audiosrc, don't do it again. Just reconnect the new audio
-            if (radios[idx].audioSrc) {
-                console.log(`[${radios[idx].name}]: Reconnecting audio nodes to audio source`);
-                // Create the new audio source node
-                var newAudioNode = audio.context.createMediaStreamSource(newStream);
-                radios[idx].audioSrc.audioNode = newAudioNode;
-                // Reconnect it
-                radios[idx].audioSrc.audioNode.connect(radios[idx].audioSrc.filterNode);
-            // Set up the new audio source
-            } else {
-                console.log(`[${radios[idx].name}]: Creating new audio source`);
-                // Create audio source from the track and put it in an object with a local gain node
-                var newSource = {
-                    audioNode: audio.context.createMediaStreamSource(newStream),
-                    filterNode: audio.context.createBiquadFilter(),
-                    agcNode: audio.context.createDynamicsCompressor(),
-                    makeupNode: audio.context.createGain(),
-                    gainNode: audio.context.createGain(),
-                    muteNode: audio.context.createGain(),
-                    panNode: audio.context.createStereoPanner(),
-                    analyzerNode: audio.context.createAnalyser(),
-                    leftSpkr: true,
-                    rightSpkr: true
-                }
-                // Create this afterwards because we need the value from the above node
-                newSource.analyzerData = new Float32Array(newSource.analyzerNode.fftSize);
-
-                // Setup lowpass filter
-                newSource.filterNode.type = 'lowpass'
-                newSource.filterNode.frequency.setValueAtTime(audio.filterCutoff, audio.context.currentTime);
-
-                // Setup AGC node
-                newSource.agcNode.knee.setValueAtTime(audio.agcKnee, audio.context.currentTime);
-                newSource.agcNode.ratio.setValueAtTime(audio.agcRatio, audio.context.currentTime);
-                newSource.agcNode.attack.setValueAtTime(audio.agcAttack, audio.context.currentTime);
-                newSource.agcNode.release.setValueAtTime(audio.agcRelease, audio.context.currentTime);
-
-                // Set current pan setting
-                var newPan = $(`#radio${idx}`).find('.radio-pan').val();
-                newSource.panNode.pan.setValueAtTime(newPan, audio.context.currentTime);
-
-                // Update radio connections
-                newSource.audioNode.connect(newSource.filterNode);
-                newSource.filterNode.connect(newSource.agcNode);
-                newSource.agcNode.connect(newSource.makeupNode);
-                newSource.makeupNode.connect(newSource.muteNode);
-                newSource.makeupNode.connect(newSource.analyzerNode);
-                newSource.muteNode.connect(newSource.gainNode);
-                newSource.gainNode.connect(newSource.panNode);
-                newSource.panNode.connect(audio.outputGain);
-
-                // Add to list of radio streams
-                radios[idx].audioSrc = newSource;
-            }
-
-            // Update the radio audio
-            updateRadioAudio();
-        }
-    };
-
-    // Return the new peer object
-    return peer;
-}
-
-/**
- * Handler for WebRTC websocket messages
- * @param {*} event 
- * @param {*} idx 
- */
-async function handleRtcWsMsg(event, idx)
-{
-    console.debug(`[${radios[idx].name}]: Got WebRTC WS message: ${event.data}`);
-    try {
-        const msg = JSON.parse(event.data);
-
-        // Handler for SDPs
-        if (msg.type === "offer" || msg.type === "answer") {
-            const description = new RTCSessionDescription({
-                type: msg.type,
-                sdp: msg.sdp
-            });
-            
-            // Determine our current state
-            const readyForOffer = !radios[idx].rtc.makingOffer && (radios[idx].rtc.peer.signalingState === "stable" || radios[idx].rtc.isSettingRemoteAnswerPending);
-            const offerCollision = description.type === "offer" && !readyForOffer;
-
-            // Ignore a new offer if we're not ready for one
-            radios[idx].rtc.ignoreOffer = !polite && offerCollision;
-            if (radios[idx].rtc.ignoreOffer) {
-                console.warn(`[${radios[idx].name}]: Ignoring SDP offer, connection not ready!`);
-                return;
-            }
-
-            // If we got an answer, set the remote description
-            radios[idx].rtc.isSettingRemoteAnswerPending = description.type === "answer";
-            console.debug(`[${radios[idx].name}]: Setting RTC peer remote description`);
-            await radios[idx].rtc.peer.setRemoteDescription(description);
-            radios[idx].rtc.isSettingRemoteAnswerPending = false;
-
-            // Apply any pending ICE candidates now
-            for (const c of radios[idx].rtc.pendingCandidates) {
-                try {
-                    await radios[idx].rtc.peer.addIceCandidate(c);
-                } catch (err) {
-                    console.error(`[${radios[idx].name}]: caught exception while adding pending ICE candidate to WebRTC peer connection`);
-                    console.error(c);
-                    console.error(err);
-                }
-            }
-            radios[idx].rtc.pendingCandidates = [];
-
-            // Handle the offer
-            if (description.type === "offer") {
-                // Create an answer
-                const answer = await radios[idx].rtc.peer.createAnswer();
-                await radios[idx].rtc.peer.setLocalDescription(answer);
-                console.debug(`[${radios[idx].name}]: Got SDP offer, sending local description`);
-                radios[idx].wsRtc.send(JSON.stringify(radios[idx].rtc.peer.localDescription));
-            }
-        }
-        // Handler for ICE candidates
-        else if (msg.candidate) {
-            const ice = {
-                candidate: msg.candidate,
-                sdpMid: msg.sdpMid,
-                sdpMLineIndex: msg.sdpMLineIndex
-            };
-
-            // Buffer the candidate if we don't have a remote description yet
-            if (!Object.hasOwn(radios[idx].rtc.peer, 'remoteDescription')) {
-                console.debug(`[${radios[idx].name}]: buffering ICE candidate ${msg.candidate} until remote description is set`);
-                radios[idx].rtc.pendingCandidates.push(ice);
-                return;
-            }
-            
-            // Otherwise, apply the candidate right away
-            try {
-                await radios[idx].rtc.peer.addIceCandidate(ice);
-            } catch (err) {
-                if (!radios[idx].rtc.ignoreOffer) {
-                    throw err;
-                }
-            }
-        }
-    } catch (err) {
-        console.error(`[${radios[idx].name}]: caught exception while handling WebRTC socket message!`);
-        console.error(err);
-    }
-}
-
-function handleRtcWsError(event, idx)
-{
-    console.error(`Radio ${idx} WebRTC WS got error!`);
-    console.error(event.data);
-}
-
-function handleRtcWsClose(event, idx)
-{
-    console.warn(`Radio ${idx} WebRTC websocket closed!`);
-    disconnectRadio(idx);
-}
-
-/**
- * Take the SDP response from the server and configure the peer
- * @param {int} idx index of radio in radios[]
- * @param {string} answerType SDP type
- * @param {string} answerSdp SDP
- */
-function gotRtcResponse(idx, answerType, answerSdp) {
-    console.log("Got WebRTC response from server");
-    var answer = {
-        type: answerType,
-        sdp: answerSdp
-    }
-    radios[idx].rtc.peer.setRemoteDescription(answer);
-}
-
-/**
- * Find an SDP based on the specified codec
- * 
- * This was stolen directly from the aiortc example
- * 
- * @param {string} kind 'audio' or 'video'
- * @param {string} codec specific codec descriptor
- * @param {*} realSdp existing SDP
- * @param {int} bitrate codec bitrate to use
- * @returns new SDP using specified codec
- */
-function sdpFilterCodec(kind, codec, bitrate, realSdp) {
-    var allowed = []
-    var rtxRegex = new RegExp('a=fmtp:(\\d+) apt=(\\d+)\r$');
-    var codecRegex = new RegExp('a=rtpmap:([0-9]+) ' + escapeRegExp(codec))
-    var videoRegex = new RegExp('(m=' + kind + ' .*?)( ([0-9]+))*\\s*$')
-    
-    console.debug("Starting with SDP:\n" + realSdp);
-
-    var lines = realSdp.split('\n');
-
-    var isKind = false;
-    for (var i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('m=' + kind + ' ')) {
-            isKind = true;
-        } else if (lines[i].startsWith('m=')) {
-            isKind = false;
-        }
-
-        if (isKind) {
-            var match = lines[i].match(codecRegex);
-            if (match) {
-                allowed.push(parseInt(match[1]));
-            }
-
-            match = lines[i].match(rtxRegex);
-            if (match && allowed.includes(parseInt(match[2]))) {
-                allowed.push(parseInt(match[1]));
-            }
-        }
-    }
-
-    var skipRegex = 'a=(fmtp|rtcp-fb|rtpmap):([0-9]+)';
-    var sdp = '';
-
-    isKind = false;
-    for (var i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('m=' + kind + ' ')) {
-            isKind = true;
-        } else if (lines[i].startsWith('m=')) {
-            isKind = false;
-        }
-
-        if (isKind) {
-            var skipMatch = lines[i].match(skipRegex);
-            if (skipMatch && !allowed.includes(parseInt(skipMatch[2]))) {
-                continue;
-            } else if (lines[i].match(videoRegex)) {
-                sdp += lines[i].replace(videoRegex, '$1 ' + allowed.join(' ')) + '\n';
-            } else {
-                sdp += lines[i] + '\n';
-            }
-        } else {
-            sdp += lines[i] + '\n';
-        }
-    }
-
-    // Get fmtp line for replacement
-    var rx = /a=fmtp:.*/g;
-    var fmtpLine = rx.exec(sdp);
-    // Append bitrate info to SDP
-    if (bitrate != null)
-    {
-        sdp = sdp.replace(fmtpLine,`${fmtpLine};maxplaybackrate=${bitrate};sprop-maxcapturerate=${bitrate};stereo=0`);
-    }
-    // Replace FEC with CBR if we want to
-    if (rtcConf.cbr) {
-        console.debug("CBR enabled, replacing FEC line in SDP");
-        sdp = sdp.replace('useinbandfec=1','cbr=1');
-    }
-
-    return sdp;
-}
-
-/**
- * Check the roundtrip time for the current radio and handle accordingly
- * @param {int} idx radio index
- */
-function checkRoundTripTime(idx) {
-    if (radios[idx].rtc.peer != undefined && radios[idx].rtc.peer.iceConnectionState === 'connected') {
-        // Get the ice transport and the stats
-        radios[idx].rtc.peer.getStats(null).then((stats) => {
-            // Iterate over each stats looking for the candidate pair stats
-            stats.forEach((report) => {
-                if (report && report.type === "candidate-pair" && report.state === "succeeded") {
-                    // Shift the rtt array with the new rtt value
-                    radios[idx].rtc.rttArray.shift();
-                    radios[idx].rtc.rttArray.push(report.currentRoundTripTime);
-                    // Get the current average of all 10
-                    radios[idx].rtc.rttAvg = (radios[idx].rtc.rttArray.reduce((a ,b) => a + b) / rtcConf.rttSize).toFixed(3);
-                    // Update the radio latency parameters
-                    radios[idx].rtc.txLatency = rtcConf.txBaseLatency + (radios[idx].rtc.rttAvg * 1000);
-                    radios[idx].rtc.rxLatency = rtcConf.rxBaseLatency + (radios[idx].rtc.rttAvg * 1000);
-                    // If we're above the threshold, throw a disconnect warning
-                    if (radios[idx].rtc.rttAvg > rtcConf.rttLimit) {
-                        console.error(`[${radios[idx].name}]: WebRTC round trip time (${radios[idx].rtc.rttAvg}) exceeded limit (${rtcConf.rttLimit}), restarting ICE`);
-                        disconnectRadio(idx);
-                        setTimeout(() => {
-                            connectRadio(idx);
-                        }, 500);
-                    }
-                }
-            })
-            setTimeout(function() {
-                checkRoundTripTime(idx)
-            }, rtcConf.statCheckTime);
-        })
-    } else {
-        console.warn(`[${radios[idx].name}]: Peer connection closed, stopping RTT monitoring`);
-        return;
-    }
-}
-
-/***********************************************************************************
     Audio Handling Functions
 ***********************************************************************************/
+
+function createAudioSource(idx: number): void {
+    console.log(`[${radios[idx].name}]: Creating new audio source`);
+    // Create audio source from the track and put it in an object with a local gain node
+    var newSource = {
+        filterNode: audio.context.createBiquadFilter(),
+        agcNode: audio.context.createDynamicsCompressor(),
+        makeupNode: audio.context.createGain(),
+        gainNode: audio.context.createGain(),
+        muteNode: audio.context.createGain(),
+        panNode: audio.context.createStereoPanner(),
+        analyzerNode: audio.context.createAnalyser(),
+        leftSpkr: true,
+        rightSpkr: true,
+        analyzerData: new Float32Array(newSource.analyzerNode.fftSize)
+    }
+
+    // Setup lowpass filter
+    newSource.filterNode.type = 'lowpass'
+    newSource.filterNode.frequency.setValueAtTime(audio.filterCutoff, audio.context.currentTime);
+
+    // Setup AGC node
+    newSource.agcNode.knee.setValueAtTime(audio.agcKnee, audio.context.currentTime);
+    newSource.agcNode.ratio.setValueAtTime(audio.agcRatio, audio.context.currentTime);
+    newSource.agcNode.attack.setValueAtTime(audio.agcAttack, audio.context.currentTime);
+    newSource.agcNode.release.setValueAtTime(audio.agcRelease, audio.context.currentTime);
+
+    // Set current pan setting
+    var newPan = $(`#radio${idx}`).find('.radio-pan').val();
+    newSource.panNode.pan.setValueAtTime(newPan, audio.context.currentTime);
+
+    // Connect all the nodes
+    newSource.filterNode.connect(newSource.agcNode);
+    newSource.agcNode.connect(newSource.makeupNode);
+    newSource.makeupNode.connect(newSource.muteNode);
+    newSource.makeupNode.connect(newSource.analyzerNode);
+    newSource.muteNode.connect(newSource.gainNode);
+    newSource.gainNode.connect(newSource.panNode);
+    newSource.panNode.connect(audio.outputGain);
+
+    // Add to list of radio streams
+    radios[idx].audioSrc = newSource;
+}
 
 /**
  * Queries the specified type of media device
@@ -2348,23 +1942,14 @@ function startAudioDevices() {
             // Create a mic gain for muting the mic when we're not talking
             audio.inputMicGain = audio.context.createGain();
             muteMic();
-            // Create a MediaStreamDestination for sending to the WebRTC peer
-            audio.inputDest = audio.context.createMediaStreamDestination();
             // Connect input mic stream to gain, and gain to destination and analyzer
             audio.inputStream.connect(audio.inputMicGain);
-            audio.inputMicGain.connect(audio.inputDest);
             audio.inputMicGain.connect(audio.inputAnalyzer);
             // Setup DTMF generator once we have our input audio nodes
             audio.dtmf = new DualTone(audio.context, 100, 200);
             // Setup Alert Tone generator
             audio.tones = new AlertTone(audio.context, "alt", 1500, 800);
-            // Add the first available mic track to the peer connection, this will call the onnegotiationneeded handler which will send a new SDP offer
-            audio.inputTrack = audio.inputDest.stream.getTracks()[0];
-            // Add a listener to restart the track when it ends (happens sometimes)
-            audio.inputTrack.addEventListener("ended", (event) => {
-                console.warn(`Mic input track ended!`);
-                restartMicTrack();
-            });
+            // We are now running
             audio.running = true;
         },
         // Report a failure to capture mic
@@ -2402,38 +1987,6 @@ function restartMicStream() {
         // Restart the mic track to reconnect everything
         restartMicTrack();
     });
-}
-
-function restartMicTrack() {
-    console.warn(`Restarting mic input track...`);
-    // Recreate the MediaStreamDestination for sending to the WebRTC peer
-    audio.inputDest = audio.context.createMediaStreamDestination();
-    // Reconnect input mic stream to gain, and gain to destination and analyzer
-    audio.inputStream.connect(audio.inputMicGain);
-    audio.inputMicGain.connect(audio.inputDest);
-    audio.inputMicGain.connect(audio.inputAnalyzer);
-    // Add the first available mic track to the peer connection, this will call the onnegotiationneeded handler which will send a new SDP offer
-    audio.inputTrack = audio.inputDest.stream.getTracks()[0];
-    // Add a listener to restart the track when it ends (happens sometimes)
-    audio.inputTrack.addEventListener("ended", (event) => {
-        console.warn(`Mic input track ended!`);
-        restartMicTrack();
-    });
-    console.info("Done!");
-}
-
-function reconnectRadioMicTrack(idx) {
-    console.debug(`[${radios[idx].name}]: Reconnecting mic audio track`);
-    const sender = radios[idx].rtc.peer.getSenders()[0];
-    if (sender && radios[idx].rtc.peer.connectionState == 'connected') {
-        // If the sender still exists, just replace the track
-        console.debug(`[${radios[idx].name}]: Sender still alive, replacing track`);
-        sender.replaceTrack(audio.inputTrack);
-    } else {
-        // Add a new track if the sender died
-        console.warn(`[${radios[idx].name}]: Sender dead, adding new mic track`);
-        radios[idx].rtc.peer.addTrack(audio.inputTrack);
-    }
 }
 
 /**
@@ -2874,7 +2427,6 @@ AlertTone.prototype.setup = function() {
     this.gain.connect(this.filter);
     this.filter.connect(audio.outputGain);
     this.filter.connect(audio.inputAnalyzer);
-    this.filter.connect(audio.inputDest);
 }
 
 AlertTone.prototype.timerCallback = function() {
@@ -2989,7 +2541,6 @@ DualTone.prototype.setup = function() {
     // Connect to both local speakers (for sidetone) and the mic destination/analyzer
     this.filter.connect(audio.outputGain);
     this.filter.connect(audio.inputAnalyzer);
-    this.filter.connect(audio.inputDest);
 }
 
 DualTone.prototype.start = function() {
@@ -3037,134 +2588,91 @@ function sendDigit(digit, duration, delay) {
  * Create websocket connection to radio and wait for it to connect
  * @param {int} idx index of radio in radios[]
  */
-function connectRadio(idx) {
+function connectRadio(idx: number): void {
     // Log
     console.info(`Connecting to radio ${radios[idx].name}`);
+    
     // Update radio connection icon
-    $(`#radio${idx} .icon-connect`).removeClass('disconnected');
-    $(`#radio${idx} .icon-connect`).addClass('connecting');
+    $(`#radio${idx} .icon-connect`).removeClass('disconnected').addClass('connecting');
     $(`#radio${idx} .icon-connect`).parent().prop('title','Connecting to daemon');
+    
     // Create audio context if we haven't already
     if (audio.context == null) {
         startAudioDevices();
     }
-    // Create main daemon websocket
-    radios[idx].wsConn = new WebSocket("ws://" + radios[idx].address + ":" + radios[idx].port);
-    radios[idx].wsConn.onerror = function(event) { handleSocketError(event, idx) };
-    radios[idx].wsConn.onmessage = function(event) { recvSocketMessage(event, idx) };
-    radios[idx].wsConn.onclose = function(event) { handleSocketClose(event, idx) };
-    // Create WebRTC-specific websocket
-    radios[idx].wsRtc = new WebSocket("ws://" + radios[idx].address + ":" + radios[idx].port + "/rtc");
-    radios[idx].wsRtc.onerror = function(event) { handleRtcWsError(event, idx) };
-    radios[idx].wsRtc.onmessage = function(event) { handleRtcWsMsg(event, idx) };
-    radios[idx].wsRtc.onclose = function(event) { handleRtcWsClose(event, idx) };
-    // Wait for connections
-    waitForWebSockets([radios[idx].wsConn, radios[idx].wsRtc], function() { onConnectWebsocket(idx) });
+
+    // Set up the radio
+    radios[idx].requests = new RequestTracker();
+    radios[idx].envSeq = 0;
+    radios[idx].handshakeComplete = false;
+    radios[idx].connection = new WebSocket(`ws://${radios[idx].address}:${radios[idx].port}`);
+    radios[idx].connection.binaryType = "arraybuffer";
+
+    // Bind websocket callbacks
+    radios[idx].connection.onopen = () => console.log(`[${radios[idx].name}]: Connection open, waiting for Hello`);
+    radios[idx].connection.onmessage = (event) => handleEnvelope(idx, event);
+    radios[idx].connection.onclose = (event) => handleSocketClose(event, idx);
+    radios[idx].connection.onerror = (event) => handleSocketError(event, idx);
 }
 
 /**
- * Wait for websocket connection to be active
- * @param {WebSocket} websocket 
- * @param {function} callback callback function to execute once connected
- */
-function waitForWebSockets(sockets, callback=null) {
-    // Starting variables
-    socketsReady = 0;
-    cancel = false;
-    // Iterate over each socket in our list
-    sockets.forEach((socket) => {
-        if (socket.readyState === WebSocket.OPEN)
-        {
-            socketsReady++;
-        }
-        // If any of our sockets closed or are closing, we cancel the wait
-        else if (socket.readyState == WebSocket.CLOSING || socket.readyState == WebSocket.CLOSED)
-        {
-            console.warn(`Websocket ${socket} closed, cancelling waitForWebsockets`);
-            cancel = true;
-        }
-    });
-    // Check if we should cancel listening
-    if (cancel) { return; }
-    // Check if all sockets are ready
-    if (socketsReady === sockets.length)
-    {
-        callback();
-    } 
-    else 
-    {
-        setTimeout(
-            function() {
-                waitForWebSockets(sockets, callback);
-            },
-        5 );
-    }
-}
-
-/**
- * Called once the websocket connection is active
- * @param {int} idx index of radio in radios[]
- */
-function onConnectWebsocket(idx) {
-    //$("#navbar-status").html("Websocket connected");
-    console.log(`[${radios[idx].name}]: Websocket connection established`);
-    // Query radio status
-    console.log(`[${radios[idx].name}]: Querying radio status`);
-    radios[idx].wsConn.send(JSON.stringify(
-        {
-            "radio": {
-                "command": "query"
-            }
-        }
-    ));
-    // Start webrtc
-    waitForRadioStatus(idx, function() { startWebRtc(idx) });
-}
-
-/**
- * Waits for the radiolist to be populated before calling callback
- * @param {int} idx index of radio in radios[]
- * @param {function} callback 
- */
-function waitForRadioStatus(idx, callback) {
-    setTimeout(
-        function() {
-            if (radios[idx].status.State != 'Disconnected') {
-                if (callback != null) {
-                    callback();
-                }
-            } else {
-                waitForRadioStatus(idx, callback);
-            }
-        },
-    5); // 5 ms timeout
-}
-
-/**
- * Disconnect from the websocket server
+ * Disconnect from the websocket server and close the audio handler
  * @param {int} idx radio index in radios[]
  */
-function disconnectRadio(idx) {
-    // Disconnect if we had a connection open
-    if (radios[idx].wsConn) {
-        if (radios[idx].wsConn.readyState == WebSocket.OPEN) {
-            console.log(`Disconnecting from radio WebRTC connection ${radios[idx].name}`);
-            stopWebRtc(idx);
-            console.log(`Disconnecting from radio websocket ${radios[idx].name}`);
-            radios[idx].wsConn.close();
-        }
-    }
+function disconnectRadio(idx: number) : void {
+    radios[idx].audioReceiver?.close();
+    radios[idx].connection?.close();
 }
 
 /**
- * Callback for a new message from the websocket server and
- * parses the JSON command object. 
- * 
- * This command protocol is specified in `Docs/Websocket JSON Signalling.md`
- * @param {event} event 
- * @param {int} idx index of radio in radios[]
+ * Handle a binary message from the radio's websocket
+ * @param idx the radio index in radios[]
+ * @param event the MessageEvent containing the binary message
  */
-function recvSocketMessage(event, idx) {
+function handleEnvelope(idx: number, event: MessageEvent): void {
+    // Decode to an envelope
+    const env = Envelope.decode(new Uint8Array(event.data));
+
+    // Handle a hello first
+    if (env.control?.hello) {
+        // Parse the hello and get the result
+        const { result, ack } = handleHello(env.control.hello);
+        // Send the ack back to the radio
+        sendEnvelope(idx, { control: { helloAck: ack } } );
+        // If the hello wasn't accepted, throw an error
+        if (!result.accepted) {
+            console.error(`[${radios[idx].name}]: ${result.reason}`);
+        }
+        // Either way, we completed the handshake
+        radios[idx].handshakeComplete = true;
+        return;
+    }
+
+    // If we haven't completed the handshake yet, ignore all other messages
+    if (!radios[idx].handshakeComplete) return;
+
+    // Next, handle all the control messages
+    // Radio status
+    if (env.control?.radioStatus) {
+        // Call status handler
+        radios[idx].requests.onStatus(env.control.radioStatus.state);
+        // Update radio status
+        radios[idx].status = env.control.radioStatus;
+        // Fire the UI update functions
+        updateRadioCard(idx);
+        updateRadioControls();
+        exUpdateRadio(idx);
+    // ACK to a message
+    } else if (env.control?.ack) {
+        radios[idx].requests.resolve(env.control.ack.requestId);
+    // NACK to a message
+    } else if (env.control?.nack) {
+        radios[idx].requests.reject(env.control.nack.requestId, env.control.nack.reason);
+    // Respond to ping with a pong
+    } else if (env.control?.ping) {
+        sendEnvelope(idx, { control: { pong: { nonce: env.control.ping.nonce } } });
+    }
+
     // Convert to JSON
     var msgObj;
     try {
