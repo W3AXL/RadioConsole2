@@ -51,6 +51,7 @@ export function handleHello(hello: Hello): { result: HandshakeResult; ack: Hello
     }
 
     // If everything is successful, return the result and a HelloAck
+    console.debug(`Validated incoming hello message for radio ${hello.daemonName}`);
     return {
         result: { accepted: true, rxSampleRateHz: hello.rxSampleRateHz, frameDurationMs: hello.frameDurationMs },
         ack: { accepted: true, reason: "" },

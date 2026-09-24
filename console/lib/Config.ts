@@ -45,6 +45,8 @@ export interface Radio {
     name: string,
     // Radio pan
     pan: number,
+    // Radio muted
+    muted: boolean,
     // Radio card color
     color: RadioCardColor
     // Midi CC for PTT on this radio

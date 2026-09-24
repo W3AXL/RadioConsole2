@@ -7,7 +7,7 @@ import * as Cfg from "./lib/Config"
 import { RequestTracker } from './lib/RequestTracker'
 import { handleHello, nowMicros } from "./lib/Protocol"
 import { RadioAudioReceiver, MicCaptureManager } from "./lib/AudioPipeline"
-import { Envelope, RadioCommandType, RadioStatus, RadioState, SoftkeyName, ScanState, PriorityState } from "./generated/RC2Proto"
+import { Envelope, RadioCommandType, RadioStatus, RadioState, SoftkeyName, ScanState, PriorityState, SoftkeyState, PowerState } from "./generated/RC2Proto"
 
 /***********************************************************************************
     Global Variables
@@ -43,6 +43,24 @@ var config: Cfg.Configuration = {
             pttLine: null
         }
     }
+}
+
+// Defualt radio state on creation, before connection
+const initRadioStatus : RadioStatus = {
+    name: "",
+    description: "",
+    state: RadioState.DISCONNECTED,
+    zoneName: "Disconnected",
+    channelName: "",
+    callerId: "",
+    scanState: ScanState.SCAN_STATE_UNSPECIFIED,
+    priorityState: PriorityState.PRIORITY_STATE_UNSPECIFIED,
+    powerState: PowerState.POWER_STATE_UNSPECIFIED,
+    softkeys: [],
+    monitor: false,
+    secure: false,
+    direct: false,
+    errorMsg: ""
 }
 
 /**
@@ -99,6 +117,16 @@ interface Audio {
     running: boolean,
     inputChain: AudioInputChain,
     outputChain: AudioOutputChain
+}
+
+/**
+ * Alert tone modes
+ */
+enum AlertToneMode {
+    NONE,
+    CONTINUOUS,
+    ALTERNATING,
+    PULSED
 }
 
 // Audio variables
@@ -235,8 +263,7 @@ var editingRadioIdx = -1;
 // Detected timezone
 var timeZone = "";
 // Selected radio
-var selectedRadio = null;
-var selectedRadioIdx = null;
+var selectedRadioIdx : number = null;
 // PTT state
 var pttActive = false;
 // Menu state
@@ -277,8 +304,83 @@ function pageLoad() {
     const d = new Date();
     timeZone = d.toLocaleString('en', { timeZoneName: 'short' }).split(' ').pop();
 
+    // Bind static page event handlers
+    bindStaticEvents();
+
     // Setup clock timer
     setInterval(updateClock, 100);
+}
+
+/**
+ * Bind click/mouse callbacks to HTML elements in the static, non-radio card DOM
+ */
+function bindStaticEvents() {
+    // Softkey buttons
+    document.querySelector("#leftarrow").addEventListener('click', button_left);
+    document.querySelector("#softkey1").addEventListener('mousedown', () => { pressSoftkey(1); });
+    document.querySelector("#softkey2").addEventListener('mousedown', () => { pressSoftkey(2); });
+    document.querySelector("#softkey3").addEventListener('mousedown', () => { pressSoftkey(3); });
+    document.querySelector("#softkey4").addEventListener('mousedown', () => { pressSoftkey(4); });
+    document.querySelector("#softkey5").addEventListener('mousedown', () => { pressSoftkey(5); });
+    document.querySelector("#softkey6").addEventListener('mousedown', () => { pressSoftkey(6); });
+    document.querySelector("#softkey1").addEventListener('mouseup', () => { releaseSoftkey(1); });
+    document.querySelector("#softkey2").addEventListener('mouseup', () => { releaseSoftkey(2); });
+    document.querySelector("#softkey3").addEventListener('mouseup', () => { releaseSoftkey(3); });
+    document.querySelector("#softkey4").addEventListener('mouseup', () => { releaseSoftkey(4); });
+    document.querySelector("#softkey5").addEventListener('mouseup', () => { releaseSoftkey(5); });
+    document.querySelector("#softkey6").addEventListener('mouseup', () => { releaseSoftkey(6); });
+    document.querySelector("#rightarrow").addEventListener('click', button_right);
+    // Channel up/down buttons
+    document.querySelector("#chan-up").addEventListener('click', () => { changeChannel(false); });
+    document.querySelector("#chan-down").addEventListener('click', () => { changeChannel(true); });
+    // PTT button
+    document.querySelector("#ptt").addEventListener('mousedown', () => { startPtt(true); });
+    document.querySelector("#ptt").addEventListener('mouseup', () => { stopPtt(); });
+    // Alert buttons
+    document.querySelector("#alert-bar-icon").addEventListener('click', alertBar);
+    document.querySelector("#alert1").addEventListener('mousedown', () => { startAlert(1); });
+    document.querySelector("#alert2").addEventListener('mousedown', () => { startAlert(2); });
+    document.querySelector("#alert3").addEventListener('mousedown', () => { startAlert(3); });
+    document.querySelector("#alert1").addEventListener('mouseup', () => { stopAlert(); });
+    document.querySelector("#alert2").addEventListener('mouseup', () => { stopAlert(); });
+    document.querySelector("#alert3").addEventListener('mouseup', () => { stopAlert(); });
+    // Popup buttons
+    document.querySelector(".btn-popup-close").addEventListener('click', (event) => {closePopup(event.target); });
+    document.querySelector(".btn-save-config").addEventListener('click', saveConfig);
+    // Dimmed background click event
+    document.querySelector("#body-dimmer").addEventListener('click', closePopup);
+    // Menu sidebar button
+    document.querySelector("#btn-mainmenu").addEventListener('click', toggleMainMenu);
+    // Edit radios button
+    document.querySelector("#navbar-edit").addEventListener('click', () => {
+        showConfigPopup("#edit-radios-popup");
+    });
+    // Edit radio dialog
+    document.querySelector("#btn-add-radio").addEventListener('click', showAddRadioDialog);
+    // Extension connect buttons
+    document.querySelector("#navbar-ext").addEventListener('click', extensionConnect);
+    document.querySelector("#connect-extension").addEventListener('click', extensionConnect);
+    // Power button (connect/disconnect all)
+    document.querySelector("#navbar-connect").addEventListener('click', connectAllButton);
+    // Volume slider
+    document.querySelector("#console-volume").addEventListener('input', volumeSlider);
+    // Sidebar buttons
+    document.querySelector("#btn-sidebar-cfg-client").addEventListener('click', () => {
+        showConfigPopup("#client-config-popup");
+        toggleMainMenu();
+    });
+    document.querySelector("#btn-sidebar-cfg-periph").addEventListener('click', () => {
+        showPeriphConfig();
+        toggleMainMenu();
+    });
+    document.querySelector("#btn-sidebar-cfg-midi").addEventListener('click', () => {
+        showMidiConfig();
+        toggleMainMenu();
+    });
+    document.querySelector("#btn-sidebar-cfg-ext").addEventListener('click', () => {
+        showConfigPopup("#extension-config-popup");
+        toggleMainMenu();
+    });
 }
 
 /**
@@ -310,18 +412,21 @@ function connected() {
 }
 
 function radioConnected(idx) {
+    // Get elements
+    const radio = radios[idx];
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
     // UI update
-    $(`#radio${idx} .icon-connect`).removeClass('disconnected');
-    $(`#radio${idx} .icon-connect`).removeClass('connecting');
-    $(`#radio${idx} .icon-connect`).addClass('connected');
-    $(`#radio${idx} .icon-connect`).parent().prop('title','WebRTC Connected');
+    connectIcon.classList.remove("disconnected");
+    connectIcon.classList.remove("connecting");
+    connectIcon.classList.add("connected");
+    connectIcon.parentElement.setAttribute("title", "Connected to radio daemon");
     // Update master connect/disconnect button
-    $(`#navbar-connect`).removeClass('disconnected');
-    $(`#navbar-connect`).addClass('connected');
+    document.querySelector(`#navbar-connect`).classList.remove('disconnected');
+    document.querySelector(`#navbar-connect`).classList.add('connected');
     // Open serial port, if configured
-    if (config.Peripherals.useCtsForPtt)
+    if (config.peripherals.serial.enabled && config.peripherals.serial.port)
     {
-        window.electronAPI.openSerialPort(config.Peripherals.serialPort);
+        window.electronAPI.openSerialPort(config.peripherals.serial.port);
     }
 }
 
@@ -362,10 +467,10 @@ function disconnected() {
 }
 
 // Keydown handler
-$(document).on("keydown", function (e) {
-    switch (e.which) {
+document.addEventListener("keydown", function (e) {
+    switch (e.key) {
         // Spacebar
-        case 32:
+        case " ":
             e.preventDefault();
             // Start PTT if not already TXing
             if (!pttActive) {
@@ -380,10 +485,10 @@ $(document).on("keydown", function (e) {
 });
 
 // Keyup handler
-$(document).on("keyup", function (e) {
-    switch (e.which) {
+document.addEventListener("keyup", function (e) {
+    switch (e.key) {
         // Spacebar
-        case 32:
+        case " ":
             e.preventDefault();
             stopPtt();
             break;
@@ -391,15 +496,17 @@ $(document).on("keyup", function (e) {
 });
 
 // Handle losing focus of the window
-$(window).blur(function () {
+window.addEventListener("blur", () => {
     if (pttActive) {
         console.warn("Killing active PTT due to window focus lost")
         stopPtt();
     }
-})
+});
 
 // Bind pageLoad function to document load
-$(document).ready(pageLoad());
+document.addEventListener("DOMContentLoaded", () => {
+    pageLoad();
+})
 
 /***********************************************************************************
     Peripheral Functions
@@ -410,16 +517,8 @@ var lastCtsState = false;
 
 // Show the peripheral config window
 async function showPeriphConfig() {
-    // If peripheral config doesn't exist, create it
-    if (!config.hasOwnProperty('Peripherals'))
-    {
-        config.Peripherals = {
-            serialPort: "",
-            useCtsForPtt: false
-        }
-    }
     // Show the window
-    const result = await window.electronAPI.showPeriphConfig(config.Peripherals);
+    const result = await window.electronAPI.showPeriphConfig(config.peripherals.serial);
 }
 
 // Peripheral config save
@@ -433,7 +532,9 @@ window.electronAPI.savePeriphConfig((event, data) => {
 // Callback for handling serial port control line status
 window.electronAPI.serialPortStatus((event, status) => {
     // Handle PTT if enabled
-    if (config.Peripherals.useCtsForPtt) {
+    if (config.peripherals.serial.enabled) {
+        // TODO: update the logic here for the new config format
+        return;
         // Ignore if state hasn't changed
         if (status.cts == lastCtsState)
         {
@@ -530,26 +631,22 @@ window.electronAPI.saveMidiConfig((event, data) => {
  * Select a radio
  * @param {string} id the id of the radio to select
  */
-function selectRadio(id) {
-    // Check that the id is valid
-    if (!$(`#${id}`).length) {
-        console.warn(`Tried to select invalid radio id ${id}`);
-        return;
-    }
+function selectRadio(idx: number) {
+    // Get radio
+    const radio = radios[idx];
     // Check that the radio is connected before we select it
-    if (radios[getRadioIndex(id)].status.State == "Disconnected") { return; }
+    if (radio.status.state == RadioState.DISCONNECTED) { return; }
     // Log
-    console.debug("Selecting radio " + id);
+    console.debug("Selecting radio " + radio.cfg.name);
     // If the radio was already selected, deselect it
-    if (selectedRadio == id) {
+    if (selectedRadioIdx == idx) {
         // Deselect all radio cards
         deselectRadios();
         // Remove the selected class
-        $(`#${id}`).removeClass("selected");
+        radio.elements.card.classList.remove("selected");
         // Disable the radio controls
         updateRadioControls();
         // Update the variables
-        selectedRadio = null;
         selectedRadioIdx = null;
         // Update stream volumes
         updateRadioAudio();
@@ -557,10 +654,9 @@ function selectRadio(id) {
         // Deselect all radio cards
         deselectRadios();
         // Select the new radio card
-        $(`#${id}`).addClass("selected");
-        // Update the variable
-        selectedRadio = id;
-        selectedRadioIdx = getRadioIndex(id);
+        radio.elements.card.classList.add("selected");
+        // Update the selected variable
+        selectedRadioIdx = idx;
         // Update controls
         updateRadioControls();
         updateRadioAudio();
@@ -576,9 +672,10 @@ function deselectRadios() {
     // Stop PTT if we're transmitting
     stopPtt();
     // Remove selected class from all radio cards
-    $(".radio-card").removeClass("selected");
+    radios.forEach((radio) => {
+        radio.elements.card.classList.remove("selected");
+    });
     // Set selected radio to null
-    selectedRadio = null;
     selectedRadioIdx = null;
     // Update controls
     updateRadioControls();
@@ -591,7 +688,7 @@ function populateRadios() {
     console.debug("Populating radio cards from initial config");
     // Add a card for each radio in the list
     radios.forEach((radio, index) => {
-        console.info("Adding radio " + radio.name);
+        console.info("Adding radio " + radio.cfg.name);
         console.debug(radio);
         // Add the radio card
         addRadioCard(index);
@@ -631,15 +728,57 @@ function addRadioCard(idx: number) {
     // Update basic info
     newCard.querySelector(".radio-card").classList.add(radio.cfg.color);
     newCard.querySelector(".radio-card").id = radio.elements.idBase;
+    newCard.querySelector(".radio-card").setAttribute("data-radio-idx", idx.toString());
     newCard.querySelector(".radio-card .header h2").textContent = radio.cfg.name;
 
-    // Bind click events, etc
-    newCard.querySelector(".radio-card").addEventListener('click', function (event) {
+    // Bind card click event
+    newCard.querySelector(".radio-card").addEventListener('click', (event) => {
         // Prevent continual propagation
         event.stopPropagation();
         event.stopImmediatePropagation();
         // Select the radio
-        selectRadio(radio.elements.idBase);
+        selectRadio(idx);
+    });
+    // Bind connect button click event
+    newCard.querySelector(".btn-connect").addEventListener('click', (event) => {
+        // Prevent propogation
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        connectButton(idx);
+    });
+    // Bind mute button
+    newCard.querySelector(".btn-restart").addEventListener('click', (event) => {
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        muteButton(idx);
+    });
+    // Bind restart button
+    newCard.querySelector(".btn-mute").addEventListener('click', (event) => {
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        restartButton(idx);
+    })
+    // Bind DTMF events
+    newCard.querySelector(".btn-dtmf-dropdown").addEventListener('click', (event) => {
+        showDTMFMenu(event, event.target);
+    })
+    newCard.querySelector(".dtmf-dropdown .dtmf-table").addEventListener('click', (event) => {
+        dtmfPressed(event, event.target);
+    });
+    // Bind Pan Menu
+    newCard.querySelector(".btn-panning-dropdown").addEventListener('click', (event) => {
+        showPanMenu(event, event.target);
+    })
+    // Bind Pan Slider
+    newCard.querySelector(".radio-pan").addEventListener('click', (event) => {
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+    })
+    newCard.querySelector(".radio-pan").addEventListener('input', (event) => {
+        changePan(event, event.target);
+    });
+    newCard.querySelector(".radio-pan").addEventListener('dblclick', (event) => {
+        centerPan(event, event.target);
     });
 
     // Add the card to the main layout
@@ -847,7 +986,9 @@ window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
             envSeq: 0,
             elements: {
                 idBase: `radio${newRadioIdx}`
-            }
+            },
+            // Initialize with the default status for now
+            status: initRadioStatus
         });
 
         // Save config, which will copy the radio config to the main config object
@@ -860,7 +1001,7 @@ window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
         updateRadioCard(newRadioIdx);
         
         // Update edit list
-        addRadioToEditTable(newRadio);
+        addRadioToEditTable(newRadioIdx);
     }
 
     // Save config, which will copy out the radios config objects to the master config
@@ -881,7 +1022,7 @@ function updateRadioCard(idx) {
     const radioCard = radio.elements.card;
 
     // Update radio name in card from status, or fallback to configured name
-    radioCard.querySelector(".radio-name").innerHTML = radio.status ? radio.status.name : radio.cfg.name;
+    radioCard.querySelector(".radio-name").innerHTML = radio.status.name || radio.cfg.name;
     radioCard.querySelector(".radio-name").setAttribute("title", radio.status ? radio.status.description : "");
 
     // Update color if changed
@@ -948,13 +1089,6 @@ function updateRadioCard(idx) {
             break;
     }
 
-    // Update alert icon
-    if (radio.status.errorMsg) {
-        radioCard.querySelector("#icon-alert").classList.add("alerting");
-    } else {
-        radioCard.querySelector("#icon-alert").classList.remove("alerting");
-    }
-
     // Update Scan Icon
     const radioScanIcons = radioCard.querySelector('.scan-icons');
     radioScanIcons.classList.remove("scanning");
@@ -994,41 +1128,41 @@ function updateRadioCard(idx) {
 function updateRadioControls() {
     var softkeyStates = [false, false, false, false, false, false];
     // Update if we have a selected radio
-    if (selectedRadio) {
+    if (selectedRadioIdx != null) {
         // Get the radio from the list
-        var radio = radios[selectedRadioIdx];
+        const radio = radios[selectedRadioIdx];
         // If the radio is disconnected, don't enable the controls
-        if (radio.status.State == "Disconnected") { return }
+        if (radio.status.state == RadioState.DISCONNECTED) { return; }
         // Enable softkeys
-        $("#radio-controls .btn").removeClass("disabled");
+        document.querySelectorAll("#radio-controls .btn").forEach((elem) => elem.classList.remove("disabled"));
         // Get softkey text based on page index
-        var curSoftkeyPage = radio.status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage));
+        var curSoftkeyPage = radio.status.softkeys.slice(6*softkeyPage, 6+(6*softkeyPage));
         console.debug("Got current softkey page");
         console.debug(curSoftkeyPage);
         // Update softkeys on page
         curSoftkeyPage.forEach(function(softkey, index) {
             // Get text
-            $(`#softkey${index+1} .btn-text`).html(softkey.Name);
+            document.querySelector(`#softkey${index+1} .btn-text`).innerHTML = SoftkeyName[softkey.name].replace("SOFTKEY_", "");
             // Get state
-            switch (softkey.State)
+            switch (softkey.state)
             {
-                case "On":
-                    $(`#softkey${index+1}`).addClass("pressed");
+                case SoftkeyState.SOFTKEY_ON:
+                    document.querySelector(`#softkey${index+1}`).classList.add("pressed");
                     softkeyStates[index] = true;
                     break;
-                case "Off":
-                    $(`#softkey${index+1}`).removeClass("pressed");
+                case SoftkeyState.SOFTKEY_OFF:
+                    document.querySelector(`#softkey${index+1}`).classList.remove("pressed");
                     break;
             }
         });
     // Clear if we don't
     } else {
-        for (i=0; i<6; i++) {
-            $(`#softkey${i+1} .btn-text`).html("");
+        for (let i = 0; i < 6; i++) {
+            document.querySelector(`#softkey${i+1} .btn-text`).innerHTML = "";
         }
         // Disable softkeys
-        $("#radio-controls .btn").addClass("disabled");
-        $("#radio-controls .btn").removeClass("pressed");
+        document.querySelectorAll("#radio-controls .btn").forEach((elem) => elem.classList.add("disabled"));
+        document.querySelectorAll("#radio-controls .btn").forEach((elem) => elem.classList.remove("pressed"));
         // Disable alert button and hide bar
         hideAlertBar();
     }
@@ -1037,22 +1171,18 @@ function updateRadioControls() {
 
 /**
  * Handles connect button click on radio card
- * @param {event} event button click event
- * @param {object} obj html object
+ * @param idx the index of the radio in radios[]
  */
-function connectButton(event, obj) {
-    // Stop propagation of click
-    event.stopPropagation();
-    // Get ID of radio to mute
-    const radioId = $(obj).closest(".radio-card").attr('id');
-    console.trace(`${radioId} connect button clicked`);
-    // Get index of radio in list
-    const idx = getRadioIndex(radioId);
-    // If disconnected, connect
-    if (radios[idx].status.State == 'Disconnected') {
-        connectRadio(idx);
-    } else {
+export function connectButton(idx: number) {
+    // Get radio
+    const radio = radios[idx];
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
+    console.trace(`${radio.cfg.name} connect button clicked`);
+    // If the radio icon has the connecting or connected classes, disconnect
+    if (connectIcon.classList.contains("connecting") || connectIcon.classList.contains("connected")) {
         disconnectRadio(idx);
+    } else {
+        connectRadio(idx);
     }
 }
 
@@ -1084,7 +1214,7 @@ function sendEnvelope(idx: number, payload: Partial<Envelope>): void {
  * @param softkey an optional softkey
  * @returns a promise that resolves once the command is sent
  */
-async function sendRadioCommand(idx: number, command: Proto.RadioCommandType, softkey?: Proto.SoftkeyName): Promise<void> {
+async function sendRadioCommand(idx: number, command: RadioCommandType, softkey?: SoftkeyName): Promise<void> {
     // Register this command in our request tracker and get the async promise
     const { requestId, promise } = radios[idx].requests.register(command);
     // Send the command
@@ -1097,10 +1227,10 @@ async function sendRadioCommand(idx: number, command: Proto.RadioCommandType, so
  * Start radio PTT
  */
 function startPtt(micActive) {
-    if (!pttActive && selectedRadio) {
+    if (!pttActive && selectedRadioIdx != null) {
         // Only send the TX command and unmute the mic if we're fully connected
         if (radios[selectedRadioIdx].handshakeComplete) {
-            console.log("Starting PTT on " + selectedRadio);
+            console.log("Starting PTT on " + radios[selectedRadioIdx].cfg.name);
             pttActive = true;
 
             // Clear any pending stop TX timeouts
@@ -1116,7 +1246,7 @@ function startPtt(micActive) {
             // Send the command
             sendRadioCommand(selectedRadioIdx, RadioCommandType.START_TX);
         }
-    } else if (!pttActive && !selectedRadio) {
+    } else if (!pttActive && selectedRadioIdx == null) {
         pttActive = true;
         console.log("No radio selected, ignoring PTT");
     } else if (pttActive && alertTonesInProgress) {
@@ -1137,17 +1267,8 @@ function stopPtt() {
         // Play sound
         //playSound("sound-ptt-end");
         // Send the stop command if connected
-        if (radios[selectedRadioIdx].wsConn && selectedRadio) {
-            // Wait and then stop TX (handles mic latency)
-            setTimeout( function() {
-                radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-                    {
-                        "radio": {
-                            "command": "stopTx"
-                        }
-                    }
-                ));
-            }, radios[selectedRadioIdx].rtc.txLatency);
+        if ( selectedRadioIdx != null && radios[selectedRadioIdx].handshakeComplete) {
+            sendRadioCommand(selectedRadioIdx, RadioCommandType.STOP_TX);
         }
     }
 }
@@ -1157,25 +1278,14 @@ function stopPtt() {
  * @param {bool} down Whether to go down or not (heh)
  */
 function changeChannel(down) {
-    if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
+    // Get radio
+    if (!pttActive && selectedRadioIdx != null && radios[selectedRadioIdx].handshakeComplete) {
         if (down) {
-            console.log("Changing channel down on " + selectedRadio);
-            radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-                {
-                    "radio": {
-                        "command": "chanDn"
-                    }
-                }
-            ));
+            console.log("Changing channel down on " + radios[selectedRadioIdx].cfg.name);
+            sendRadioCommand(selectedRadioIdx, RadioCommandType.CHAN_DOWN);
         } else {
-            console.log("Changing channel up on " + selectedRadio);
-            radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-                {
-                    "radio": {
-                        "command": "chanUp"
-                    }
-                }
-            ));
+            console.log("Changing channel up on " + radios[selectedRadioIdx].cfg.name);
+            sendRadioCommand(selectedRadioIdx, RadioCommandType.CHAN_UP);
         }
     }
 }
@@ -1186,9 +1296,9 @@ function changeChannel(down) {
  */
 function pressSoftkey(idx) {
     // convert the current softkey index to the softkey in the radio
-    var pressedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
-    console.debug("Mapped pressed softkey to softkey:" + pressedKey.Name);
-    pressButton(pressedKey.Name);
+    const pressedKey = radios[selectedRadioIdx].status.softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
+    console.debug("Mapped pressed softkey to softkey:" + pressedKey.name);
+    pressButton(pressedKey.name);
 }
 
 /**
@@ -1196,19 +1306,19 @@ function pressSoftkey(idx) {
  * @param {int} idx softkey index
  */
 function releaseSoftkey(idx) {
-    var releasedKey = radios[selectedRadioIdx].status.Softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
-    console.debug("Mapped pressed softkey to softkey:" + releasedKey.Name);
-    releaseButton(releasedKey.Name);
+    const releasedKey = radios[selectedRadioIdx].status.softkeys.slice(6*softkeyPage, 6+(6*softkeyPage))[idx-1];
+    console.debug("Mapped pressed softkey to softkey:" + releasedKey.name);
+    releaseButton(releasedKey.name);
 }
 
 /**
  * Left arrow button decrements the softkey page
  */
 function button_left() {
-    if (config.Audio.ButtonSounds) {
+    if (config.audio.buttonSounds) {
         playSound("sound-click");
     }
-    maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
+    maxPages = Math.ceil(radios[selectedRadioIdx].status.softkeys.length / 6) - 1;
     if (softkeyPage == 0)
     {
         softkeyPage = maxPages;
@@ -1225,10 +1335,10 @@ function button_left() {
  * Right arrow button increments the softkey page
  */
 function button_right() {
-    if (config.Audio.ButtonSounds) {
+    if (config.audio.buttonSounds) {
         playSound("sound-click");
     }
-    maxPages = Math.ceil(radios[selectedRadioIdx].status.Softkeys.length / 6) - 1;
+    maxPages = Math.ceil(radios[selectedRadioIdx].status.softkeys.length / 6) - 1;
     if (softkeyPage == maxPages)
     {
         softkeyPage = 0;
@@ -1245,83 +1355,58 @@ function button_right() {
  * Send button commands to selected radio
  * @param {string} buttonName name of button
  */
-function toggleButton(buttonName) {
-    if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
-        console.log(`Sending button toggle: ${buttonName}`);
-        radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-            {
-                "radio": {
-                    "command": "buttonToggle",
-                    "options": buttonName
-                }
-            }
-        ));
+function toggleButton(name: SoftkeyName) {
+    if (!pttActive && selectedRadioIdx != null && radios[selectedRadioIdx].handshakeComplete) {
+        console.log(`Sending button toggle: ${name}`);
+        sendRadioCommand(selectedRadioIdx, RadioCommandType.BUTTON_TOGGLE, name);
     }
 }
 
-function pressButton(buttonName) {
-    if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
-        console.log(`Sending button depress: ${buttonName}`);
-        radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-            {
-                "radio": {
-                    "command": "buttonPress",
-                    "options": buttonName
-                }
-            }
-        ));
+function pressButton(name: SoftkeyName) {
+    // Only press button if we're not transmitting and have a radio selected that's finished handshaking
+    if (!pttActive && selectedRadioIdx != null && radios[selectedRadioIdx].handshakeComplete) {
+        // Press it
+        console.log(`Sending button depress: ${name}`);
+        sendRadioCommand(selectedRadioIdx, RadioCommandType.BUTTON_PRESS, name);
     }
     // Set a timeout to release the button in the event that something breaks
     stuckButtonTimeout = setTimeout(() => {
-        console.debug(`Fallback button release handler for stuck button ${buttonName}`);
-        releaseButton(buttonName);
+        console.debug(`Fallback button release handler for stuck button ${name}`);
+        releaseButton(name);
     }, 1500);
 }
 
-function releaseButton(buttonName) {
-    if (!pttActive && selectedRadio && radios[selectedRadioIdx].wsConn) {
+function releaseButton(name: SoftkeyName) {
+    if (!pttActive && selectedRadioIdx != null && radios[selectedRadioIdx].handshakeComplete) {
         // Clear timeout if running
         if (stuckButtonTimeout != null) {
             clearTimeout(stuckButtonTimeout);
             stuckButtonTimeout = null;
         }
-        console.log(`Sending button release: ${buttonName}`);
-        radios[selectedRadioIdx].wsConn.send(JSON.stringify(
-            {
-                "radio": {
-                    "command": "buttonRelease",
-                    "options": buttonName
-                }
-            }
-        ));
+        console.log(`Sending button release: ${name}`);
+        sendRadioCommand(selectedRadioIdx, RadioCommandType.BUTTON_RELEASE, name);
     }
 }
 
 function toggleMute(idx) {
     // Check mute
-    if (radios[idx].mute) {
+    if (radios[idx].cfg.muted) {
         muteRadio(idx, false);
     } else {
         muteRadio(idx, true);
     }
 }
 
-function muteButton(event, obj) {
-    // Get ID of radio to mute
-    const radioId = $(obj).closest(".radio-card").attr('id');
-    // Get index of radio in list
-    const idx = getRadioIndex(radioId);
+function muteButton(idx: number) {
     // toggle mute
     toggleMute(idx);
-    // stop prop
-    event.stopPropagation();
 }
 
-function startDTMF(radioId, number, digitTime, delayTime) {
+function startDTMF(idx: number, number, digitTime, delayTime) {
     // Start PTT
     startPtt(false);
     // Dial (will wait for transmit active before dialing)
-    dialNumber(radioId, number, digitTime, delayTime);
+    dialNumber(idx, number, digitTime, delayTime);
 }
 
 /**
@@ -1333,12 +1418,12 @@ function startDTMF(radioId, number, digitTime, delayTime) {
  * 
  * @returns {int} the total duration of the dial event
  */
-function dialNumber(radioId, number, digitTime, delayTime) {
+function dialNumber(idx: number, number, digitTime, delayTime) {
     // Wait until we're transmitting
-    if (radios[selectedRadioIdx].status.State != "Transmitting") {
+    if (radios[selectedRadioIdx].status.state != RadioState.TRANSMITTING) {
         console.debug("Waiting for radio to start transmitting");
         setTimeout(() => {
-            dialNumber(radioId, number, digitTime, delayTime);
+            dialNumber(idx, number, digitTime, delayTime);
         }, 50);
     } else {
         console.debug("Radio is now transmitting, dialing DTMF");
@@ -1356,15 +1441,15 @@ function dialNumber(radioId, number, digitTime, delayTime) {
         }, startTime + ((digitTime + delayTime) * number.length));
         // Re-enable mic and DTMF keypad a little later
         setTimeout(()=> {
-            enableDTMFKeypad(radioId, true);
-            clearDTMFDialpad(radioId);
+            enableDTMFKeypad(idx, true);
+            clearDTMFDialpad(idx);
         }, startTime + ((digitTime + delayTime) * number.length));
     }
 }
 
-function startAlert(mode) {
+function startAlert(mode: AlertToneMode) {
     // Bonk if no radio is selected
-    if (!selectedRadio) {
+    if (selectedRadioIdx == null) {
         bonk();
     }
     // Start PTT if we need to, otherwise PTT was overridden
@@ -1378,17 +1463,7 @@ function startAlert(mode) {
     // Set flag
     alertTonesInProgress = true;
     // Set and start tone gen
-    switch (mode) {
-        case 1:
-            audio.tones.mode = "cont";
-            break;
-        case 2:
-            audio.tones.mode = "alt";
-            break;
-        case 3:
-            audio.tones.mode = "pulse";
-            break;
-    }
+    audio.tones.mode = mode;
     // Wait for TX
     alertStartTimeout = setTimeout(() => {
         sendAlert()
@@ -1397,7 +1472,7 @@ function startAlert(mode) {
 
 function sendAlert() {
     // Wait for TX
-    if (radios[selectedRadioIdx].status.State != "Transmitting") {
+    if (radios[selectedRadioIdx].status.state != RadioState.TRANSMITTING) {
         console.debug("waiting for radio to start transmitting");
         alertStartTimeout = setTimeout(() => {
             sendAlert();
@@ -1406,10 +1481,8 @@ function sendAlert() {
         // Ensure mic is muted
         muteMic();
         console.debug("Radio transmitting, starting alert tone");
-        alertStartTimeout = setTimeout(() => {
-            audio.tones.start();
-            alertStartTimeout = null;
-        }, radios[selectedRadioIdx].rtc.txLatency)
+        audio.tones.start();
+        alertStartTimeout = null;
     }
 }
 
@@ -1450,10 +1523,10 @@ function stopAlert() {
  * @param {int} idx radio index
  * @returns bool
  */
-function isRadioReceiving(idx) {
-    // Radio is receiving if card has "receiving" or "encrypted" classes
-    const classes = radios[idx].elements.card.classList;
-    return (classes.contains("receiving") || classes.contains("encrypted"));
+function isRadioReceiving(idx: number) : boolean {
+    const radio = radios[idx];
+    if (!radio.status) { return false; }
+    return (radio.status.state == RadioState.RECEIVING || radio.status.state == RadioState.ENCRYPTED);
 }
 
 /**
@@ -1461,9 +1534,10 @@ function isRadioReceiving(idx) {
  * @param {int} idx radio index
  * @returns bool
  */
-function isRadioActive(idx) {
-    const classes = radios[idx].elements.card.classList;
-    return (classes.contains("receiving") || classes.contains("encrypted") || classes.contains("transmitting"));
+function isRadioActive(idx: number) : boolean {
+    const radio = radios[idx];
+    if (!radio.status) { return false; }
+    return (radio.status.state == RadioState.RECEIVING || radio.status.state == RadioState.ENCRYPTED || radio.status.state == RadioState.TRANSMITTING);
 }
 
 /***********************************************************************************
@@ -1762,6 +1836,10 @@ function applyConfig() {
             envSeq: 0,
             elements: {
                 idBase: `radio${idx}`
+            },
+            status: {
+                name: radio.name,
+                ...initRadioStatus
             }
         });
     });
@@ -2190,15 +2268,17 @@ function bonk() {
  * @param {bool} mute whether to mute or not
  */
 function muteRadio(idx, mute) {
+    // Get radio
+    const radio = radios[idx];
     if (mute) {
-        console.info(`Muting radio ${idx}`);
+        console.info(`Muting radio ${radio.cfg.name}`);
         // Set audio node
         radios[idx].audioSrc.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
         // Set icon
         $(`#radio${idx} .icon-mute`).addClass('muted');
         $(`#radio${idx} .icon-mute`).prop('name', 'volume-mute-sharp');
         // Set state
-        radios[idx].mute = true;
+        radios[idx].cfg.muted = true;
     } else {
         console.info(`Unmuting radio ${idx}`);
         // Set audio node
@@ -2207,7 +2287,7 @@ function muteRadio(idx, mute) {
         $(`#radio${idx} .icon-mute`).removeClass('muted');
         $(`#radio${idx} .icon-mute`).prop('name', 'volume-high-sharp');
         // Set state
-        radios[idx].mute = false;
+        radios[idx].cfg.muted = false;
     }
 }
 
@@ -2331,8 +2411,8 @@ function dtmfPressed(event, obj) {
     const dialpad = obj.closest('.button-stack').querySelector('.dtmf-digits');
     // Get digit number
     const digit = cell.innerHTML;
-    // Get ID of the radio this dialpad is for
-    const radioId = obj.closest('.radio-card').id;
+    // Get index of the radio this DTMF panel is for
+    const radioIdx = parseInt(obj.closest('.radio-card').getAttribute("data-radio-idx"));
     // Log
     console.debug(`Clicked dtmf ${digit}`);
     // Handle clear or call
@@ -2344,12 +2424,12 @@ function dtmfPressed(event, obj) {
             return;
         }
         // Disable keypad
-        enableDTMFKeypad(radioId, false);
+        enableDTMFKeypad(radioIdx, false);
         // switch focus to radio if it's not already
         deselectRadios();
-        selectRadio(radioId);
+        selectRadio(radioIdx);
         // Dial
-        startDTMF(radioId, digits, dtmfTiming.digitDuration, dtmfTiming.digitDelay);
+        startDTMF(radioIdx, digits, dtmfTiming.digitDuration, dtmfTiming.digitDelay);
     } else if (digit.includes("trash-sharp")) {
         // Clear the dialpad
         dialpad.innerHTML = "";
@@ -2363,17 +2443,21 @@ function dtmfPressed(event, obj) {
     stopClick(event, obj);
 }
 
-function enableDTMFKeypad(radioId, enabled) {
-    // Get elements
-    const radioCard = document.querySelector(`#${radioId}`);
-    const digitTable = radioCard.querySelector('.dtmf-table');
+/**
+ * Enable or disable the DTMF keypad for a radio
+ * @param idx the radio index in radios[]
+ * @param enabled whether the keypad should be enabled or disabled
+ */
+function enableDTMFKeypad(idx: number, enabled: boolean) {
+    // Get element
+    const digitTable = radios[idx].elements.card.querySelector('.dtmf-table');
     // Disable
     if (enabled) {
         console.debug("Re-enabling DTMF");
         digitTable.removeAttribute('disabled');
     } else {
         console.debug("Disabling DTMF");
-        digitTable.setAttribute('disabled', true);
+        digitTable.setAttribute('disabled', '');
     }
 }
 
@@ -2391,11 +2475,11 @@ function clearDTMFDialpad(radioId) {
 /**
  * Console alert tone generator class
  * @param {audioContext} context the audio context
- * @param {string} mode alert mode, "cont", "alt", or "pulse"
+ * @param {AlertToneMode} mode alert mode, "cont", "alt", or "pulse"
  * @param {int} freq1 primary frequency
  * @param {int} freq2 secondary frequency, not used unless in "alt" mode
  */
-function AlertTone(context, mode) {
+function AlertTone(context: AudioContext, mode: AlertToneMode) {
     this.context = context;
     this.mode = mode;
     // Used to cancel the tone period timeout callback
@@ -2411,11 +2495,11 @@ AlertTone.prototype.setup = function() {
     this.filter = this.context.createBiquadFilter();
     // Setup initial values
     switch (this.mode) {
-        case "cont":
-        case "pulse":
+        case AlertToneMode.CONTINUOUS:
+        case AlertToneMode.PULSED:
             this.osc.frequency.value = 1000;
             break;
-        case "alt":
+        case AlertToneMode.ALTERNATING:
             this.osc.frequency.value = 1500;
             break;
     }
@@ -2432,10 +2516,10 @@ AlertTone.prototype.setup = function() {
 AlertTone.prototype.timerCallback = function() {
     // behavior changes depending on mode
     switch (this.mode) {
-        case "cont":
+        case AlertToneMode.CONTINUOUS:
             // Do nothing
             break;
-        case "alt":
+        case AlertToneMode.ALTERNATING:
             // Get current osc frequency
             const curFreq = this.osc.frequency.value;
             // Change to the other one
@@ -2445,7 +2529,7 @@ AlertTone.prototype.timerCallback = function() {
                 this.osc.frequency.value = 1500;
             }
             break;
-        case "pulse":
+        case AlertToneMode.PULSED:
             // Get current gain
             const curGain = this.gain.gain.value;
             // Mute or unmute
@@ -2589,12 +2673,16 @@ function sendDigit(digit, duration, delay) {
  * @param {int} idx index of radio in radios[]
  */
 function connectRadio(idx: number): void {
+    // Get the radio
+    const radio = radios[idx];
+
     // Log
-    console.info(`Connecting to radio ${radios[idx].name}`);
+    console.info(`Connecting to radio ${radio.cfg.name}`);
     
     // Update radio connection icon
-    $(`#radio${idx} .icon-connect`).removeClass('disconnected').addClass('connecting');
-    $(`#radio${idx} .icon-connect`).parent().prop('title','Connecting to daemon');
+    radio.elements.card.querySelector(".icon-connect").classList.remove("disconnected");
+    radio.elements.card.querySelector(".icon-connect").classList.add("connecting");
+    radio.elements.card.querySelector(".icon-connect").parentElement.setAttribute("title", "Connecting to daemon");
     
     // Create audio context if we haven't already
     if (audio.context == null) {
@@ -2602,17 +2690,17 @@ function connectRadio(idx: number): void {
     }
 
     // Set up the radio
-    radios[idx].requests = new RequestTracker();
-    radios[idx].envSeq = 0;
-    radios[idx].handshakeComplete = false;
-    radios[idx].connection = new WebSocket(`ws://${radios[idx].address}:${radios[idx].port}`);
-    radios[idx].connection.binaryType = "arraybuffer";
+    radio.requests = new RequestTracker();
+    radio.envSeq = 0;
+    radio.handshakeComplete = false;
+    radio.connection = new WebSocket(`ws://${radio.cfg.address}:${radio.cfg.port}`);
+    radio.connection.binaryType = "arraybuffer";
 
     // Bind websocket callbacks
-    radios[idx].connection.onopen = () => console.log(`[${radios[idx].name}]: Connection open, waiting for Hello`);
-    radios[idx].connection.onmessage = (event) => handleEnvelope(idx, event);
-    radios[idx].connection.onclose = (event) => handleSocketClose(event, idx);
-    radios[idx].connection.onerror = (event) => handleSocketError(event, idx);
+    radio.connection.onopen = () => console.log(`[${radio.cfg.name}]: Connection open, waiting for Hello`);
+    radio.connection.onmessage = (event) => handleEnvelope(idx, event);
+    radio.connection.onclose = (event) => handleSocketClose(event, idx);
+    radio.connection.onerror = (event) => handleSocketError(event, idx);
 }
 
 /**
@@ -2620,6 +2708,7 @@ function connectRadio(idx: number): void {
  * @param {int} idx radio index in radios[]
  */
 function disconnectRadio(idx: number) : void {
+    console.info(`Disconnecting from ${radios[idx].cfg.name}`);
     radios[idx].audioReceiver?.close();
     radios[idx].connection?.close();
 }
@@ -2630,132 +2719,62 @@ function disconnectRadio(idx: number) : void {
  * @param event the MessageEvent containing the binary message
  */
 function handleEnvelope(idx: number, event: MessageEvent): void {
+    // Get the radio
+    const radio = radios[idx];
+
     // Decode to an envelope
     const env = Envelope.decode(new Uint8Array(event.data));
 
     // Handle a hello first
     if (env.control?.hello) {
+        console.debug(`[${radio.cfg.name}] Got Hello`);
+        console.debug(env.control.hello);
         // Parse the hello and get the result
         const { result, ack } = handleHello(env.control.hello);
         // Send the ack back to the radio
         sendEnvelope(idx, { control: { helloAck: ack } } );
         // If the hello wasn't accepted, throw an error
         if (!result.accepted) {
-            console.error(`[${radios[idx].name}]: ${result.reason}`);
+            console.error(`[${radio.cfg.name}]: ${result.reason}`);
+            disconnectRadio(idx);
+        } else {
+            // We are handshook
+            radio.handshakeComplete = true;
+            // Radio is connected
+            radioConnected(idx);
         }
-        // Either way, we completed the handshake
-        radios[idx].handshakeComplete = true;
         return;
     }
 
     // If we haven't completed the handshake yet, ignore all other messages
-    if (!radios[idx].handshakeComplete) return;
+    if (!radio.handshakeComplete) return;
 
     // Next, handle all the control messages
     // Radio status
     if (env.control?.radioStatus) {
+        console.debug(`[${radio.cfg.name}] Got new radio status`)
+        console.debug(env.control.radioStatus);
         // Call status handler
-        radios[idx].requests.onStatus(env.control.radioStatus.state);
+        radio.requests.onStatus(env.control.radioStatus.state);
         // Update radio status
-        radios[idx].status = env.control.radioStatus;
+        radio.status = env.control.radioStatus;
         // Fire the UI update functions
         updateRadioCard(idx);
         updateRadioControls();
         exUpdateRadio(idx);
     // ACK to a message
     } else if (env.control?.ack) {
-        radios[idx].requests.resolve(env.control.ack.requestId);
+        radio.requests.resolve(env.control.ack.requestId);
+        // If it was an ACK to a button release, play the button sound if enabled
+        if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE && config.audio.buttonSounds) {
+            playSound('sound-click');
+        } 
     // NACK to a message
     } else if (env.control?.nack) {
-        radios[idx].requests.reject(env.control.nack.requestId, env.control.nack.reason);
+        radio.requests.reject(env.control.nack.requestId, env.control.nack.reason);
     // Respond to ping with a pong
     } else if (env.control?.ping) {
         sendEnvelope(idx, { control: { pong: { nonce: env.control.ping.nonce } } });
-    }
-
-    // Convert to JSON
-    var msgObj;
-    try {
-        msgObj = JSON.parse(event.data);
-    } catch (e) {
-        console.warn(`[${radios[idx].name}]: Got invalid data websocket:`, event.data);
-        console.warn(e);
-        return;
-    }
-
-    // Iterate through each message and its data (normally we'd only get one at a time, but I suppose you could get more than one)
-    for (const [key, value] of Object.entries(msgObj)) {
-        // Handle message data based on key type
-        switch (key) {
-            // Radio status update
-            case "status":
-                // get status data
-                var radioStatus = msgObj['status'];
-                // Debug
-                console.debug(`[${radios[idx].name}]: Got status update:`, radioStatus);
-                // Update radio entry
-                radios[idx].status = radioStatus;
-                // Update radio card
-                updateRadioCard(idx);
-                // Update bottom controls
-                updateRadioControls();
-                // Update radio mute status
-                updateAudio(idx);
-                // Send extension update
-                exUpdateRadio(idx);
-                break;
-
-            // WebRTC SDP answer
-            case "webRtcAnswer":
-                // get params
-                answerType = value['type'];
-                answerSdp = value['sdp'];
-                gotRtcResponse(idx,answerType,answerSdp);
-                break;
-
-            // Speaker audio data
-            case "audioData":
-                // make sure it's actually speaker data
-                if (value['source'] != "speaker") {
-                    break;
-                }
-                // Process it
-                getSpkrData(value['data']);
-                break;
-
-            // ACK handler
-            case "ack":
-                switch (value) {
-                    case "startTx":
-                        // Unmute mic after timeout, if requested
-                        if (txUnmuteMic) {
-                            setTimeout( unmuteMic, audio.micUnmuteDelay);
-                            txUnmuteMic = false;
-                        }
-                        // Play TPT
-                        playSound("sound-ptt");
-                        break;
-                    case "stopTx":
-                        playSound("sound-ptt-end");
-                        break;
-                    case "chanDn":
-                    case "chanUp":
-                    //case "buttonPress":
-                    case "buttonRelease":
-                    case "buttonToggle":
-                        if (config.Audio.ButtonSounds) {
-                            playSound("sound-click");
-                        }
-                        break;
-                }
-                break;
-
-            // NACK handler
-            case "nack":
-                console.error("Got NACK from server");
-                playSound("sound-error")
-                break;
-        }
     }
 }
 
@@ -2764,24 +2783,21 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
  * @param {event} event socket closed event
  * @param {int} idx index of radio in radios[]
  */
-function handleSocketClose(event, idx) {
+function handleSocketClose(event: CloseEvent, idx: number) {
+    // Get radio
+    const radio = radios[idx];
+    
     // Console warning
-    console.warn(`Websocket connection closed to ${radios[idx].name}`);
+    console.warn(`Websocket connection closed to ${radio.cfg.name}`);
     console.debug(event);
-    if (event.data) {console.warn(event.data);}
+    if (event.reason) {console.warn(event.reason);}
 
-    // Cleanup
-    if (radios[idx].rtc != null) {
-        stopWebRtc(idx);
-    }
-    radios[idx].wsConn = null;
-    radios[idx].status.State = 'Disconnected';
-
-    // UI Update
-    $(`#radio${idx} .icon-connect`).removeClass('connected');
-    $(`#radio${idx} .icon-connect`).removeClass('connecting');
-    $(`#radio${idx} .icon-connect`).addClass('disconnected');
-    $(`#radio${idx} .icon-connect`).parent().prop('title','Disconnected');
+    // UI update
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
+    connectIcon.classList.remove('connected');
+    connectIcon.classList.remove('connecting');
+    connectIcon.classList.add('disconnected');
+    connectIcon.parentElement.setAttribute("title", "Disconnected");
     updateRadioCard(idx);
 
     // If no more radios connected, set master connect button to disconnected and close serial port
@@ -2803,34 +2819,28 @@ function handleSocketError(event, idx) {
     console.error(event);
 }
 
-function restartRadio(event, obj) {
-    // Stop propagation of click
-    event.stopPropagation();
+/**
+ * Restart the radio connection
+ * @param idx the index of the radio in radios[]
+ */
+function restartButton(idx: number) {
+    const radio = radios[idx];
     // Get raido index
-    const radioId = $(obj).closest(".radio-card").attr('id');
-    console.log(`Restarting radio ${radioId}`);
-    // Get index of radio in list
-    const idx = getRadioIndex(radioId);
+    console.log(`Restarting radio ${radio.cfg.name}`);
     // Stop PTT if running
-    if (radios[idx].status.State == "Transmitting" || selectedRadioIdx == idx) {
+    if (radios[idx].status.state == RadioState.TRANSMITTING || selectedRadioIdx == idx) {
         console.info("Stopping PTT and deslecting radio");
         stopPtt();
         deselectRadios();
     }
     // Send reset command to radio
     console.info("Sending reset command");
-    radios[idx].wsConn.send(JSON.stringify(
-        {
-            "radio": {
-                "command": "reset"
-            }
-        }
-    ));
+    sendRadioCommand(idx, RadioCommandType.RESET);
     // Disconnect and reconnect
     disconnectRadio(idx);
     setTimeout(() => {
         connectRadio(idx);
-    }, 500);
+    }, 1000);
 }
 
 /***********************************************************************************
