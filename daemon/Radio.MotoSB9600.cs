@@ -80,7 +80,8 @@ namespace moto_sb9600
             // Parse the softkey config dict into the correct SoftkeyName mappings
             foreach (KeyValuePair<ControlHeads.ButtonName, string> binding in sb9600Config.SoftkeyBindings)
             {
-                softkeyBindings.Add(binding.Key, ConfigMapping.GetSoftkeyName(binding.Value));
+                if (binding.Value != null)
+                    softkeyBindings.Add(binding.Key, ConfigMapping.GetSoftkeyName(binding.Value));
             }
             // Init SB9600
             sb9600 = new SB9600(sb9600Config, this);
