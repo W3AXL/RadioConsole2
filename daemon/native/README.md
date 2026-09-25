@@ -1,0 +1,1 @@
+Generated rtaudio libraries for linux/win/macOSX will be built using the included `build-rtaudio` workflow and stored here, included with the repo and any releases
