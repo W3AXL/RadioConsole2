@@ -1,0 +1,37 @@
+name: Build RtAudio natives
+on: workflow_dispatch
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt-get update && sudo apt-get install -y libpulse-dev libasound2-dev libjack-jackd2-dev cmake
+      - uses: actions/checkout@v4
+        with: { repository: thestk/rtaudio, path: rtaudio }
+      - run: |
+          cmake -B rtaudio/build -S rtaudio -DRTAUDIO_BUILD_SHARED_LIBS=ON -DRTAUDIO_API_PULSE=ON -DRTAUDIO_API_ALSA=ON -DRTAUDIO_API_JACK=ON
+          cmake --build rtaudio/build
+      - uses: actions/upload-artifact@v4
+        with: { name: librtaudio-linux-x64, path: rtaudio/build/librtaudio.so }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: thestk/rtaudio, path: rtaudio }
+      - run: |
+          cmake -B rtaudio/build -S rtaudio -DRTAUDIO_BUILD_SHARED_LIBS=ON -DRTAUDIO_API_WASAPI=ON
+          cmake --build rtaudio/build --config Release
+      - uses: actions/upload-artifact@v4
+        with: { name: rtaudio-win-x64, path: rtaudio/build/Release/rtaudio.dll }
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: thestk/rtaudio, path: rtaudio }
+      - run: |
+          cmake -B rtaudio/build -S rtaudio -DRTAUDIO_BUILD_SHARED_LIBS=ON -DRTAUDIO_API_CORE=ON
+          cmake --build rtaudio/build
+      - uses: actions/upload-artifact@v4
+        with: { name: librtaudio-osx, path: rtaudio/build/librtaudio.dylib }
