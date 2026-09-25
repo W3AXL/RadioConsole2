@@ -1,5 +1,7 @@
 name: Build RtAudio natives
-on: workflow_dispatch
+on: 
+  workflow_dispatch:
+  push:
 
 jobs:
   linux:
