@@ -50,6 +50,14 @@ namespace netcore_cli
         // Main Program Entry
         static async Task<int> Main(string[] args)
         {
+            // Minimal logger we create at startup so that list-audio (and any future convenience commands) can properly print
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.ControlledBy(loggerSwitch)
+                .WriteTo.Console(
+                    outputTemplate: "[{Timestamp:HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
+                .CreateLogger();
+
             /*
              * Command Line Argument Handling
             */
@@ -267,7 +275,7 @@ namespace netcore_cli
         /// </summary>
         static void ListAudioDeices()
         {
-            Log.Information("Displaying available audio devices");
+            Log.Logger.Information("Displaying available audio devices");
 
             // Enumerate
             List<string> inputs = Audio.GetInputDeviceNames();
@@ -275,27 +283,27 @@ namespace netcore_cli
 
             if ((inputs == null) || (inputs.Count == 0))
             {
-                Log.Error("No audio inputs detected!");
+                Log.Logger.Error("No audio inputs detected!");
             }
             else
             {
-                Log.Information("Available audio input devices:");
+                Log.Logger.Information("Available audio input devices:");
                 for (int i = 0; i < inputs.Count; i++)
                 {
-                    Log.Information("    {Index}: {Name}", i, inputs[i]);
+                    Log.Logger.Information("    {Index}: {Name}", i, inputs[i]);
                 }
             }
 
             if ((outputs == null) || (outputs.Count == 0))
             {
-                Log.Error("No audio outputs detected!");
+                Log.Logger.Error("No audio outputs detected!");
             }
             else
             {
-                Log.Information("Available audio output devices");
+                Log.Logger.Information("Available audio output devices");
                 for (int i=0; i < outputs.Count; i++)
                 {
-                    Log.Information("    {Index}: {Name}", i, outputs[i]);
+                    Log.Logger.Information("    {Index}: {Name}", i, outputs[i]);
                 }
             }
         }

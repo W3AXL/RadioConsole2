@@ -3,9 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using PortAudioSharp;
 using Serilog;
-using rc2_core; // for PcmRingBuffer — shared with AudioBridge's identical TX buffering problem
+using rc2_core;
+using Google.Protobuf;
+using System.Runtime.InteropServices.Marshalling;
 
 namespace daemon
 {
@@ -16,67 +17,67 @@ namespace daemon
     internal static class Audio
     {
         /// <summary>
-        /// Whether PortAudio has been initialized or not
-        /// </summary>
-        private static bool initialized = false;
-
-        /// <summary>
-        /// Ensures that PortAudio is initialized, returns if it already is
-        /// </summary>
-        public static void EnsureInitialized()
-        {
-            if (initialized) return;
-            PortAudio.Initialize();
-            initialized = true;
-        }
-
-        /// <summary>
-        /// Get a list of input device names for use with PortAudio
+        /// Get list of available input device names
         /// </summary>
         /// <returns></returns>
-        public static List<string> GetInputDeviceNames()
-        {
-            EnsureInitialized();
-            var names = new List<string>();
-            for (int i = 0; i < PortAudio.DeviceCount; i++)
-            {
-                var info = PortAudio.GetDeviceInfo(i);
-                if (info.maxInputChannels > 0) names.Add(info.name);
-            }
-            return names;
-        }
-
+        public static List<string> GetInputDeviceNames() => Enumerate().inputs;
         /// <summary>
-        /// Get a list of output device names for use with PortAudio
+        /// Get list of available output device names
         /// </summary>
         /// <returns></returns>
-        public static List<string> GetOutputDeviceNames()
-        {
-            EnsureInitialized();
-            var names = new List<string>();
-            for (int i = 0; i < PortAudio.DeviceCount; i++)
-            {
-                var info = PortAudio.GetDeviceInfo(i);
-                if (info.maxOutputChannels > 0) names.Add(info.name);
-            }
-            return names;
-        }
-
+        public static List<string> GetOutputDeviceNames() => Enumerate().outputs;
+ 
         /// <summary>
-        /// Check if the given input device name exists in the list of input devices
+        /// Check if the specified input exists in the list of valid inputs
         /// </summary>
         /// <param name="inputName"></param>
         /// <returns></returns>
         public static bool CheckInputExists(string inputName) =>
             GetInputDeviceNames().Any(n => n.Contains(inputName, StringComparison.OrdinalIgnoreCase));
-
+ 
         /// <summary>
-        /// Check if the given output device name exists in the list of output devices
+        /// Check if the specified output exists in the list of valid outputs
         /// </summary>
         /// <param name="outputName"></param>
         /// <returns></returns>
         public static bool CheckOutputExists(string outputName) =>
             GetOutputDeviceNames().Any(n => n.Contains(outputName, StringComparison.OrdinalIgnoreCase));
+ 
+        /// <summary>
+        /// Enumerate all available sound devices presented to RtAudio
+        /// </summary>
+        /// <returns></returns>
+        private static (List<string> inputs, List<string> outputs) Enumerate()
+        {
+            var inputs = new List<string>();
+            var outputs = new List<string>();
+ 
+            IntPtr audio = RtAudioNative.CreateAudioInstance();
+            if (audio == IntPtr.Zero)
+            {
+                Log.Logger.Error("Failed to create RtAudio instance for device enumeration");
+                return (inputs, outputs);
+            }
+
+            try
+            {
+                RtAudioNative.rtaudio_show_warnings(audio, 0);
+                int count = RtAudioNative.rtaudio_device_count(audio);
+                for (int i = 0; i < count; i++)
+                {
+                    uint id = RtAudioNative.rtaudio_get_device_id(audio, i);
+                    var info = RtAudioNative.Device.Get(audio, id);
+                    if (info.InputChannels > 0) inputs.Add(info.Name);
+                    if (info.OutputChannels > 0) outputs.Add(info.Name);
+                }
+            }
+            finally
+            {
+                RtAudioNative.rtaudio_destroy(audio);
+            }
+ 
+            return (inputs, outputs);
+        }
     }
 
     /// <summary>
@@ -102,18 +103,19 @@ namespace daemon
         private readonly bool rxOnly;
 
         /// <summary>
-        /// RX audio stream from PortAudio
+        /// Pointer to the RTAudio handle
         /// </summary>
-        private PortAudioSharp.Stream rxStream;
-        /// <summary>
-        /// TX audio stream from PortAudio
-        /// </summary>
-        private PortAudioSharp.Stream txStream;
+        private IntPtr audioHandle = IntPtr.Zero;
 
         /// <summary>
         /// The ringbuffer for storing outgoing TX audio
         /// </summary>
         private PcmRingBuffer txRing;
+
+        /// <summary>
+        /// Callback for RTAudio
+        /// </summary>
+        private RtAudioNative.AudioCallback nativeCallback;
 
         /// <summary>Raised whenever a block of captured PCM16 samples is
         /// available from the RX (input) device. Wire this to
@@ -132,9 +134,6 @@ namespace daemon
         /// <param name="rxOnly">Skip opening a TX stream entirely if true.</param>
         public LocalAudio(string rxDevice, string txDevice, int sampleRate, bool rxOnly = false)
         {
-            // Ensure PortAudio is initialized
-            Audio.EnsureInitialized();
-
             // Save the device information
             rxDeviceName = rxDevice;
             txDeviceName = txDevice;
@@ -153,21 +152,79 @@ namespace daemon
         }
 
         /// <summary>
-        /// Open and start the audio streams to/from the devices
+        /// Open and start the duplex RtAudio stream
         /// </summary>
         public void Start()
         {
-            int rxIndex = FindDevice(rxDeviceName, forInput: true);
-            rxStream = OpenInputStream(rxIndex);
-            rxStream.Start();
-            Log.Logger.Debug("Started RX audio stream on device {index} @ {rate}Hz", rxIndex, sampleRate);
+            // Create a new handle
+            audioHandle = RtAudioNative.rtaudio_create(RtAudioNative.RTAUDIO_API_UNSPECIFIED);
+            // Make sure we got it
+            if (audioHandle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("Failed to create RtAudio instance!");
+            }
+            // Disable warning prints
+            RtAudioNative.rtaudio_show_warnings(audioHandle, 0);
 
+            // Get RX device ID
+            uint rxId = FindDevice(rxDeviceName, forInput: true);
+            // Prepare the RX stream options and store them in a pointer for use directly
+            RtAudioNative.StreamParameters inputParams = new RtAudioNative.StreamParameters { device_id = rxId, num_channels = 1, first_channel = 0};
+            IntPtr pInputParams = Marshal.AllocHGlobal(Marshal.SizeOf<RtAudioNative.StreamParameters>());
+            Marshal.StructureToPtr(inputParams, pInputParams, false);
+            
+            IntPtr pOutputParams = Marshal.AllocHGlobal(Marshal.SizeOf<RtAudioNative.StreamParameters>());
+            // Do the same for tx, if we're not RX only
             if (!rxOnly)
             {
-                int txIndex = FindDevice(txDeviceName, forInput: false);
-                txStream = OpenOutputStream(txIndex);
-                txStream.Start();
-                Log.Logger.Debug("Started TX audio stream on device {index} @ {rate}Hz", txIndex, sampleRate);
+                uint txId = FindDevice(txDeviceName, forInput: false);
+                RtAudioNative.StreamParameters outputParams = new RtAudioNative.StreamParameters { device_id = txId, num_channels = 1, first_channel = 0 };
+                Marshal.StructureToPtr(outputParams, pOutputParams, false);
+            }
+
+            // Set up the audio callback (don't += here since we need it to stay mapped as long as the native library is alive)
+            nativeCallback = OnAudioCallback;
+
+            // Starting buffer size for RtAudio, 10ms @ 48kHz
+            uint bufferFrames = 480;
+
+            try
+            {
+                int result = RtAudioNative.rtaudio_open_stream(
+                    audioHandle,
+                    pOutputParams,
+                    pInputParams,
+                    RtAudioNative.RTAUDIO_FORMAT_SINT16,
+                    (uint)sampleRate,
+                    ref bufferFrames,
+                    nativeCallback,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero
+                );
+
+                if (result != 0)
+                {
+                    string err = Marshal.PtrToStringAnsi(RtAudioNative.rtaudio_error(audioHandle));
+                    throw new InvalidOperationException($"Failed to open RtAudio stream: {err}");
+                }
+            }
+            finally
+            {
+                // Free our native audio handles regardless of what happened
+                if (pInputParams != IntPtr.Zero) Marshal.FreeHGlobal(pInputParams);
+                if (pOutputParams != IntPtr.Zero) Marshal.FreeHGlobal(pOutputParams);
+            }
+
+            Log.Logger.Debug("Opened RtAudio duplex stream at {rate} Hz, {frames}-frame buffer", sampleRate, bufferFrames);
+
+            // Start the stream
+            int startResult = RtAudioNative.rtaudio_start_stream(audioHandle);
+            // Check if it worked
+            if (startResult != 0)
+            {
+                string err = Marshal.PtrToStringAnsi(RtAudioNative.rtaudio_error(audioHandle));
+                throw new InvalidOperationException($"Failed to start RtAudio stream: {err}");
             }
         }
 
@@ -177,88 +234,80 @@ namespace daemon
         /// <returns></returns>
         public Task Stop()
         {
-            rxStream?.Stop();
-            rxStream?.Dispose();
-            if (!rxOnly)
+            // Clean up RtAudio if we still have a handle
+            if (audioHandle != IntPtr.Zero)
             {
-                txStream?.Stop();
-                txStream?.Dispose();
+                RtAudioNative.rtaudio_stop_stream(audioHandle);
+                RtAudioNative.rtaudio_close_stream(audioHandle);
+                RtAudioNative.rtaudio_destroy(audioHandle);
+                audioHandle = IntPtr.Zero;
             }
-            Log.Logger.Debug("Local audio devices stopped");
+            Log.Logger.Debug("Local audio device stopped");
             return Task.CompletedTask;
         }
 
-        private static int FindDevice(string nameSubstring, bool forInput)
+        /// <summary>
+        /// Find an audio device with the given name
+        /// </summary>
+        /// <param name="nameSubstring">the device name</param>
+        /// <param name="forInput">whether the device is an input or output</param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException">thrown if no device matching the name exists</exception>
+        private uint FindDevice(string nameSubstring, bool forInput)
         {
             if (string.IsNullOrEmpty(nameSubstring))
             {
-                return forInput ? PortAudio.DefaultInputDevice : PortAudio.DefaultOutputDevice;
+                return forInput
+                    ? RtAudioNative.rtaudio_get_default_input_device(audioHandle)
+                    : RtAudioNative.rtaudio_get_default_output_device(audioHandle);
             }
-            for (int i = 0; i < PortAudio.DeviceCount; i++)
+ 
+            int count = RtAudioNative.rtaudio_device_count(audioHandle);
+            for (int i = 0; i < count; i++)
             {
-                var info = PortAudio.GetDeviceInfo(i);
-                bool candidate = forInput ? info.maxInputChannels > 0 : info.maxOutputChannels > 0;
-                if (candidate && info.name.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase))
+                uint id = RtAudioNative.rtaudio_get_device_id(audioHandle, i);
+                var info = RtAudioNative.Device.Get(audioHandle, id);
+                bool candidate = forInput ? info.InputChannels > 0 : info.OutputChannels > 0;
+                if (candidate && info.Name.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase))
                 {
-                    return i;
+                    Log.Logger.Information("Matched {direction} device '{name}' for query '{query}'",
+                        forInput ? "input" : "output", info.Name, nameSubstring);
+                    return id;
                 }
             }
-            Log.Logger.Warning("No {direction} device matched '{query}', falling back to system default",
-                forInput ? "input" : "output", nameSubstring);
-            return forInput ? PortAudio.DefaultInputDevice : PortAudio.DefaultOutputDevice;
+
+            // Throw an exception if we didn't find the device
+            throw new ArgumentException($"Could not find {(forInput ? "input" : "output")} device by name {nameSubstring}");
         }
 
-        private PortAudioSharp.Stream OpenInputStream(int deviceIndex)
+        /// <summary>
+        /// Callback for handling audio to/from RtAudio
+        /// </summary>
+        /// <param name="output">pointer to output frames to put samples into</param>
+        /// <param name="input">pointer to get input frames from</param>
+        /// <param name="nFrames">number of frames to process, same for input & output</param>
+        /// <param name="streamTime"></param>
+        /// <param name="status"></param>
+        /// <param name="userData"></param>
+        /// <returns></returns>
+        private int OnAudioCallback(IntPtr output, IntPtr input, uint nFrames, double streamTime, uint status, IntPtr userData)
         {
-            var parameters = new StreamParameters
+            // If we have an input pointer, copy samples
+            if (input != IntPtr.Zero)
             {
-                device = deviceIndex,
-                channelCount = 1,
-                sampleFormat = SampleFormat.Int16,
-                suggestedLatency = PortAudio.GetDeviceInfo(deviceIndex).defaultLowInputLatency,
-            };
-            return new PortAudioSharp.Stream(
-                inParams: parameters, outParams: null,
-                sampleRate: sampleRate, framesPerBuffer: 480,
-                streamFlags: StreamFlags.NoFlag,
-                callback: OnInputCallback, userData: IntPtr.Zero);
-        }
-
-        private PortAudioSharp.Stream OpenOutputStream(int deviceIndex)
-        {
-            var parameters = new StreamParameters
+                short[] samples = new short[nFrames];
+                Marshal.Copy(input, samples, 0, (int)nFrames);
+                RxAudioAvailable?.Invoke(samples, (uint)sampleRate);
+            }
+            // Same for the output pointer
+            if (output != IntPtr.Zero)
             {
-                device = deviceIndex,
-                channelCount = 1,
-                sampleFormat = SampleFormat.Int16,
-                suggestedLatency = PortAudio.GetDeviceInfo(deviceIndex).defaultLowOutputLatency,
-            };
-            return new PortAudioSharp.Stream(
-                inParams: null, outParams: parameters,
-                sampleRate: sampleRate, framesPerBuffer: 480,
-                streamFlags: StreamFlags.NoFlag,
-                callback: OnOutputCallback, userData: IntPtr.Zero);
-        }
-
-        // Runs on PortAudio's real-time audio thread — kept minimal.
-        private StreamCallbackResult OnInputCallback(
-            IntPtr input, IntPtr output, uint frameCount,
-            ref StreamCallbackTimeInfo timeInfo, StreamCallbackFlags statusFlags, IntPtr userData)
-        {
-            short[] samples = new short[frameCount];
-            Marshal.Copy(input, samples, 0, (int)frameCount);
-            RxAudioAvailable?.Invoke(samples, (uint)sampleRate);
-            return StreamCallbackResult.Continue;
-        }
-
-        private StreamCallbackResult OnOutputCallback(
-            IntPtr input, IntPtr output, uint frameCount,
-            ref StreamCallbackTimeInfo timeInfo, StreamCallbackFlags statusFlags, IntPtr userData)
-        {
-            short[] buffer = new short[frameCount];
-            txRing.Read(buffer); // silence-fills on underrun — see PcmRingBuffer
-            Marshal.Copy(buffer, 0, output, (int)frameCount);
-            return StreamCallbackResult.Continue;
+                short[] buffer = new short[nFrames];
+                txRing.Read(buffer); // PcmRingBuffer fills silence on underrun
+                Marshal.Copy(buffer, 0, output, (int)nFrames);
+            }
+            // We return 0 to indicate the stream should continue
+            return 0;
         }
 
         /// <summary>
