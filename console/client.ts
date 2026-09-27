@@ -2766,8 +2766,12 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
     } else if (env.control?.ack) {
         radio.requests.resolve(env.control.ack.requestId);
         // If it was an ACK to a button release, play the button sound if enabled
-        if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE && config.audio.buttonSounds) {
-            playSound('sound-click');
+        if (config.audio.buttonSounds) {
+            if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE || 
+                env.control.ack.inResponseTo == RadioCommandType.CHAN_DOWN ||
+                env.control.ack.inResponseTo == RadioCommandType.CHAN_UP) {
+                    playSound('sound-click');
+                }
         } 
     // NACK to a message
     } else if (env.control?.nack) {
