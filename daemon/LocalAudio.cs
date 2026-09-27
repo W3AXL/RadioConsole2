@@ -157,7 +157,7 @@ namespace daemon
         public void Start()
         {
             // Create a new handle
-            audioHandle = RtAudioNative.rtaudio_create(RtAudioNative.RTAUDIO_API_UNSPECIFIED);
+            audioHandle = RtAudioNative.CreateAudioInstance();
             // Make sure we got it
             if (audioHandle == IntPtr.Zero)
             {
@@ -167,7 +167,7 @@ namespace daemon
             RtAudioNative.rtaudio_show_warnings(audioHandle, 0);
 
             // Get RX device ID
-            uint rxId = FindDevice(rxDeviceName, forInput: true);
+            uint rxId = FindDevice(rxDeviceName.Trim(), forInput: true);
             // Prepare the RX stream options and store them in a pointer for use directly
             RtAudioNative.StreamParameters inputParams = new RtAudioNative.StreamParameters { device_id = rxId, num_channels = 1, first_channel = 0};
             IntPtr pInputParams = Marshal.AllocHGlobal(Marshal.SizeOf<RtAudioNative.StreamParameters>());
@@ -177,7 +177,7 @@ namespace daemon
             // Do the same for tx, if we're not RX only
             if (!rxOnly)
             {
-                uint txId = FindDevice(txDeviceName, forInput: false);
+                uint txId = FindDevice(txDeviceName.Trim(), forInput: false);
                 RtAudioNative.StreamParameters outputParams = new RtAudioNative.StreamParameters { device_id = txId, num_channels = 1, first_channel = 0 };
                 Marshal.StructureToPtr(outputParams, pOutputParams, false);
             }
@@ -255,13 +255,6 @@ namespace daemon
         /// <exception cref="ArgumentException">thrown if no device matching the name exists</exception>
         private uint FindDevice(string nameSubstring, bool forInput)
         {
-            if (string.IsNullOrEmpty(nameSubstring))
-            {
-                return forInput
-                    ? RtAudioNative.rtaudio_get_default_input_device(audioHandle)
-                    : RtAudioNative.rtaudio_get_default_output_device(audioHandle);
-            }
- 
             int count = RtAudioNative.rtaudio_device_count(audioHandle);
             for (int i = 0; i < count; i++)
             {
