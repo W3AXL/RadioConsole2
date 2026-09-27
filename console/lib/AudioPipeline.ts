@@ -309,9 +309,14 @@ export class MicCaptureManager {
      * Teardown the audio encoder and node
      */
     private _teardown(): void {
+        // Ensure we disconnect the connection on teardown
+        if (this.node) {
+            this.node.port.onmessage = null;
+            this.micSourceNode.disconnect(this.node);
+            this.node.disconnect();
+        }
         this.encoder?.close();
         this.encoder = null;
-        this.node?.disconnect();
         this.node = null;
         this.sequence = 0;
     }

@@ -43,9 +43,9 @@ export function handleHello(hello: Hello): { result: HandshakeResult; ack: Hello
     }
 
     // Validate samplerate matches what we're configured for
-    if (hello.rxSampleRateHz !== 0 && hello.rxSampleRateHz !== SHARED_MIC_SAMPLE_RATE_HZ) {
+    if (hello.txSampleRateHz !== 0 && hello.txSampleRateHz !== SHARED_MIC_SAMPLE_RATE_HZ) {
         return reject(
-            `Daemon requested mic sample rate ${hello.rxSampleRateHz}Hz, but this console's ` +
+            `Daemon requested mic sample rate ${hello.txSampleRateHz}Hz, but this console's ` +
             `shared mic encoder is fixed at ${SHARED_MIC_SAMPLE_RATE_HZ}Hz`
         );
     }

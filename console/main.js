@@ -204,6 +204,14 @@ function openMidiPort(port)
     }
 }
 
+function closeMidiPort()
+{
+    if (midiInput && midiInput.isPortOpen()) {
+        midiInput.closePort();
+        midiInput = null;
+    }
+}
+
 function midiMessageHandler(deltaTime, message)
 {
     // Decode
@@ -262,6 +270,8 @@ async function createMainWindow() {
 
     // Handle window closing
     mainWindow.on('closed', () => {
+        closeSerialPort();
+        closeMidiPort();
         mainWindow = null;
     })
 
