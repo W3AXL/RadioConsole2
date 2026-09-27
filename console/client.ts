@@ -100,6 +100,7 @@ interface Radio {
     envSeq: number,
     audioReceiver?: RadioAudioReceiver,
     audioSource?: RadioAudioSource,
+    pendingMuteTimeout: NodeJS.Timeout,
     elements: RadioHtmlElements
 }
 
@@ -153,7 +154,8 @@ interface Audio {
     alert?: AlertToneGenerator,
     lowpassCutoff: number,
     micUnmuteDelay: number,
-    micMuteDelay: number 
+    micMuteDelay: number,
+    rxMuteDelay: number
 }
 
 // Overall audio config/storage variable
@@ -183,7 +185,9 @@ var audio : Audio = {
     // Delay for unmuting microphone after PTT (for ignoring the TPT tone)
     micUnmuteDelay: 450,
     // Delay for muting the mic after PTT is released (to account for PC audio latency)
-    micMuteDelay: 100
+    micMuteDelay: 100,
+    // Delay for muting radio RX audio at the end of a call
+    rxMuteDelay: 200
 }
 
 const userMediaSettings = {
@@ -362,10 +366,10 @@ function bindStaticEvents() {
     document.querySelector("#alert2").addEventListener('mouseup', () => { stopAlert(); });
     document.querySelector("#alert3").addEventListener('mouseup', () => { stopAlert(); });
     // Popup buttons
-    document.querySelector(".btn-popup-close").addEventListener('click', (event) => {closePopup(event.target); });
+    document.querySelector(".btn-popup-close").addEventListener('click', (event) => {closePopup(event.currentTarget as HTMLElement); });
     document.querySelector(".btn-save-config").addEventListener('click', saveConfig);
     // Dimmed background click event
-    document.querySelector("#body-dimmer").addEventListener('click', closePopup);
+    document.querySelector<HTMLDivElement>("#body-dimmer").addEventListener('click', () => { closePopup(null) });
     // Menu sidebar button
     document.querySelector("#btn-mainmenu").addEventListener('click', toggleMainMenu);
     // Edit radios button
@@ -388,10 +392,6 @@ function bindStaticEvents() {
     });
     document.querySelector("#btn-sidebar-cfg-periph").addEventListener('click', () => {
         showPeriphConfig();
-        toggleMainMenu();
-    });
-    document.querySelector("#btn-sidebar-cfg-midi").addEventListener('click', () => {
-        showMidiConfig();
         toggleMainMenu();
     });
     document.querySelector("#btn-sidebar-cfg-ext").addEventListener('click', () => {
@@ -465,20 +465,20 @@ document.addEventListener("DOMContentLoaded", () => {
     Peripheral Functions
 ***********************************************************************************/
 
-// We save the CTS state so we only trigger PTT start/stop on state change
-var lastCtsState = false;
+// We save the last serialPTT status so we only start/stop on change
+var serialPttStatus: boolean = false;
 
 // Show the peripheral config window
 async function showPeriphConfig() {
     // Show the window
-    const result = await window.electronAPI.showPeriphConfig(config.peripherals.serial);
+    const result = await window.electronAPI.showPeriphConfig(config.peripherals);
 }
 
 // Peripheral config save
 window.electronAPI.savePeriphConfig((event, data) => {
     console.debug("Received new peripheral config");
     console.debug(data);
-    config.Peripherals = data.Peripherals;
+    config.peripherals = data.peripherals;
     saveConfig();
 });
 
@@ -486,56 +486,57 @@ window.electronAPI.savePeriphConfig((event, data) => {
 window.electronAPI.serialPortStatus((event, status) => {
     // Handle PTT if enabled
     if (config.peripherals.serial.enabled) {
-        // TODO: update the logic here for the new config format
-        return;
-        // Ignore if state hasn't changed
-        if (status.cts == lastCtsState)
+        var newStatus : boolean | null = null;
+        switch (config.peripherals.serial.pttLine)
         {
-            return;
+            case Cfg.SerialControlInput.CTS:
+                newStatus = status.cts;
+                break;
+            case Cfg.SerialControlInput.DCD:
+                newStatus = status.dcd;
+                break;
+            case Cfg.SerialControlInput.DSR:
+                newStatus = status.dsr;
+                break;
+            case Cfg.SerialControlInput.RI:
+                newStatus = status.ri;
+                break;
         }
-        // Start if we need to
-        if (status.cts && !pttActive)
-        {
-            console.debug("Serial port CTS triggering PTT");
-            startPtt(true);
+        // If we got a status, check against the current
+        if (newStatus) {
+            // If nothing has changed, return
+            if (newStatus == serialPttStatus) {
+                return;
+            }
+            // Start TX if we're not already
+            if (newStatus && !pttActive) {
+                console.debug(`Serial port ${config.peripherals.serial.pttLine} triggering PTT`);
+                startPtt(true);
+            }
+            // Handle alert tone override
+            else if (newStatus && pttActive && alertTonesInProgress) {
+                startPtt(false);
+            }
+            // Stop
+            else if (!newStatus && pttActive) {
+                console.debug(`Serial port ${config.peripherals.serial.pttLine} releasing PTT`);
+                stopPtt();
+            }
+            // Store new status
+            serialPttStatus = newStatus;
         }
-        // Handle alert tone PTT override case
-        else if (status.cts && pttActive && alertTonesInProgress)
-        {
-            startPtt();
-        }
-        // Stop if we need to
-        else if (!status.cts && pttActive)
-        {
-            console.debug("Serial port CTS releasing PTT");
-            stopPtt();
-        }
-        // Save this new state
-        lastCtsState = status.cts;
     }
-})
-
-/***********************************************************************************
-    Midi Functions
-***********************************************************************************/
-
-async function showMidiConfig() {
-    // If midi config doesn't exist, create it
-    if (!config.hasOwnProperty('Midi'))
-    {
-        config.Midi = defaultConfig.Midi;
-    }
-    // Show the window
-    const result = await window.electronAPI.showMidiConfig(config.Midi);
-}
+});
 
 // Handler for MIDI messages recieved
 window.electronAPI.gotMidiMessage((event, msg) => {
-    const midiConfig = config.Midi
-    //console.debug('Got midi message:');
-    //console.debug(msg);
+    const midiConfig = config.peripherals.midi;
+    // If MIDI isn't enabled, do nothing
+    if (!midiConfig.enabled) {
+        return;
+    }
     // Check master PTT
-    if (midiConfig.ccs.masterPtt.chan == msg.chan && midiConfig.ccs.masterPtt.num == msg.num)
+    if (midiConfig.masterPtt.channel == msg.chan && midiConfig.masterPtt.number == msg.num)
     {
         // handle Midi Keyup
         if (msg.type == midiMsgTypes.NOTE_ON && !pttActive)
@@ -556,7 +557,7 @@ window.electronAPI.gotMidiMessage((event, msg) => {
         }
     }
     // Check master volume
-    else if (midiConfig.ccs.masterVol.chan == msg.chan && midiConfig.ccs.masterVol.num == msg.num)
+    else if (midiConfig.masterVol.channel == msg.chan && midiConfig.masterVol.number == msg.num)
     {
         if (msg.type == midiMsgTypes.CTRL_CHANGE)
         {
@@ -566,14 +567,6 @@ window.electronAPI.gotMidiMessage((event, msg) => {
             setVolume(newVolume);
         }
     }
-});
-
-// Midi config save
-window.electronAPI.saveMidiConfig((event, data) => {
-    console.debug("Received new midi config");
-    console.debug(data);
-    config.Midi = data.Midi;
-    saveConfig();
 });
 
 /***********************************************************************************
@@ -1498,11 +1491,11 @@ function isRadioActive(idx: number) : boolean {
 function toggleMainMenu() {
     if (menuOpen) {
         document.querySelector("#sidebar-mainmenu").classList.add("sidebar-closed");
-        document.querySelector("#button-mainmenu").classList.remove("button-active");
+        document.querySelector("#btn-mainmenu").classList.remove("button-active");
         menuOpen = false;
     } else {
         document.querySelector("#sidebar-mainmenu").classList.remove("sidebar-closed");
-        document.querySelector("#button-mainmenu").classList.add("button-active");
+        document.querySelector("#btn-mainmenu").classList.add("button-active");
         menuOpen = true;
     }
 }
@@ -2188,6 +2181,9 @@ function bonk() {
 function muteRadio(idx, mute) {
     // Get radio
     const radio = radios[idx];
+    // Cancel any pending status-based mutes
+    clearPendingMute(radio);
+    // Handle mute/unmute
     if (mute) {
         console.info(`Muting radio ${radio.cfg.name}`);
         // Set audio node
@@ -2210,23 +2206,51 @@ function muteRadio(idx, mute) {
 }
 
 /**
+ * Clear any pending status-based mute timeouts for the given radio
+ * @param radio the radio to clear mute timeouts on
+ */
+function clearPendingMute(radio: Radio) {
+    if (radio.pendingMuteTimeout) {
+        clearTimeout(radio.pendingMuteTimeout);
+        radio.pendingMuteTimeout = undefined;
+    }
+}
+
+/**
  * Various audio updates for the specified radio
  */
 function updateAudio(idx) {
-    console.debug(`[${radios[idx].cfg.name}]: Updating audio settings`);
+    const radio = radios[idx];
+    console.debug(`[${radio.cfg.name}]: Updating audio settings`);
+    
     // Do nothing if audio sources aren't connected
-    if (radios[idx].audioSource == null) { 
+    if (radio.audioSource == null) { 
         console.debug(`  - Audio sources not connected, skipping`);
         return;
     }
-    // Mute if we're muted or not receiving, after the specified delay in rtc.rxLatency
-    if (radios[idx].cfg.muted || !(radios[idx].status.state === RadioState.RECEIVING || radios[idx].status.state === RadioState.ENCRYPTED)) {
-        console.debug(`  - Muting audio for radio ${radios[idx].cfg.name}`);
-        radios[idx].audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
-    // Unmute only if we're not forced muted by the client
-    } else if (!radios[idx].cfg.muted) {
-        console.debug(`  - Unmuting audio for radio ${radios[idx].cfg.name}`);
-        radios[idx].audioSource.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
+    
+    // Check if we're receiving
+    const receiving = radio.status?.state === RadioState.RECEIVING || radio.status?.state === RadioState.ENCRYPTED;
+
+    // If we're muted by the user, mute right away
+    if (radio.cfg.muted) {
+        clearPendingMute(radio);
+        console.debug(` - Force-muting radio ${radio.cfg.name}`);
+        radio.audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
+    } 
+    // If we're not receiving and the audio is not already muted, mute after an audio delay
+    else if (!receiving && radio.audioSource.muteNode.gain.value != 0) {
+        console.debug(`  - Scheduling mute for radio ${radio.cfg.name} in ${audio.rxMuteDelay} ms`);
+        radio.pendingMuteTimeout = setTimeout(() => {
+            radio.pendingMuteTimeout = undefined;
+            radio.audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
+        }, audio.rxMuteDelay);
+    }
+    // Unmute immediately otherwise
+    else {
+        clearPendingMute(radio);
+        console.debug(`  - Unmuting audio for radio ${radio.cfg.name}`);
+        radio.audioSource.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
     }
 }
 
@@ -2566,12 +2590,15 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
         updateRadioCard(idx);
         updateRadioControls();
         exUpdateRadio(idx);
+        // Update audio
+        updateAudio(idx);
     // ACK to a message
     } else if (env.control?.ack) {
         radio.requests.resolve(env.control.ack.requestId);
         // If it was an ACK to a button release, play the button sound if enabled
         if (config.audio.buttonSounds) {
-            if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE || 
+            if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE ||
+                env.control.ack.inResponseTo == RadioCommandType.BUTTON_TOGGLE ||
                 env.control.ack.inResponseTo == RadioCommandType.CHAN_DOWN ||
                 env.control.ack.inResponseTo == RadioCommandType.CHAN_UP) {
                     playSound('sound-click');
@@ -2589,6 +2616,10 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
     // NACK to a message
     } else if (env.control?.nack) {
         radio.requests.reject(env.control.nack.requestId, env.control.nack.reason);
+        // Print console error
+        console.error(`Got NACK for command ${env.control.nack.inResponseTo}: ${env.control.nack.reason}`);
+        // Play bonk
+        playSound('sound-error');
     // Respond to ping with a pong
     } else if (env.control?.ping) {
         sendEnvelope(idx, { control: { pong: { nonce: env.control.ping.nonce } } });

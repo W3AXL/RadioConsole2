@@ -14,9 +14,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeSerialPort: () => ipcRenderer.invoke('closeSerialPort'),
   // Serial port status
   serialPortStatus: (status) => ipcRenderer.on('serialPortStatus', status),
-  // Midi Window
-  showMidiConfig: (midiConfig) => ipcRenderer.invoke('showMidiConfig', midiConfig),
-  saveMidiConfig: (midiConfig) => ipcRenderer.on('saveMidiConfig', midiConfig),
   // Midi Port
   openMidiPort: (port) => ipcRenderer.invoke('openMidiPort', port),
   // Midi Message

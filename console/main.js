@@ -305,43 +305,13 @@ async function createPeriphWindow(periphConfig)
 
     // Query available serial ports
     var serialPorts = await SerialPort.list();
+    // Query available midi ports
+    var midiPorts = getMidiPorts();
     
     await periphWindow.loadFile(path.join(__dirname, "dialogs/peripherals.html"))
-        .then(() => { periphWindow.webContents.send('gotPorts', serialPorts); })
+        .then(() => { periphWindow.webContents.send('gotSerialPorts', serialPorts); })
+        .then(() => { periphWindow.webContents.send('gotMidiPorts', midiPorts); })
         .then(() => { periphWindow.webContents.send('populatePeriphConfig', periphConfig); });
-}
-
-async function createMidiWindow(midiConfig)
-{
-    // Query available midi ports
-    const ports = getMidiPorts();
-
-    if (!ports)
-    {
-        alert("No midi devices found!");
-        return null;
-    }
-
-    midiWindow = new BrowserWindow({
-        width: 512,
-        height: 272,
-        icon: 'console-icon.png',
-        autoHideMenuBar: true,
-        webPreferences: {
-            preload: path.join(__dirname, "dialogs/midi-preload.js")
-        },
-        resizable: false,
-        parent: mainWindow,
-        modal: true,
-    });
-
-    midiWindow.on('closed', () => {
-        midiWindow = null;
-    });
-
-    await midiWindow.loadFile(path.join(__dirname, "dialogs/midi.html"))
-        .then(() => { midiWindow.webContents.send('gotPorts', ports); })
-        .then(() => { midiWindow.webContents.send('populateMidiConfig', midiConfig); });
 }
 
 async function createEditRadioWindow(radioConfig)
@@ -384,29 +354,8 @@ app.on('ready', async () => {
 
     ipcMain.handle('savePeriphConfig', (event, periphConfig) => {
         // Send the data to our main window
+        console.debug("Sending new peripheral config to main window");
         mainWindow.webContents.send('savePeriphConfig', periphConfig);
-    });
-
-    // Handle creating & saving the midi config window
-    ipcMain.handle('showMidiConfig', async (event, midiConfig) => {
-        console.debug("Showing midi config window with initial data");
-        console.debug(midiConfig);
-        await createMidiWindow(midiConfig);
-    });
-
-    ipcMain.handle('saveMidiConfig', (event, midiConfig) => {
-        // Close current port
-        if (midiInput.isPortOpen())
-        {
-            midiInput.closePort()
-        }
-        // Open the new midi port if enabled
-        if (midiConfig.Midi.enabled)
-        {
-            openMidiPort(midiConfig.Midi.port);
-        }
-        // Send the data to our main window
-        mainWindow.webContents.send('saveMidiConfig', midiConfig);
     });
 
     ipcMain.handle('openMidiPort', (event, port) => {
