@@ -3,6 +3,9 @@
  */
 export class DtmfGenerator {
     
+    // Audio context
+    private context: AudioContext;
+
     // Start at DTMF 0 (941/1336 Hz)
     private _freq1: number = 941;
     private _freq2: number = 1336;
@@ -32,8 +35,8 @@ export class DtmfGenerator {
     }
 
     // The audio nodes
-    private osc1: OscillatorNode;
-    private osc2: OscillatorNode;
+    private osc1: OscillatorNode | null;
+    private osc2: OscillatorNode | null;
     private gainNode: GainNode;
     private filter: BiquadFilterNode;
 
@@ -48,20 +51,16 @@ export class DtmfGenerator {
      * @param ctx the AudioContext this generator will exist in
      */
     constructor(ctx: AudioContext) {
+        // Store context
+        this.context = ctx;
         // Setup audio
-        this.osc1 = ctx.createOscillator();
-        this.osc2 = ctx.createOscillator();
         this.gainNode = ctx.createGain();
         this.filter = ctx.createBiquadFilter();
         // Set initial values
-        this.osc1.frequency.value = this._freq1;
-        this.osc2.frequency.value = this._freq2;
         this.gainNode.gain.value = 0; // we start muted
         this.filter.type = 'lowpass';
         this.filter.frequency.value = 4000;
         // Connect internal nodes
-        this.osc1.connect(this.gainNode);
-        this.osc2.connect(this.gainNode);
         this.gainNode.connect(this.filter);
     }
 
@@ -77,10 +76,15 @@ export class DtmfGenerator {
      * Start generating tones
      */
     start() {
+        // Create oscillators
+        this.osc1 = this.context.createOscillator();
+        this.osc2 = this.context.createOscillator();
         // Set oscillator frequencies
         this.osc1.frequency.value = this._freq1;
         this.osc2.frequency.value = this._freq2;
-
+        // Connect
+        this.osc1.connect(this.gainNode);
+        this.osc2.connect(this.gainNode);
         // Start
         this.osc1.start();
         this.osc2.start();
@@ -96,8 +100,12 @@ export class DtmfGenerator {
      * Stop generating tones
      */
     stop() {
-        this.osc1.stop(0);
-        this.osc2.stop(0);
+        this.osc1?.stop(0);
+        this.osc2?.stop(0);
+        this.osc1?.disconnect();
+        this.osc2?.disconnect();
+        this.osc1 = null;
+        this.osc2 = null;
         this.gainNode.gain.value = 0;
         this._active = false;
     }
@@ -120,6 +128,9 @@ enum AlertToneFreq {
 }
 
 export class AlertToneGenerator {
+
+    // Audio context
+    private context: AudioContext;
 
     private _mode: AlertToneMode = AlertToneMode.CONTINUOUS;
 
@@ -148,7 +159,7 @@ export class AlertToneGenerator {
     }
 
     // Oscillator, filter, and gain nodes
-    private osc : OscillatorNode;
+    private osc : OscillatorNode | null;
     private volume: GainNode;
     private filter: BiquadFilterNode;
 
@@ -166,8 +177,9 @@ export class AlertToneGenerator {
      * @param ctx the audio context to use
      */
     constructor(ctx: AudioContext) {
+        // Store context
+        this.context = ctx;
         // Setup audio nodes
-        this.osc = ctx.createOscillator();
         this.volume = ctx.createGain();
         this.filter = ctx.createBiquadFilter();
         // Set initial values
@@ -175,7 +187,6 @@ export class AlertToneGenerator {
         this.filter.type = 'lowpass';
         this.filter.frequency.value = 4000;
         // Connect
-        this.osc.connect(this.volume);
         this.volume.connect(this.filter);
     }
 
@@ -227,6 +238,9 @@ export class AlertToneGenerator {
      * Start tone generation
      */
     start() {
+        // Create oscillator
+        this.osc = this.context.createOscillator();
+        this.osc.connect(this.volume);
         // Get starting tone based on mode
         switch (this._mode) {
             case AlertToneMode.CONTINUOUS:
@@ -253,7 +267,9 @@ export class AlertToneGenerator {
      */
     stop() {
         // Stop osc
-        this.osc.stop();
+        this.osc?.stop();
+        this.osc?.disconnect();
+        this.osc = null;
         // Clear timeout
         if (this.timeout) {
             clearTimeout(this.timeout);

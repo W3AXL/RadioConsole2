@@ -5,6 +5,7 @@ import { AudioFrame, AudioCodec, AudioSource } from "../generated/RC2Proto";
 
 const OPUS_FRAME_SAMPLES = 960; // 20ms @ 48kHz, must match the radio daemon's encoder config
 const MAX_BUFFER_SECONDS = 0.5; // hard ceiling before the playback ringbuffer starts dropping old audio
+const MAX_DECODE_QUEUE_DEPTH = 10; // Limit the decoder queue so we don't slowly drift more and more over time
 
 // ---------------------------------------------------------------
 //
@@ -58,6 +59,12 @@ export class RadioAudioReceiver {
 
         switch (frame.codec) {
             case AudioCodec.OPUS: {
+                // Check current queue size, don't let it exceed our set maximum
+                if (this.decoder!.decodeQueueSize > MAX_DECODE_QUEUE_DEPTH) {
+                    console.warn(`[${this.radioName}]: decoder backlog hit max (${this.decoder!.decodeQueueSize}), dropping audio frames`);
+                    break;
+                }
+                // Create a new chunk to decode
                 const chunk = new EncodedAudioChunk({
                     type: "key", // Opus packets don't reference each other the way video keyframes/deltas do
                     timestamp: (frame.sequence * OPUS_FRAME_SAMPLES * 1_000_000) / this.sampleRateHz,
