@@ -50,6 +50,7 @@
     },
     "dependencies": {
         "@julusian/midi": "^3.6.1",
+        "dayjs": "^1.11.23",
         "electron-builder-squirrel-windows": "26.8.1",
         "serialport": "^13.0.0"
     },

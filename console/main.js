@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron/main');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron/main');
 
 const path = require('path')
 const fs = require('fs');
@@ -7,6 +7,8 @@ const { SerialPort } = require('serialport');
 const midi = require('@julusian/midi');
 
 const configPath = path.resolve(app.getPath("userData") + '/config.json');
+
+const { defaultConfig } = require('./lib/DefaultConfig.js');
 
 // Global window objects
 var mainWindow = null;
@@ -36,7 +38,7 @@ async function readConfig() {
             return defaultConfig;
         }
         catch (e) {
-            alert(`Failed to write default config file ${configPath}: ${e}`);
+            dialog.showErrorBox(`Failed to write default config file ${configPath}: ${e}`);
             console.error(e);
         }
     // Read the file if it already exists
@@ -51,7 +53,7 @@ async function readConfig() {
             return config;
         }
         catch (e) {
-            alert(`Failed to parse config JSON ${configJson}: ${e}`);
+            dialog.showErrorBox(`Failed to parse config JSON ${configJson}: ${e}`);
             return null;
         }
     }
@@ -67,7 +69,7 @@ async function saveConfig(event, args) {
         return true;
     }
     catch (e) {
-        log.error("Got error saving config: " + e);
+        console.error("Got error saving config: " + e);
         return e;
     }
 }
@@ -223,7 +225,7 @@ function midiMessageHandler(deltaTime, message)
         return;
     }
     // Package
-    msg = {
+    const msg = {
         type: msgType,
         chan: msgChan,
         num: message[1],
@@ -235,9 +237,9 @@ function midiMessageHandler(deltaTime, message)
         mainWindow.webContents.send('gotMidiMessage', msg);
     }
     // Send to midi config window (for learning)
-    if (midiWindow != null)
+    if (periphWindow != null)
     {
-        midiWindow.webContents.send('gotMidiMessage', msg);
+        periphWindow.webContents.send('gotMidiMessage', msg);
     }
 }
 
@@ -352,7 +354,7 @@ app.on('ready', async () => {
         await createPeriphWindow(periphConfig);
     });
 
-    ipcMain.handle('savePeriphConfig', (event, periphConfig) => {
+    ipcMain.on('savePeriphConfig', (event, periphConfig) => {
         // Send the data to our main window
         console.debug("Sending new peripheral config to main window");
         mainWindow.webContents.send('savePeriphConfig', periphConfig);

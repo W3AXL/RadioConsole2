@@ -8,43 +8,20 @@ import { RequestTracker } from './lib/RequestTracker'
 import { handleHello, nowMicros } from "./lib/Protocol"
 import { RadioAudioReceiver, MicCaptureManager } from "./lib/AudioPipeline"
 import { Envelope, RadioCommandType, RadioStatus, RadioState, SoftkeyName, ScanState, PriorityState, SoftkeyState, PowerState, AudioSource, AudioCodec } from "./generated/RC2Proto"
-import { DtmfGenerator, AlertToneGenerator } from "./lib/Tones"
+import { DtmfGenerator, AlertToneGenerator, AlertToneMode } from "./lib/Tones"
+import { defaultConfig } from "./lib/DefaultConfig.js"
+
+// Library Imports
+import dayjs from "dayjs"
+import utc from 'dayjs/plugin/utc';
+dayjs.extend(utc);
 
 /***********************************************************************************
     Global Variables
 ***********************************************************************************/
 
 // Default Config, overwritten from main.js on page load
-var config: Cfg.Configuration = {
-    version: Cfg.ConfigVersion,
-    radios: [],
-    autoConnect: false,
-    clockFormat: Cfg.ClockFormat.UTC,
-    audio: {
-        unselectedVolume: -9.0,
-        toneVolume: -9.0,
-        buttonSounds: true,
-        useAGC: true
-    },
-    extension: {
-        enabled: false,
-        address: "127.0.0.1",
-        port: 5555
-    },
-    peripherals: {
-        midi: {
-            enabled: false,
-            port: 0,
-            masterPtt: null,
-            masterVol: null
-        },
-        serial: {
-            enabled: false,
-            port: "",
-            pttLine: null
-        }
-    }
-}
+var config: Cfg.Configuration = defaultConfig as Cfg.Configuration;
 
 // Defualt radio state on creation, before connection
 const initRadioStatus : RadioStatus = {
@@ -100,7 +77,7 @@ interface Radio {
     envSeq: number,
     audioReceiver?: RadioAudioReceiver,
     audioSource?: RadioAudioSource,
-    pendingMuteTimeout: NodeJS.Timeout,
+    pendingMuteTimeout?: NodeJS.Timeout,
     elements: RadioHtmlElements
 }
 
@@ -400,25 +377,6 @@ function bindStaticEvents() {
     });
 }
 
-function radioConnected(idx) {
-    // Get elements
-    const radio = radios[idx];
-    const connectIcon = radio.elements.card.querySelector(".icon-connect");
-    // UI update
-    connectIcon.classList.remove("disconnected");
-    connectIcon.classList.remove("connecting");
-    connectIcon.classList.add("connected");
-    connectIcon.parentElement.setAttribute("title", "Connected to radio daemon");
-    // Update master connect/disconnect button
-    document.querySelector(`#navbar-connect`).classList.remove('disconnected');
-    document.querySelector(`#navbar-connect`).classList.add('connected');
-    // Open serial port, if configured
-    if (config.peripherals.serial.enabled && config.peripherals.serial.port)
-    {
-        window.electronAPI.openSerialPort(config.peripherals.serial.port);
-    }
-}
-
 // Keydown handler
 document.addEventListener("keydown", function (e) {
     switch (e.key) {
@@ -478,7 +436,7 @@ async function showPeriphConfig() {
 window.electronAPI.savePeriphConfig((event, data) => {
     console.debug("Received new peripheral config");
     console.debug(data);
-    config.peripherals = data.peripherals;
+    config.peripherals = data as Cfg.PeripheralConfig;
     saveConfig();
 });
 
@@ -486,24 +444,17 @@ window.electronAPI.savePeriphConfig((event, data) => {
 window.electronAPI.serialPortStatus((event, status) => {
     // Handle PTT if enabled
     if (config.peripherals.serial.enabled) {
+        const pttLine = config.peripherals.serial.pttLine as Cfg.SerialControlInput;
         var newStatus : boolean | null = null;
-        switch (config.peripherals.serial.pttLine)
-        {
-            case Cfg.SerialControlInput.CTS:
-                newStatus = status.cts;
-                break;
-            case Cfg.SerialControlInput.DCD:
-                newStatus = status.dcd;
-                break;
-            case Cfg.SerialControlInput.DSR:
-                newStatus = status.dsr;
-                break;
-            case Cfg.SerialControlInput.RI:
-                newStatus = status.ri;
-                break;
+        if (pttLine === Cfg.SerialControlInput.CTS) {
+            newStatus = status.cts;
+        } else if (pttLine === Cfg.SerialControlInput.DCD) {
+            newStatus = status.dcd;
+        } else if (pttLine === Cfg.SerialControlInput.DSR) {
+            newStatus = status.dsr;
         }
         // If we got a status, check against the current
-        if (newStatus) {
+        if (newStatus != null) {
             // If nothing has changed, return
             if (newStatus == serialPttStatus) {
                 return;
@@ -693,25 +644,25 @@ function addRadioCard(idx: number) {
         restartButton(idx);
     })
     // Bind DTMF events
-    newCard.querySelector(".btn-dtmf-dropdown").addEventListener('click', (event) => {
-        showDTMFMenu(event, event.target);
+    newCard.querySelector(".btn-dtmf-dropdown").addEventListener('click', (event: MouseEvent) => {
+        showDTMFMenu(event);
     })
     newCard.querySelector(".dtmf-dropdown .dtmf-table").addEventListener('click', (event) => {
         dtmfPressed(event, event.target);
     });
     // Bind Pan Menu
-    newCard.querySelector(".btn-panning-dropdown").addEventListener('click', (event) => {
-        showPanMenu(event, event.target);
+    newCard.querySelector(".btn-panning-dropdown").addEventListener('click', (event: MouseEvent) => {
+        showPanMenu(event);
     })
     // Bind Pan Slider
     newCard.querySelector(".radio-pan").addEventListener('click', (event) => {
         event.stopPropagation();
         event.stopImmediatePropagation();
     })
-    newCard.querySelector(".radio-pan").addEventListener('input', (event) => {
+    newCard.querySelector(".radio-pan").addEventListener('input', (event: MouseEvent) => {
         changePan(event);
     });
-    newCard.querySelector(".radio-pan").addEventListener('dblclick', (event) => {
+    newCard.querySelector(".radio-pan").addEventListener('dblclick', (event: MouseEvent) => {
         centerPan(event);
     });
 
@@ -738,14 +689,14 @@ function addRadioToEditTable(idx: number) {
     let panValue = "C";
     if (radio.cfg.pan != 0)
     {
-        const panPercent: number = Math.abs(radio.cfg.pan / 1.0).toFixed(2) * 100;
+        const panPercent: number = Math.abs(radio.cfg.pan / 1.0) * 100;
         if (radio.cfg.pan < 0)
         {
-            panValue = `L ${panPercent}%`;
+            panValue = `L ${panPercent.toFixed(2)}%`;
         }
         else
         {
-            panValue = `R ${panPercent}%`;
+            panValue = `R ${panPercent.toFixed(2)}%`;
         }
     }
 
@@ -788,61 +739,6 @@ function addRadioToEditTable(idx: number) {
 function showAddRadioDialog()
 {
     window.electronAPI.showRadioConfig(null);
-}
-
-/**
- * Show the radio dialog for an existing radio
- * @param {int} editRow 
- * @param {str} name 
- */
-function editRadio(editRow, name)
-{
-    // Find the radio
-    const idx = radios.findIndex((radio) => radio.name == name);
-    // Verify found
-    if (idx < 0)
-    {
-        alert(`Unable to edit radio ${name}: could not find radio in list`);
-        return;
-    }
-    // Get radio config
-    const radioConfig = config.Radios[idx]
-    // Flag editing
-    editingRadioIdx = idx;
-    console.info(`Now editing radio ${radioConfig.name}`);
-    console.debug(radioConfig);
-    // Show window
-    window.electronAPI.showRadioConfig(radioConfig);
-}
-
-/**
- * Delete a radio
- * @param {int} editRow row in the table
- * @param {str} name name of the radio
- */
-function deleteRadio(editRow: HTMLTableRowElement, name: String) {
-    // Find the radio
-    const idx = radios.findIndex((radio) => radio.cfg.name == name);
-    // Verify found
-    if (idx < 0)
-    {
-        alert(`Unable to delete radio ${name}: could not find radio in list`);
-        return;
-    }
-    // Get radio
-    const radio = radios[idx];
-    // Log
-    console.info(`Removing radio ${name})`)
-    console.debug(config.radios[idx]);
-    // Remove from config and radio list
-    config.radios.splice(idx, 1);
-    radios.splice(idx, 1);
-    // Remove card
-    radio.elements.card.remove();
-    // Remove row in radio table
-    editRow.remove();
-    // Save config
-    saveConfig();
 }
 
 /**
@@ -1404,7 +1300,7 @@ function startAlert(mode: AlertToneMode) {
     // Set flag
     alertTonesInProgress = true;
     // Set and start tone gen
-    audio.tones.mode = mode;
+    audio.alert.mode = mode;
     // Wait for TX
     alertStartTimeout = setTimeout(() => {
         sendAlert()
@@ -1422,7 +1318,7 @@ function sendAlert() {
         // Ensure mic is muted
         muteMic();
         console.debug("Radio transmitting, starting alert tone");
-        audio.tones.start();
+        audio.alert.start();
         alertStartTimeout = null;
     }
 }
@@ -1441,7 +1337,7 @@ function stopAlert() {
     {
         console.debug("Stopping alert tones");
         // Stop the tones
-        audio.tones.stop();
+        audio.alert.stop();
         // Re-enable the mic
         setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
         // Only start the 5 second timer if we haven't been overridden
@@ -1584,15 +1480,6 @@ function getTimeLocal(formatString) {
     return now.format(formatString);
 }
 
-/**
- * Get radio index from id string (radio1 returns 1)
- * @param {string} id radio id
- * @returns index of radio
- */
-function getRadioIndex(id) {
-    return idx = parseInt(id.replace("radio", ""));
-}
-
 /***********************************************************************************
     Config Reading/Writing to Json
 ***********************************************************************************/
@@ -1662,7 +1549,8 @@ async function readConfig() {
                     pan: radio.pan,
                     color: Cfg.parseCardColor(radio.color),
                     midiPttCC: radio.midiPttCC || null,
-                    midiVolumeCC: radio.midiVolumeCC || null
+                    midiVolumeCC: radio.midiVolumeCC || null,
+                    muted: radio.muted
                 });
             });
             console.debug("Radio list initialized");
@@ -2537,6 +2425,58 @@ function disconnectRadio(idx: number) : void {
 }
 
 /**
+ * Fires when the radio is fully connected
+ * @param idx radio index in list
+ */
+function radioConnected(idx) {
+    // Get elements
+    const radio = radios[idx];
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
+    // UI update
+    connectIcon.classList.remove("disconnected");
+    connectIcon.classList.remove("connecting");
+    connectIcon.classList.add("connected");
+    connectIcon.parentElement.setAttribute("title", "Connected to radio daemon");
+    // Update master connect/disconnect button if no more radios are connected
+    document.querySelector(`#navbar-connect`).classList.remove('disconnected');
+    document.querySelector(`#navbar-connect`).classList.add('connected');
+    // Open serial port, if configured
+    if (config.peripherals.serial.enabled && config.peripherals.serial.port)
+    {
+        window.electronAPI.openSerialPort(config.peripherals.serial.port);
+    }
+}
+
+/**
+ * Fires when the radio is fully disconnected
+ * @param idx radio index in list
+ */
+function radioDisconnected(idx) {
+    // Get elements
+    const radio = radios[idx];
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
+    // UI update
+    connectIcon.classList.remove("connecting");
+    connectIcon.classList.remove("connected");
+    connectIcon.classList.add("disconnected");
+    connectIcon.parentElement.setAttribute("title", "Disconnected");
+    // Update status to disconnected
+    radio.status.state = RadioState.DISCONNECTED;
+    // Remove selected if it's selected
+    if (selectedRadioIdx == idx) {
+        deselectRadios();
+    }
+    // If no more radios connected, set master connect button to disconnected and close serial port
+    if (!radios.some(e => e.connection != null)) {
+        // Set navbar icon to disconnected
+        document.querySelector("#navbar-connect").classList.remove("connected");
+        document.querySelector("#navbar-connect").classList.add("disconnected");
+        // Close serial port
+        window.electronAPI.closeSerialPort();
+    }
+}
+
+/**
  * Handle a binary message from the radio's websocket
  * @param idx the radio index in radios[]
  * @param event the MessageEvent containing the binary message
@@ -2646,21 +2586,8 @@ function handleSocketClose(event: CloseEvent, idx: number) {
     if (event.reason) {console.warn(event.reason);}
 
     // UI update
-    const connectIcon = radio.elements.card.querySelector(".icon-connect");
-    connectIcon.classList.remove('connected');
-    connectIcon.classList.remove('connecting');
-    connectIcon.classList.add('disconnected');
-    connectIcon.parentElement.setAttribute("title", "Disconnected");
+    radioDisconnected(idx);
     updateRadioCard(idx);
-
-    // If no more radios connected, set master connect button to disconnected and close serial port
-    if (!radios.some(e => e.connection != null)) {
-        // Set navbar icon to disconnected
-        document.querySelector("#navbar-connect").classList.remove("connected");
-        document.querySelector("#navbar-connect").classList.add("disconnected");
-        // Close serial port
-        window.electronAPI.closeSerialPort();
-    }
 }
 
 /**
@@ -2857,7 +2784,7 @@ function recvExtensionMessage(event) {
 function exUpdateRadio(idx) {
     if (extensionWs) {
         if (extensionWs.readyState == WebSocket.OPEN) {
-            obj = {
+            const obj = {
                 radioIdx: idx,
                 status: radios[idx].status
             };
@@ -2869,7 +2796,7 @@ function exUpdateRadio(idx) {
 function exUpdateSelected() {
     if (extensionWs) {
         if (extensionWs.readyState == WebSocket.OPEN) {
-            obj = {
+            const obj = {
                 selRadioIdx: selectedRadioIdx
             }
             extensionWs.send(JSON.stringify(obj));
@@ -2884,7 +2811,7 @@ function exUpdateSelected() {
 function exUpdateSoftkeys(states) {
     if (extensionWs) {
         if (extensionWs.readyState == WebSocket.OPEN) {
-            obj = {
+            const obj = {
                 softkeys: states
             }
             extensionWs.send(JSON.stringify(obj));

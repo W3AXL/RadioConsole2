@@ -111,10 +111,9 @@ export interface MidiConfig {
  * Valid control line inputs on a standard serial port
  */
 export enum SerialControlInput {
-    RI,
-    CTS,
-    DSR,
-    DCD,
+    CTS = "CTS",
+    DSR = "DSR",
+    DCD = "DCD",
 }
 
 /**
@@ -134,7 +133,10 @@ export interface PeripheralConfig {
     serial: SerialConfig
 }
 
-export const ConfigVersion = 1;
+/**
+ * Get the current config version from the default config file
+ */
+export { ConfigVersion } from "./DefaultConfig";
 
 /**
  * The master configuration interface
