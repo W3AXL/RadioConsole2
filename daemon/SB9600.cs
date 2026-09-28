@@ -337,11 +337,6 @@ namespace moto_sb9600
         private ConcurrentQueue<QueueMessage> msgQueue = new ConcurrentQueue<QueueMessage>();
 
         /// <summary>
-        /// Queue for delayed messages (messages to send after a specific timeout)
-        /// </summary>
-        private List<DelayedMessage> delayedMessages = new List<DelayedMessage>();
-
-        /// <summary>
         /// Control Head Type
         /// </summary>
         public HeadType ControlHead { get; set; }
@@ -771,31 +766,12 @@ namespace moto_sb9600
             }
         }
 
-        /// <summary>
-        /// Class for holding a message which is delayed until a specific time
-        /// </summary>
-        private class DelayedMessage
-        {
-            public long ExecTime { get; set; }
-            public SB9600Msg SB9600msg { get; set; }
-            public SBEPMsg SbepMsg { get; set; }
-
-            public DelayedMessage(long execTime, SB9600Msg msg)
-            {
-                ExecTime = execTime;
-                SB9600msg = msg;
-            }
-            public DelayedMessage(long execTime, SBEPMsg msg)
-            {
-                ExecTime = execTime;
-                SbepMsg = msg;
-            }
-        }
-
         public SB9600(MotoSb9600Config config, MotoSb9600Radio radio)
         {
             Port = new SerialPort(config.SerialPort);
             Port.BaudRate = 9600;
+            Port.WriteTimeout = 1000;
+            Port.ReadTimeout = 1000;
             ControlHead = config.ControlHeadType;
             useLedsForRx = config.UseLedsForRx;
             invertBusy = config.InvertBusy;
@@ -1654,7 +1630,17 @@ namespace moto_sb9600
 
             // If we have an initial BUSY on startup, wait for that to clear and then flush the buffer
             Log.Verbose("Waiting for BUSY to clear...");
-            while (getBusy() && !token.IsCancellationRequested) { }
+            DateTime waitStart = DateTime.UtcNow;
+            while (getBusy() && !token.IsCancellationRequested)
+            {
+                if ((DateTime.UtcNow - waitStart).TotalMilliseconds > 5000)
+                {
+                    Log.Error("Timed out waiting for BUSY to clear on startup - check radio connections!");
+                    radio.Stop();
+                    return;
+                }
+                Thread.Sleep(2);
+            }
 
             // Clear buffers
             Log.Verbose("Clearing serial buffers...");
@@ -1796,19 +1782,6 @@ namespace moto_sb9600
                             {
                                 Log.Debug("Got SB9600 message from queue: {msg}", msg.sb9600msg.Data);
                                 sendSb9600(msg.sb9600msg);
-                            }
-                        }
-
-                        // Check for any delayed commands that need to be sent
-                        long curTimeMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
-                        foreach (DelayedMessage delMsg in delayedMessages)
-                        {
-                            if (curTimeMs > delMsg.ExecTime)
-                            {
-                                if (delMsg.SB9600msg != null)
-                                {
-                                    sendSb9600(delMsg.SB9600msg);
-                                }
                             }
                         }
                     }
