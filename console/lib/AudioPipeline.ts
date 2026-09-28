@@ -88,13 +88,18 @@ export class RadioAudioReceiver {
             if (seq !== expected) {
                 // Count the number of missed frames (and clamp to a positive number with the same trick)
                 const missing = (seq - expected) >>> 0;
-                // Throw a warning
-                console.warn(
-                    `[${this.radioName}]: dropped ${missing} audio frame(s) (seq ${expected}..${seq - 1})`
-                );
-                // Fill the gap with silence sized to the missing frames
-                // TODO: In the future, we could use OPUS packet-loss concealment techniques
-                this._pushRawSamples([new Float32Array(missing * OPUS_FRAME_SAMPLES)]);
+                // If we missed an unrealistic amount of frames, the daemon likely restarted its sequence
+                if (missing > 10_000) {
+                    console.warn(`[${this.radioName}]: audio sequence restarted`);
+                } else {
+                    // Throw a warning
+                    console.warn(
+                        `[${this.radioName}]: dropped ${missing} audio frame(s) (seq ${expected}..${seq - 1})`
+                    );
+                    // Fill the gap with silence sized to the missing frames
+                    // TODO: In the future, we could use OPUS packet-loss concealment techniques
+                    this._pushRawSamples([new Float32Array(missing * OPUS_FRAME_SAMPLES)]);
+                }
             }
         }
         this.lastSequence = seq;
@@ -203,6 +208,8 @@ export class MicCaptureManager {
     private sequence = 0;
     // The list of audio endpoints to send outgoing mic audio to
     private targets = new Map<string, AudioFrameSink>(); // radioId -> connection
+    // List of audio sequence counters for each target
+    private sequences = new Map<string, number>();
 
     /**
      * Instantiate a new mic capture manager to manage outgoing mic audio
@@ -272,17 +279,22 @@ export class MicCaptureManager {
         const data = new Uint8Array(chunk.byteLength);
         chunk.copyTo(data);
 
-        // Create a new audio frame from the encoded data
-        const frame: AudioFrame = {
-            source: AudioSource.MIC,
-            codec: AudioCodec.OPUS,
-            sequence: this.sequence++,
-            sampleRateHz: this.ctx.sampleRate,
-            channels: 1,
-            data,
-        };
-        // Send the audio data to each daemon in our list
-        for (const sink of this.targets.values()) sink.sendAudioFrame(frame);
+        // Create a new audio frame from the encoded data for each radio
+        for (const [radioId, sink] of this.targets.entries()) {
+            // Per-target sequence
+            const seq = this.sequences.get(radioId) ?? 0;
+            this.sequences.set(radioId, (seq + 1) >>> 0);
+            // Create the audio frame
+            const frame: AudioFrame = {
+                source: AudioSource.MIC,
+                codec: AudioCodec.OPUS,
+                sequence: seq,
+                sampleRateHz: this.ctx.sampleRate,
+                channels: 1,
+                data,
+            };
+            sink.sendAudioFrame(frame);
+        }
     }
 
     /**
@@ -309,10 +321,14 @@ export class MicCaptureManager {
      * Teardown the audio encoder and node
      */
     private _teardown(): void {
+        // Ensure we disconnect the connection on teardown
+        if (this.node) {
+            this.node.port.onmessage = null;
+            this.micSourceNode.disconnect(this.node);
+            this.node.disconnect();
+        }
         this.encoder?.close();
         this.encoder = null;
-        this.node?.disconnect();
         this.node = null;
-        this.sequence = 0;
     }
 }

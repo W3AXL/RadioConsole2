@@ -17,7 +17,8 @@
         </script>
 
         <!-- JQuery -->
-        <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
+        <!-- Deprecated as of 09/2026 -->
+        <!--<script type="text/javascript" src="jquery-3.6.0.min.js"></script>-->
 
         <!-- DayJS -->
         <script type="text/javascript" src="dayjs.min.js"></script>
@@ -112,13 +113,6 @@
                         <a href="#" id="btn-sidebar-cfg-periph">
                             <span class="sidebar-icon"><ion-icon name="cube-sharp"></ion-icon></span>
                             <span class="sidebar-item">Peripheral Config</span>
-                        </a>    
-                    </li>
-                    <!-- Midi Config -->
-                    <li>
-                        <a href="#" id="btn-sidebar-cfg-midi">
-                            <ion-icon name="server-sharp"></ion-icon>
-                            <span class="sidebar-item">MIDI Config</span>
                         </a>    
                     </li>
                     <!-- Extension Config -->
@@ -388,6 +382,18 @@
                             </select>
                         </td>
                     </tr>
+                    <!-- Autoconnect Checkbox -->
+                    <tr>
+                        <td>
+                            <h3>Autconnect on Startup</h3>
+                        </td>
+                        <td>
+                            <label class="topcoat-checkbox">
+                                <input type="checkbox" id="daemon-autoconnect">
+                                <div class="topcoat-checkbox__checkmark"></div>
+                            </label>
+                        </td>
+                    </tr>
                     <!-- Save Config Button -->
                     <tr>
                         <td></td>
@@ -469,12 +475,6 @@
                 </table>
             </div>
         </div>
-
-        <template id="alert-dialog-template">
-            <div class="alert-dialog" title="Alert Title">
-                Alert text
-            </div>
-        </template>
 
         <!-- Sound Files -->
         <audio src="sound/ptt_new.wav" id="sound-ptt" autostart="false" autostart="0" class="ui-audio"></audio>

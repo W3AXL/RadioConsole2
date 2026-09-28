@@ -7,43 +7,21 @@ import * as Cfg from "./lib/Config"
 import { RequestTracker } from './lib/RequestTracker'
 import { handleHello, nowMicros } from "./lib/Protocol"
 import { RadioAudioReceiver, MicCaptureManager } from "./lib/AudioPipeline"
-import { Envelope, RadioCommandType, RadioStatus, RadioState, SoftkeyName, ScanState, PriorityState, SoftkeyState, PowerState } from "./generated/RC2Proto"
+import { Envelope, RadioCommandType, RadioStatus, RadioState, SoftkeyName, ScanState, PriorityState, SoftkeyState, PowerState, AudioSource, AudioCodec } from "./generated/RC2Proto"
+import { DtmfGenerator, AlertToneGenerator, AlertToneMode } from "./lib/Tones"
+import { defaultConfig } from "./lib/DefaultConfig.js"
+
+// Library Imports
+import dayjs from "dayjs"
+import utc from 'dayjs/plugin/utc';
+dayjs.extend(utc);
 
 /***********************************************************************************
     Global Variables
 ***********************************************************************************/
 
 // Default Config, overwritten from main.js on page load
-var config: Cfg.Configuration = {
-    version: Cfg.ConfigVersion,
-    radios: [],
-    autoConnect: false,
-    clockFormat: Cfg.ClockFormat.UTC,
-    audio: {
-        unselectedVolume: -9.0,
-        toneVolume: -9.0,
-        buttonSounds: true,
-        useAGC: true
-    },
-    extension: {
-        enabled: false,
-        address: "127.0.0.1",
-        port: 5555
-    },
-    peripherals: {
-        midi: {
-            enabled: false,
-            port: 0,
-            masterPtt: null,
-            masterVol: null
-        },
-        serial: {
-            enabled: false,
-            port: "",
-            pttLine: null
-        }
-    }
-}
+var config: Cfg.Configuration = defaultConfig as Cfg.Configuration;
 
 // Defualt radio state on creation, before connection
 const initRadioStatus : RadioStatus = {
@@ -73,6 +51,19 @@ interface RadioHtmlElements {
     rxBar?: HTMLDivElement
 }
 
+interface RadioAudioSource {
+    filterNode: BiquadFilterNode,
+    agcNode: DynamicsCompressorNode,
+    makeupNode: GainNode,
+    gainNode: GainNode,
+    muteNode: GainNode,
+    panNode: StereoPannerNode,
+    analyzerNode: AnalyserNode,
+    leftSpkr: boolean,
+    rightSpkr: boolean,
+    analyzerData?: Float32Array<ArrayBuffer>,
+}
+
 /**
  * Interface representing an instantiated radio loaded from config
  * All config parameters are stored in the corresponding config.radios item
@@ -85,6 +76,8 @@ interface Radio {
     connection?: WebSocket,
     envSeq: number,
     audioReceiver?: RadioAudioReceiver,
+    audioSource?: RadioAudioSource,
+    pendingMuteTimeout?: NodeJS.Timeout,
     elements: RadioHtmlElements
 }
 
@@ -92,85 +85,86 @@ interface Radio {
 var radios: Radio[] = [];
 
 /**
+ * Parameters for an AGC setup
+ */
+interface AgcParams {
+    threshold: number,
+    knee: number,
+    ratio: number,
+    attack: number,
+    release: number,
+    makeup: number,  
+}
+
+/**
  * Objects required for the input (mic) audio chain
  */
 interface AudioInputChain {
-    analyzer: AnalyserNode,
-    volume: GainNode,
-    meter: HTMLElement
+    micStream?: MediaStreamAudioSourceNode,
+    micCaptureManager?: MicCaptureManager,
+    analyzer?: AnalyserNode,
+    analyzerData?: Float32Array<ArrayBuffer>,
+    volume?: GainNode,
+    meter?: HTMLDivElement,
 }
 
 /**
  * Objects required for the output (speaker) audio chain
  */
 interface AudioOutputChain {
-    analyzer: AnalyserNode,
-    volume: GainNode,
-    meter: HTMLElement
+    analyzer?: AnalyserNode,
+    analyzerData?: Float32Array,
+    volume?: GainNode,
+    meter: HTMLDivElement,
+    agc?: AgcParams
 }
 
 /**
  * Interface representing the console's audio objects, settings, and nodes
  */
 interface Audio {
-    context: AudioContext,
+    context?: AudioContext,
     running: boolean,
     inputChain: AudioInputChain,
-    outputChain: AudioOutputChain
+    outputChain: AudioOutputChain,
+    dtmf?: DtmfGenerator,
+    alert?: AlertToneGenerator,
+    lowpassCutoff: number,
+    micUnmuteDelay: number,
+    micMuteDelay: number,
+    rxMuteDelay: number
 }
 
-/**
- * Alert tone modes
- */
-enum AlertToneMode {
-    NONE,
-    CONTINUOUS,
-    ALTERNATING,
-    PULSED
-}
-
-// Audio variables
-var audio = {
-    // Audio context
+// Overall audio config/storage variable
+var audio : Audio = {
+    // Audio context starts as null until we open it
     context: null,
     // Flag for whether we've done initial setup
     running: false,
-    // DTMF generator
-    dtmf: null,
-    dtmfGain: 0.3,
-    // Alert tone generator
-    tones: null,
-    tonesGain: 0.3,
-    tonesPeriod: 500,
-    // Input device, stream, meter, etc
-    input: null,
-    inputStream: null,
-    inputTrack: null,
-    inputAnalyzer: null,
-    inputDest: null,
-    inputMicGain: null,
-    inputPcmData: null,
-    inputMeter: document.getElementById("meter-mic"),
-    // Output device, analyzer, and gain (for volume control and visualization)
-    output: null,
-    outputGain: null,
-    outputAnalyzer: null,
-    outputPcmData: null,
-    outputMeter: document.getElementById("meter-spkr"),
-    dummyOutputs: [],
-    // AGC parameters
-    agcThreshold: -50.0,
-    agcKnee: 40.0,
-    agcRatio: 8.0,
-    agcAttack: 0.0,
-    agcRelease: 0.3,
-    agcMakeup: 1.1,     // right now any makeup gain causes clipping
+    // Input chain
+    inputChain: {
+        meter: document.querySelector<HTMLDivElement>("#meter-mic"),
+    },
+    // Output Chain
+    outputChain: {
+        meter: document.querySelector<HTMLDivElement>("#meter-spkr"),
+        agc: {
+            threshold: -50.0,
+            knee: 40.0,
+            ratio: 8.0,
+            attack: 0.0,
+            release: 0.3,
+            makeup: 1.1
+        }
+    },
     // TX/RX audio filter cutoff (hz)
-    filterCutoff: 4000,
+    lowpassCutoff: 4000,
     // Delay for unmuting microphone after PTT (for ignoring the TPT tone)
     micUnmuteDelay: 450,
     // Delay for muting the mic after PTT is released (to account for PC audio latency)
-    micMuteDelay: 100
+    micMuteDelay: 100,
+    // Delay for muting radio RX audio at the end of a call
+    rxMuteDelay: 200
 }
 
 const userMediaSettings = {
@@ -282,7 +276,7 @@ var maxPages = 0;
 // Populate version callback
 window.electronAPI.getVersion((event, data) => {
     console.debug(`Got version string from main.js: ${data}`);
-    $("#navbar-version").html(data);
+    document.querySelector("#navbar-version").innerHTML = data;
 });
 
 /**
@@ -291,11 +285,8 @@ window.electronAPI.getVersion((event, data) => {
 function pageLoad() {
     console.log("Starting client runtime");
 
-    // Enable JQuery Tooltips
-    //$( document ).tooltip();
-
-    // Query media devices
-    getAudioDevices();
+    // Populate config
+    populateConfigOptions();
 
     // Query radio config from client.json
     readConfig();
@@ -309,6 +300,13 @@ function pageLoad() {
 
     // Setup clock timer
     setInterval(updateClock, 100);
+}
+
+/**
+ * Populate the HTML config boxes with valid config options
+ */
+function populateConfigOptions() {
+
 }
 
 /**
@@ -345,10 +343,10 @@ function bindStaticEvents() {
     document.querySelector("#alert2").addEventListener('mouseup', () => { stopAlert(); });
     document.querySelector("#alert3").addEventListener('mouseup', () => { stopAlert(); });
     // Popup buttons
-    document.querySelector(".btn-popup-close").addEventListener('click', (event) => {closePopup(event.target); });
+    document.querySelector(".btn-popup-close").addEventListener('click', (event) => {closePopup(event.currentTarget as HTMLElement); });
     document.querySelector(".btn-save-config").addEventListener('click', saveConfig);
     // Dimmed background click event
-    document.querySelector("#body-dimmer").addEventListener('click', closePopup);
+    document.querySelector<HTMLDivElement>("#body-dimmer").addEventListener('click', () => { closePopup(null) });
     // Menu sidebar button
     document.querySelector("#btn-mainmenu").addEventListener('click', toggleMainMenu);
     // Edit radios button
@@ -373,97 +371,10 @@ function bindStaticEvents() {
         showPeriphConfig();
         toggleMainMenu();
     });
-    document.querySelector("#btn-sidebar-cfg-midi").addEventListener('click', () => {
-        showMidiConfig();
-        toggleMainMenu();
-    });
     document.querySelector("#btn-sidebar-cfg-ext").addEventListener('click', () => {
         showConfigPopup("#extension-config-popup");
         toggleMainMenu();
     });
-}
-
-/**
- * Connect to websocket and setup audio
- */
-function connect() {
-    // Update navbar
-    $("#navbar-status").html("Connecting");
-    $("#navbar-status").addClass("pending");
-    // Connect websocket first
-    connectWebsocket();
-    // Start audio devices if they're not already started
-    if (!audio.context) {
-        startAudioDevices();
-    }
-}
-
-/**
- * Called when GUI is fully connected to server
- */
-function connected() {
-    // Change button
-    $("#server-connect-btn").html("Disconnect");
-    $("#server-connect-btn").prop("disabled",false);
-    // Change status
-    $("#navbar-status").html("Connected");
-    $("#navbar-status").removeClass("pending");
-    $("#navbar-status").addClass("connected");
-}
-
-function radioConnected(idx) {
-    // Get elements
-    const radio = radios[idx];
-    const connectIcon = radio.elements.card.querySelector(".icon-connect");
-    // UI update
-    connectIcon.classList.remove("disconnected");
-    connectIcon.classList.remove("connecting");
-    connectIcon.classList.add("connected");
-    connectIcon.parentElement.setAttribute("title", "Connected to radio daemon");
-    // Update master connect/disconnect button
-    document.querySelector(`#navbar-connect`).classList.remove('disconnected');
-    document.querySelector(`#navbar-connect`).classList.add('connected');
-    // Open serial port, if configured
-    if (config.peripherals.serial.enabled && config.peripherals.serial.port)
-    {
-        window.electronAPI.openSerialPort(config.peripherals.serial.port);
-    }
-}
-
-/**
- * Disconnect from websocket and teardown audio devices
- */
-function disconnect() {
-    // Change button
-    $("#server-connect-btn").html("Disconnecting...");
-    $("#server-connect-btn").prop("disabled", true);
-    // Change status
-    $("#navbar-status").html("Disconnecting");
-    $("#navbar-status").removeClass("connected");
-    $("#navbar-status").addClass("pending");
-    // Change status
-    disconnecting = true;
-    // disconnect websocket
-    disconnectWebsocket();
-}
-
-/**
- * Called when client is done disconnecting
- */
-function disconnected() {
-    // Update button
-    $("#server-connect-btn").html("Connect");
-    $("#server-connect-btn").prop("disabled", false);
-    // Change status
-    $("#navbar-status").html("Disconnected");
-    $("#navbar-status").removeClass("connected");
-    $("#navbar-status").removeClass("pending");
-    // Clear radio cards
-    clearRadios();
-    // Disable volume slider
-    $("#console-volume").prop('disabled', true);
-    // Reset variables
-    disconnecting = false;
 }
 
 // Keydown handler
@@ -512,20 +423,20 @@ document.addEventListener("DOMContentLoaded", () => {
     Peripheral Functions
 ***********************************************************************************/
 
-// We save the CTS state so we only trigger PTT start/stop on state change
-var lastCtsState = false;
+// We save the last serialPTT status so we only start/stop on change
+var serialPttStatus: boolean = false;
 
 // Show the peripheral config window
 async function showPeriphConfig() {
     // Show the window
-    const result = await window.electronAPI.showPeriphConfig(config.peripherals.serial);
+    const result = await window.electronAPI.showPeriphConfig(config.peripherals);
 }
 
 // Peripheral config save
 window.electronAPI.savePeriphConfig((event, data) => {
     console.debug("Received new peripheral config");
     console.debug(data);
-    config.Peripherals = data.Peripherals;
+    config.peripherals = data as Cfg.PeripheralConfig;
     saveConfig();
 });
 
@@ -533,56 +444,50 @@ window.electronAPI.savePeriphConfig((event, data) => {
 window.electronAPI.serialPortStatus((event, status) => {
     // Handle PTT if enabled
     if (config.peripherals.serial.enabled) {
-        // TODO: update the logic here for the new config format
-        return;
-        // Ignore if state hasn't changed
-        if (status.cts == lastCtsState)
-        {
-            return;
+        const pttLine = config.peripherals.serial.pttLine as Cfg.SerialControlInput;
+        var newStatus : boolean | null = null;
+        if (pttLine === Cfg.SerialControlInput.CTS) {
+            newStatus = status.cts;
+        } else if (pttLine === Cfg.SerialControlInput.DCD) {
+            newStatus = status.dcd;
+        } else if (pttLine === Cfg.SerialControlInput.DSR) {
+            newStatus = status.dsr;
         }
-        // Start if we need to
-        if (status.cts && !pttActive)
-        {
-            console.debug("Serial port CTS triggering PTT");
-            startPtt(true);
+        // If we got a status, check against the current
+        if (newStatus != null) {
+            // If nothing has changed, return
+            if (newStatus == serialPttStatus) {
+                return;
+            }
+            // Start TX if we're not already
+            if (newStatus && !pttActive) {
+                console.debug(`Serial port ${config.peripherals.serial.pttLine} triggering PTT`);
+                startPtt(true);
+            }
+            // Handle alert tone override
+            else if (newStatus && pttActive && alertTonesInProgress) {
+                startPtt(false);
+            }
+            // Stop
+            else if (!newStatus && pttActive) {
+                console.debug(`Serial port ${config.peripherals.serial.pttLine} releasing PTT`);
+                stopPtt();
+            }
+            // Store new status
+            serialPttStatus = newStatus;
         }
-        // Handle alert tone PTT override case
-        else if (status.cts && pttActive && alertTonesInProgress)
-        {
-            startPtt();
-        }
-        // Stop if we need to
-        else if (!status.cts && pttActive)
-        {
-            console.debug("Serial port CTS releasing PTT");
-            stopPtt();
-        }
-        // Save this new state
-        lastCtsState = status.cts;
     }
-})
-
-/***********************************************************************************
-    Midi Functions
-***********************************************************************************/
-
-async function showMidiConfig() {
-    // If midi config doesn't exist, create it
-    if (!config.hasOwnProperty('Midi'))
-    {
-        config.Midi = defaultConfig.Midi;
-    }
-    // Show the window
-    const result = await window.electronAPI.showMidiConfig(config.Midi);
-}
+});
 
 // Handler for MIDI messages recieved
 window.electronAPI.gotMidiMessage((event, msg) => {
-    const midiConfig = config.Midi
-    //console.debug('Got midi message:');
-    //console.debug(msg);
+    const midiConfig = config.peripherals.midi;
+    // If MIDI isn't enabled, do nothing
+    if (!midiConfig.enabled) {
+        return;
+    }
     // Check master PTT
-    if (midiConfig.ccs.masterPtt.chan == msg.chan && midiConfig.ccs.masterPtt.num == msg.num)
+    if (midiConfig.masterPtt.channel == msg.chan && midiConfig.masterPtt.number == msg.num)
     {
         // handle Midi Keyup
         if (msg.type == midiMsgTypes.NOTE_ON && !pttActive)
@@ -603,7 +508,7 @@ window.electronAPI.gotMidiMessage((event, msg) => {
         }
     }
     // Check master volume
-    else if (midiConfig.ccs.masterVol.chan == msg.chan && midiConfig.ccs.masterVol.num == msg.num)
+    else if (midiConfig.masterVol.channel == msg.chan && midiConfig.masterVol.number == msg.num)
     {
         if (msg.type == midiMsgTypes.CTRL_CHANGE)
         {
@@ -613,14 +518,6 @@ window.electronAPI.gotMidiMessage((event, msg) => {
             setVolume(newVolume);
         }
     }
-});
-
-// Midi config save
-window.electronAPI.saveMidiConfig((event, data) => {
-    console.debug("Received new midi config");
-    console.debug(data);
-    config.Midi = data.Midi;
-    saveConfig();
 });
 
 /***********************************************************************************
@@ -700,18 +597,6 @@ function populateRadios() {
 }
 
 /**
- * Clear radio cards and remove all radios from radioList
- */
-function clearRadios() {
-    // deselect any selected radios
-    deselectRadios();
-    // Clear main layout
-    $("#main-layout").empty();
-    // Clear radio list
-    radios = [];
-}
-
-/**
  * Add a radio card with the specified id and name
  * @param {idx} index of the radio in the radios[] list
  */
@@ -759,26 +644,26 @@ function addRadioCard(idx: number) {
         restartButton(idx);
     })
     // Bind DTMF events
-    newCard.querySelector(".btn-dtmf-dropdown").addEventListener('click', (event) => {
-        showDTMFMenu(event, event.target);
+    newCard.querySelector(".btn-dtmf-dropdown").addEventListener('click', (event: MouseEvent) => {
+        showDTMFMenu(event);
     })
     newCard.querySelector(".dtmf-dropdown .dtmf-table").addEventListener('click', (event) => {
         dtmfPressed(event, event.target);
     });
     // Bind Pan Menu
-    newCard.querySelector(".btn-panning-dropdown").addEventListener('click', (event) => {
-        showPanMenu(event, event.target);
+    newCard.querySelector(".btn-panning-dropdown").addEventListener('click', (event: MouseEvent) => {
+        showPanMenu(event);
     })
     // Bind Pan Slider
     newCard.querySelector(".radio-pan").addEventListener('click', (event) => {
         event.stopPropagation();
         event.stopImmediatePropagation();
     })
-    newCard.querySelector(".radio-pan").addEventListener('input', (event) => {
-        changePan(event, event.target);
+    newCard.querySelector(".radio-pan").addEventListener('input', (event: MouseEvent) => {
+        changePan(event);
     });
-    newCard.querySelector(".radio-pan").addEventListener('dblclick', (event) => {
-        centerPan(event, event.target);
+    newCard.querySelector(".radio-pan").addEventListener('dblclick', (event: MouseEvent) => {
+        centerPan(event);
     });
 
     // Add the card to the main layout
@@ -804,14 +689,14 @@ function addRadioToEditTable(idx: number) {
     let panValue = "C";
     if (radio.cfg.pan != 0)
     {
-        const panPercent: number = Math.abs(radio.cfg.pan / 1.0).toFixed(2) * 100;
+        const panPercent: number = Math.abs(radio.cfg.pan / 1.0) * 100;
         if (radio.cfg.pan < 0)
         {
-            panValue = `L ${panPercent}%`;
+            panValue = `L ${panPercent.toFixed(2)}%`;
         }
         else
         {
-            panValue = `R ${panPercent}%`;
+            panValue = `R ${panPercent.toFixed(2)}%`;
         }
     }
 
@@ -857,59 +742,6 @@ function showAddRadioDialog()
 }
 
 /**
- * Show the radio dialog for an existing radio
- * @param {int} editRow 
- * @param {str} name 
- */
-function editRadio(editRow, name)
-{
-    // Find the radio
-    const idx = radios.findIndex((radio) => radio.name == name);
-    // Verify found
-    if (idx < 0)
-    {
-        alert(`Unable to edit radio ${name}: could not find radio in list`);
-        return;
-    }
-    // Get radio config
-    const radioConfig = config.Radios[idx]
-    // Flag editing
-    editingRadioIdx = idx;
-    console.info(`Now editing radio ${radioConfig.name}`);
-    console.debug(radioConfig);
-    // Show window
-    window.electronAPI.showRadioConfig(radioConfig);
-}
-
-/**
- * Delete a radio
- * @param {int} editRow row in the table
- * @param {str} name name of the radio
- */
-function deleteRadio(editRow, name) {
-    // Find the radio
-    const idx = radios.findIndex((radio) => radio.name == name);
-    // Verify found
-    if (idx < 0)
-    {
-        alert(`Unable to delete radio ${name}: could not find radio in list`);
-        return;
-    }
-    // Log
-    console.info(`Removing radio ${name})`)
-    console.debug(config.Radios[idx]);
-    // Remove from config and radio list
-    config.Radios.splice(idx, 1);
-    radios.splice(idx, 1);
-    // Remove card
-    $(`.radio-card:contains("${name}")`).remove();
-    // Remove row in radio table
-    $(editRow).closest("tr").remove();
-    // Save config
-    saveConfig();
-}
-
-/**
  * Handle radio edit dialog cancel
  */
 window.electronAPI.cancelRadioConfig(() => {
@@ -949,11 +781,11 @@ window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
         }
 
         // Find the table row for this radio and get its index
-        let editTableRow = $(`#edit-radios-table tr:contains('${radioConfig.name}')`);
-        const editTableIndex = editTableRow.index();
+        const editTableRow = document.querySelector<HTMLTableRowElement>(`#edit-radios-table tr:contains('${radioConfig.name}')`)
+        const editTableIndex = editTableRow.rowIndex;
 
         // Update the row at the index
-        addRadioToEditTable(radioConfig, editTableIndex);
+        addRadioToEditTable(idx);
 
         // Update card
         updateRadioCard(idx);
@@ -1243,6 +1075,12 @@ function startPtt(micActive) {
             
             // Flag that we want the mic to unmute or not
             txUnmuteMic = micActive;
+
+            // Start sending mic audio to the radio (don't do this all the time to save bandwidth)
+            audio.inputChain.micCaptureManager?.addTarget(radios[selectedRadioIdx].cfg.name, {
+                sendAudioFrame: (frame) => sendEnvelope(selectedRadioIdx, { audio: frame })
+            });
+
             // Send the command
             sendRadioCommand(selectedRadioIdx, RadioCommandType.START_TX);
         }
@@ -1262,12 +1100,11 @@ function stopPtt() {
     if (pttActive) {
         console.log("PTT released");
         pttActive = false;
-        // Mute mic
+        // Mute mic after mute delay
         setTimeout( muteMic, audio.micMuteDelay );
-        // Play sound
-        //playSound("sound-ptt-end");
-        // Send the stop command if connected
+        // Send the stop command and stop audio if connected
         if ( selectedRadioIdx != null && radios[selectedRadioIdx].handshakeComplete) {
+            audio.inputChain.micCaptureManager?.removeTarget(radios[selectedRadioIdx].cfg.name);
             sendRadioCommand(selectedRadioIdx, RadioCommandType.STOP_TX);
         }
     }
@@ -1463,7 +1300,7 @@ function startAlert(mode: AlertToneMode) {
     // Set flag
     alertTonesInProgress = true;
     // Set and start tone gen
-    audio.tones.mode = mode;
+    audio.alert.mode = mode;
     // Wait for TX
     alertStartTimeout = setTimeout(() => {
         sendAlert()
@@ -1481,7 +1318,7 @@ function sendAlert() {
         // Ensure mic is muted
         muteMic();
         console.debug("Radio transmitting, starting alert tone");
-        audio.tones.start();
+        audio.alert.start();
         alertStartTimeout = null;
     }
 }
@@ -1500,7 +1337,7 @@ function stopAlert() {
     {
         console.debug("Stopping alert tones");
         // Stop the tones
-        audio.tones.stop();
+        audio.alert.stop();
         // Re-enable the mic
         setTimeout(unmuteMic, audio.micUnmuteDelay + 100);
         // Only start the 5 second timer if we haven't been overridden
@@ -1549,12 +1386,12 @@ function isRadioActive(idx: number) : boolean {
  */
 function toggleMainMenu() {
     if (menuOpen) {
-        $("#sidebar-mainmenu").addClass("sidebar-closed");
-        $("#button-mainmenu").removeClass("button-active")
+        document.querySelector("#sidebar-mainmenu").classList.add("sidebar-closed");
+        document.querySelector("#btn-mainmenu").classList.remove("button-active");
         menuOpen = false;
     } else {
-        $("#sidebar-mainmenu").removeClass("sidebar-closed");
-        $("#button-mainmenu").addClass("button-active")
+        document.querySelector("#sidebar-mainmenu").classList.remove("sidebar-closed");
+        document.querySelector("#btn-mainmenu").classList.add("button-active");
         menuOpen = true;
     }
 }
@@ -1563,26 +1400,26 @@ function toggleMainMenu() {
  * Shows the specified popup and dims the main screen behind it
  * @param {string} id element ID of the popup to show
  */
-function showConfigPopup(id) {
+function showConfigPopup(id: string) {
     console.debug(`Showing popup ${id}`);
-    $("#body-dimmer").show();
-    $(id).show();
+    document.querySelector<HTMLDivElement>("#body-dimmer").style.display = '';
+    document.querySelector<HTMLDivElement>(id).style.display = '';
 }
 
 /**
  * Close a popup window and undim the background
- * @param {string} obj the object whose parent .popup window will be closed
+ * @param {HTMLElement} obj the object whose parent .popup window will be closed
  */
-function closePopup(obj = null) {
+function closePopup(obj: HTMLElement | null) {
     // Close specific popup if specified
     if (obj) {
-        $(obj).closest(".popup").hide();
+        obj.closest<HTMLDivElement>(".popup").style.display = 'none';
     }
     // Close all popups otherwise
     else {
-        $('.popup').hide();
+        document.querySelectorAll<HTMLDivElement>(".popup").forEach((elem) => {elem.style.display = 'none'} );
     }
-    $("#body-dimmer").hide();
+    document.querySelector<HTMLDivElement>("#body-dimmer").style.display = 'none';
 }
 
 /**
@@ -1593,9 +1430,9 @@ function updateClock() {
     var timestr = "HH:mm:ss"
     if (config.clockFormat == Cfg.ClockFormat.Local) {
         var time = getTimeLocal(timestr);
-        $("#clock").html(time + " " + timeZone);
+        document.querySelector("#clock").innerHTML = time + " " + timeZone;
     } else if (config.clockFormat == Cfg.ClockFormat.UTC) {
-        $("#clock").html(getTimeUTC(timestr + " UTC"));
+        document.querySelector("#clock").innerHTML = getTimeUTC(timestr + " UTC");
     } else {
         console.error("Invalid time format!")
     }
@@ -1603,39 +1440,18 @@ function updateClock() {
 
 function connectAllButton() {
     // Connect if button is red
-    if ($(`#navbar-connect`).hasClass("disconnected")) {
+    const navbarConnect = document.querySelector("#navbar-connect");
+    if (navbarConnect.classList.contains("disconnected")) {
         radios.forEach((radio, index) => {
             // Start connecting to the radio
             connectRadio(index);
         });
-    } else if ($(`#navbar-connect`).hasClass("connected")) {
+    } else if (navbarConnect.classList.contains("connected")) {
         radios.forEach((radio, index) => {
             disconnectRadio(index);
         });
     }
     
-}
-
-/**
- * Show a new alert dialog
- * @param {string} id id of the alert dialog
- * @param {string} title title text
- * @param {string} text body text
- */
-function showAlert(id, title, text) {
-    var newAlertDialog = alertTemplate.content.cloneNode(true);
-    newAlertDialog.querySelector(".alert-dialog").title = title;
-    newAlertDialog.querySelector(".alert-dialog").html = text;
-    newAlertDialog.id = id;
-    $("body").append(newAlertDialog);
-    $(`#${id}`).on('dialogclose', function(event) {
-        closeAlert(id);
-    });
-    $(`#${id}`).dialog();
-}
-
-function closeAlert(id) {
-
 }
 
 /***********************************************************************************
@@ -1662,15 +1478,6 @@ function getTimeLocal(formatString) {
     // Get local time
     var now = dayjs();
     return now.format(formatString);
-}
-
-/**
- * Get radio index from id string (radio1 returns 1)
- * @param {string} id radio id
- * @returns index of radio
- */
-function getRadioIndex(id) {
-    return idx = parseInt(id.replace("radio", ""));
 }
 
 /***********************************************************************************
@@ -1742,7 +1549,8 @@ async function readConfig() {
                     pan: radio.pan,
                     color: Cfg.parseCardColor(radio.color),
                     midiPttCC: radio.midiPttCC || null,
-                    midiVolumeCC: radio.midiVolumeCC || null
+                    midiVolumeCC: radio.midiVolumeCC || null,
+                    muted: radio.muted
                 });
             });
             console.debug("Radio list initialized");
@@ -1810,18 +1618,20 @@ async function readConfig() {
 }
 
 function applyConfig() {
+    console.debug("Applying config");
+    console.debug(config);
 
     // Populate the config UI checkboxes
-    $("#daemon-autoconnect").prop('checked', config.autoConnect);
-    $("#client-timeformat").val(config.clockFormat);
-    $("#client-rxagc").prop("checked", config.audio.useAGC);
-    $(`#unselected-vol option[value=${config.audio.unselectedVolume}]`).attr('selected', 'selected');
-    $(`#tone-vol option[value=${config.audio.toneVolume}]`).attr('selected', 'selected');
-    $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVolume));
-    $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVolume));
-    $('#sound-click').prop("volume", dbToGain(config.audio.toneVolume));
-    $("#extension-address").val(config.extension.address);
-    $("#extension-port").val(config.extension.port);
+    document.querySelector<HTMLInputElement>("#daemon-autoconnect").checked = config.autoConnect;
+    document.querySelector<HTMLSelectElement>("#client-timeformat").value = config.clockFormat;
+    document.querySelector<HTMLInputElement>("#client-rxagc").checked = config.audio.useAGC;
+    document.querySelector<HTMLSelectElement>("#unselected-vol").value = config.audio.unselectedVolume.toString();
+    document.querySelector<HTMLSelectElement>("#tone-vol").value = config.audio.toneVolume.toString();
+    document.querySelector<HTMLInputElement>("#extension-address").value = config.extension?.address;
+    document.querySelector<HTMLInputElement>("#extension-port").value = config.extension.port?.toString();
+    
+    // Set the volumes of the sounds
+    setSoundsVolume(dbToGain(config.audio.toneVolume));
 
     // Try to open midi port if enabled
     if (config.peripherals.midi.enabled) {
@@ -1856,25 +1666,23 @@ function applyConfig() {
 async function saveConfig() {
 
     // Store client config values into our config object
-    const clockFormat = $("#client-timeformat").val() as string;
-    const useAgc = $("#client-rxagc").is(":checked") as boolean;
-    const unselectedVol = $("#unselected-vol").val() as number;
-    const toneVol = $("#tone-vol").val() as number;
-    config.clockFormat = Cfg.ClockFormat[clockFormat];
+    const clockFormat = document.querySelector<HTMLInputElement>("#client-timeformat").value;
+    const useAgc = document.querySelector<HTMLInputElement>("#client-rxagc").checked;
+    const unselectedVol = parseFloat(document.querySelector<HTMLSelectElement>("#unselected-vol").value);
+    const toneVol = parseFloat(document.querySelector<HTMLSelectElement>("#tone-vol").value);
+    config.clockFormat = clockFormat as Cfg.ClockFormat;
     config.audio.useAGC = useAgc;
     config.audio.unselectedVolume = unselectedVol;
     config.audio.toneVolume = toneVol;
 
     // Store extension config values
-    const extensionAddress = $("#extension-address").val() as string;
-    const extensionPort = $("#extension-port").val() as number;
+    const extensionAddress = document.querySelector<HTMLInputElement>("#extension-address").value;
+    const extensionPort = parseInt(document.querySelector<HTMLInputElement>("#extension-port").value);
     config.extension.address = extensionAddress;
     config.extension.port = extensionPort;
 
     // Update tone audio gains
-    $('#sound-ptt').prop("volume", dbToGain(config.audio.toneVolume));
-    $('#sound-ptt-end').prop("volume", dbToGain(config.audio.toneVolume));
-    $('#sound-click').prop("volume", dbToGain(config.audio.toneVolume));
+    setSoundsVolume(dbToGain(config.audio.toneVolume));
 
     // Update radio audio
     if (audio.context) {
@@ -1890,9 +1698,9 @@ async function saveConfig() {
 }
 
 function newRadioClear() {
-    $('#new-radio-address').val('');
-    $('#new-radio-port').val('');
-    $('#new-radio-pan').val(0);
+    document.querySelector<HTMLInputElement>('#new-radio-address').value = '';
+    document.querySelector<HTMLInputElement>('#new-radio-port').value = '';
+    document.querySelector<HTMLInputElement>('#new-radio-pan').value = '0';
 }
 
 /***********************************************************************************
@@ -1900,9 +1708,14 @@ function newRadioClear() {
 ***********************************************************************************/
 
 function createAudioSource(idx: number): void {
-    console.log(`[${radios[idx].name}]: Creating new audio source`);
+    // Get radio
+    const radio = radios[idx];
+    
+    // Log
+    console.log(`[${radio.cfg.name}]: Creating new audio source`);
+    
     // Create audio source from the track and put it in an object with a local gain node
-    var newSource = {
+    var newSource : RadioAudioSource = {
         filterNode: audio.context.createBiquadFilter(),
         agcNode: audio.context.createDynamicsCompressor(),
         makeupNode: audio.context.createGain(),
@@ -1912,22 +1725,25 @@ function createAudioSource(idx: number): void {
         analyzerNode: audio.context.createAnalyser(),
         leftSpkr: true,
         rightSpkr: true,
-        analyzerData: new Float32Array(newSource.analyzerNode.fftSize)
+        analyzerData: null,
     }
 
     // Setup lowpass filter
     newSource.filterNode.type = 'lowpass'
-    newSource.filterNode.frequency.setValueAtTime(audio.filterCutoff, audio.context.currentTime);
+    newSource.filterNode.frequency.setValueAtTime(audio.lowpassCutoff, audio.context.currentTime);
 
     // Setup AGC node
-    newSource.agcNode.knee.setValueAtTime(audio.agcKnee, audio.context.currentTime);
-    newSource.agcNode.ratio.setValueAtTime(audio.agcRatio, audio.context.currentTime);
-    newSource.agcNode.attack.setValueAtTime(audio.agcAttack, audio.context.currentTime);
-    newSource.agcNode.release.setValueAtTime(audio.agcRelease, audio.context.currentTime);
+    newSource.agcNode.knee.setValueAtTime(audio.outputChain.agc.knee, audio.context.currentTime);
+    newSource.agcNode.ratio.setValueAtTime(audio.outputChain.agc.ratio, audio.context.currentTime);
+    newSource.agcNode.attack.setValueAtTime(audio.outputChain.agc.attack, audio.context.currentTime);
+    newSource.agcNode.release.setValueAtTime(audio.outputChain.agc.release, audio.context.currentTime);
 
     // Set current pan setting
-    var newPan = $(`#radio${idx}`).find('.radio-pan').val();
+    const newPan = Number(radio.elements.card.querySelector<HTMLInputElement>(".radio-pan").value);
     newSource.panNode.pan.setValueAtTime(newPan, audio.context.currentTime);
+
+    // Set up the analyzer data array
+    newSource.analyzerData = new Float32Array(newSource.analyzerNode.fftSize);
 
     // Connect all the nodes
     newSource.filterNode.connect(newSource.agcNode);
@@ -1936,10 +1752,10 @@ function createAudioSource(idx: number): void {
     newSource.makeupNode.connect(newSource.analyzerNode);
     newSource.muteNode.connect(newSource.gainNode);
     newSource.gainNode.connect(newSource.panNode);
-    newSource.panNode.connect(audio.outputGain);
+    newSource.panNode.connect(audio.outputChain.volume);
 
     // Add to list of radio streams
-    radios[idx].audioSrc = newSource;
+    radio.audioSource = newSource;
 }
 
 /**
@@ -1952,103 +1768,80 @@ async function queryDeviceType(type) {
     return devices.filter(device => device.kind === type)
 }
 
-/**
- * Populate the audio device lists
- */
-async function getAudioDevices() {
-    const audioInputs = await queryDeviceType('audioinput');
-    const audioOutputs = await queryDeviceType('audiooutput');
-    
-    audioInputs.forEach(input => {
-        var name = input.label;
-        /*if (name.length > 30) {
-            name = name.substring(0,30) + "...";
-        }*/
-        const device = input.deviceId;
-        $("#audio-input").append($('<option>', {
-            value: device,
-            text: name
-        }));
-    })
-
-    audioOutputs.forEach(output => {
-        var name = output.label;
-        /*if (name.length > 30) {
-            name = name.substring(0,30) + "...";
-        }*/
-        const device = output.deviceId;
-        $("#audio-output").append($('<option>', {
-            value: device,
-            text: name
-        }));
-    })
-}
-
 /** 
 * Checks for browser compatibility and sets up audio devices
 * @return {bool} True on success
 */
-function startAudioDevices() {
+async function startAudioDevices(): Promise<void> {
     // Create audio context
     audio.context = new AudioContext();
     console.log("Created audio context");
 
+    // Load audio worklets
+    await audio.context.audioWorklet.addModule("worklets/PlaybackProcessor.js");
+    await audio.context.audioWorklet.addModule("worklets/CaptureProcessor.js");
+
     // Create analyzer node for volume meter under volume slider
-    audio.outputAnalyzer = audio.context.createAnalyser();
-    audio.outputPcmData = new Float32Array(audio.outputAnalyzer.fftSize);
+    audio.outputChain.analyzer = audio.context.createAnalyser();
+    audio.outputChain.analyzerData = new Float32Array(audio.outputChain.analyzer.fftSize);
 
     // Create gain node for output volume and connect it to the default output device
-    audio.outputGain = audio.context.createGain();
-    audio.outputGain.gain.value = Math.pow($("#console-volume").val() / 100, 2);
-    audio.outputGain.connect(audio.context.destination);
+    audio.outputChain.volume = audio.context.createGain();
+    const outputVol = Number(document.querySelector<HTMLInputElement>("#console-volume").value);
+    audio.outputChain.volume.gain.value = Math.pow(outputVol / 100, 2);
+    audio.outputChain.volume.connect(audio.context.destination);
 
     // Start audio input
     console.log("Running initial microphone setup");
-    // New, better (?) way
-    navigator.mediaDevices.getUserMedia(userMediaSettings).then(
-        // Add tracks to peer connection and negotiate if successful
-        function(stream) {
-            // Set up mic meter dependecies
-            audio.inputStream = audio.context.createMediaStreamSource(stream);
-            // Add handler for when the mic stream ends
-            audio.inputStream.addEventListener("inactive", (event) => {
-                console.warn("Mic input stream ended!");
-                restartMicStream();
-            });
-            audio.inputAnalyzer = audio.context.createAnalyser();
-            audio.inputPcmData = new Float32Array(audio.inputAnalyzer.fftSize);
-            // Create a mic gain for muting the mic when we're not talking
-            audio.inputMicGain = audio.context.createGain();
-            muteMic();
-            // Connect input mic stream to gain, and gain to destination and analyzer
-            audio.inputStream.connect(audio.inputMicGain);
-            audio.inputMicGain.connect(audio.inputAnalyzer);
-            // Setup DTMF generator once we have our input audio nodes
-            audio.dtmf = new DualTone(audio.context, 100, 200);
-            // Setup Alert Tone generator
-            audio.tones = new AlertTone(audio.context, "alt", 1500, 800);
-            // We are now running
-            audio.running = true;
-        },
-        // Report a failure to capture mic
-        function(e) {
-            alert('Error capturing microphone device');
-            return false;
-        }
-    );
+    try {
+        // Get the mic stream
+        const stream = await navigator.mediaDevices.getUserMedia(userMediaSettings);
+        // Set up mic meter dependecies
+        audio.inputChain.micStream = audio.context.createMediaStreamSource(stream);
+        // Add handler for when the mic stream ends
+        audio.inputChain.micStream.addEventListener("inactive", (event) => {
+            console.warn("Mic input stream ended!");
+            restartMicStream();
+        });
+        audio.inputChain.analyzer = audio.context.createAnalyser();
+        audio.inputChain.analyzerData = new Float32Array(audio.inputChain.analyzer.fftSize);
+        // Create a mic gain for muting the mic when we're not talking
+        audio.inputChain.volume = audio.context.createGain();
+        muteMic();
+        // Connect input mic stream to gain, and gain to destination and analyzer
+        audio.inputChain.micStream.connect(audio.inputChain.volume);
+        audio.inputChain.volume.connect(audio.inputChain.analyzer);
+        // Set up mic capture manager and connect to mic volume output
+        audio.inputChain.micCaptureManager = new MicCaptureManager(audio.context, audio.inputChain.volume);
+        // Setup DTMF generator once we have our input audio nodes
+        audio.dtmf = new DtmfGenerator(audio.context);
+        // Setup Alert Tone generator
+        audio.alert = new AlertToneGenerator(audio.context);
+        // Connect DTMF to output chain for sidetone and input analyzer for mic chain
+        audio.dtmf.connect(audio.outputChain.volume);
+        audio.dtmf.connect(audio.inputChain.analyzer);
+        // Same for alert tones
+        audio.alert.connect(audio.outputChain.volume);
+        audio.alert.connect(audio.inputChain.analyzer);
+        // We are now running
+        audio.running = true;
+    }
+    catch (e) {
+        alert("Error capturing microphone device");
+    }
 
     // Enable volume slider
-    $("#console-volume").prop('disabled', false);
+    document.querySelector("#console-volume").removeAttribute("disabled");
 }
 
 function muteMic() {
     console.log("Muting mic");
-    audio.inputMicGain.gain.value = 0;
+    audio.inputChain.volume.gain.value = 0;
 }
 
 function unmuteMic() {
     console.log("Unmuting mic");
-    audio.inputMicGain.gain.value = 1;
+    audio.inputChain.volume.gain.value = 1;
 }
 
 function restartMicStream() {
@@ -2056,14 +1849,14 @@ function restartMicStream() {
     // Re-get user media
     navigator.mediaDevices.getUserMedia(userMediaSettings).then( function(stream) {
         // Recreate the input stream
-        audio.inputStream = audio.context.createMediaStreamSource(stream);
+        audio.inputChain.micStream = audio.context.createMediaStreamSource(stream);
         // Add handler for when the mic stream ends
-        audio.inputStream.addEventListener("inactive", (event) => {
+        audio.inputChain.micStream.addEventListener("inactive", (event) => {
             console.warn("Mic input stream ended!");
             restartMicStream();
         });
-        // Restart the mic track to reconnect everything
-        restartMicTrack();
+        // Reconnect the audio input stream
+        audio.inputChain.micStream.connect(audio.inputChain.volume);
     });
 }
 
@@ -2079,41 +1872,41 @@ function audioMeterCallback() {
     // Update meters
     radios.forEach((radio, idx) => {
         // Ignore radios with no connected audio
-        if (radios[idx].audioSrc == null) {
-            if (radios[idx].elements.rxbar.style.width != 0) {
-                radios[idx].elements.rxbar.style.width = 0;
+        if (radios[idx].audioSource == null) {
+            if (radios[idx].elements.rxBar.style.width != "0") {
+                radios[idx].elements.rxBar.style.width = "0";
             }
             return
         }
         // Ignore radio that isn't receiving (checking for the class compensates for the rx delay)
         if (!isRadioReceiving(idx)) {
-            if (radios[idx].elements.rxbar.style.width != 0) {
-                radios[idx].elements.rxbar.style.width = 0;
+            if (radios[idx].elements.rxBar.style.width != "0") {
+                radios[idx].elements.rxBar.style.width = "0";
             }
             return
         }
         // Get data
-        radios[idx].audioSrc.analyzerNode.getFloatTimeDomainData(radios[idx].audioSrc.analyzerData);
+        radios[idx].audioSource.analyzerNode.getFloatTimeDomainData(radios[idx].audioSource.analyzerData);
         // Process into average amplitude
         var sumSquares = 0.0;
-        for (const amplitude of radios[idx].audioSrc.analyzerData) { sumSquares += (amplitude * amplitude); }
+        for (const amplitude of radios[idx].audioSource.analyzerData) { sumSquares += (amplitude * amplitude); }
         // We just scale this summed squared value by a constant to avoid actually doing an RMS calculation every single frame
-        const newPct = String(Math.sqrt(sumSquares / radios[idx].audioSrc.analyzerData.length).toFixed(3) * 300);
-        radios[idx].elements.rxbar.style.width = newPct;
+        const newPct = Math.round(Math.sqrt(sumSquares / radios[idx].audioSource.analyzerData.length) * 300);
+        radios[idx].elements.rxBar.style.width = newPct.toString();
     });
 
     // Input meter (only show when PTT)
     if (selectedRadioIdx != null && selectedRadioIdx >= 0) {
         if (pttActive) {
             // Get data from mic
-            audio.inputAnalyzer.getFloatTimeDomainData(audio.inputPcmData);
-            sumSquares = 0.0;
-            for (const amplitude of audio.inputPcmData) { sumSquares += amplitude * amplitude; }
-            const newPct = String(Math.sqrt(sumSquares / audio.outputPcmData.length).toFixed(3) * 300);
+            audio.inputChain.analyzer.getFloatTimeDomainData(audio.inputChain.analyzerData);
+            var sumSquares = 0.0;
+            for (const amplitude of audio.inputChain.analyzerData) { sumSquares += amplitude * amplitude; }
+            const newPct = Math.round(Math.sqrt(sumSquares / audio.inputChain.analyzerData.length) * 300);
             // Apply to selected radio only
-            radios[selectedRadioIdx].elements.txbar.style.width = newPct;
+            radios[selectedRadioIdx].elements.txBar.style.width = newPct.toString();
         } else {
-            radios[selectedRadioIdx].elements.txbar.style.width = 0;
+            radios[selectedRadioIdx].elements.txBar.style.width = "0";
         }
     }
 
@@ -2125,11 +1918,11 @@ function checkAudioMeterCallback()
 {
     // Get the overall "audio doing something" status (we check classes instead of actual statuses to account for the latency delays)
     console.debug("Checking if any radio's audio is active");
-    audio_active = false;
+    var audio_active = false;
     radios.forEach((radio, idx) => {
         if (isRadioActive(idx))
         {
-            console.debug(`${radio.name} audio active`);
+            console.debug(`${radio.cfg.name} audio active`);
             audio_active = true;
         }
     });
@@ -2152,8 +1945,8 @@ function checkAudioMeterCallback()
 function zeroAudioMeters()
 {
     radios.forEach((radio, idx) => {
-        radios[idx].elements.rxbar.style.width = 0;
-        radios[idx].elements.txbar.style.width = 0;
+        radios[idx].elements.rxBar.style.width = "0";
+        radios[idx].elements.txBar.style.width = "0";
     });
 }
 
@@ -2162,27 +1955,23 @@ function zeroAudioMeters()
  */
 function volumeSlider() {
     // Convert 0-100 to 0-1 for multiplication with audio, using an inverse-square curve for better "logarithmic" volume
-    const newVol = Math.pow($("#console-volume").val() / 100, 2);
+    const newVol = Math.pow(parseFloat(document.querySelector<HTMLInputElement>("#console-volume").value) / 100, 2);
     // Set gain node to new value if it exists
-    if (audio.outputGain != null)
+    if (audio.outputChain.volume != null)
     {
-        audio.outputGain.gain.value = newVol;
+        audio.outputChain.volume.gain.value = newVol;
     }
-    // Set volume of each ui html sound
-    const uiSounds = document.getElementsByClassName("ui-audio");
-    for (var i = 0; i < uiSounds.length; i++) {
-        uiSounds.item(i).volume = newVol;
-    }
+    setSoundsVolume(newVol);
 }
 
 /**
  * Changes the value of the volume slider, which will then update the console volume through the slider callback
  * @param {int} increment 
  */
-function changeVolume(increment) {
-    var newVal = parseInt($("#console-volume").val()) + increment;
+function changeVolume(increment: number) {
+    var newVal = parseFloat(document.querySelector<HTMLInputElement>("#console-volume").value) + increment;
     if (newVal < 0) { newVal = 0} else if (newVal > 100) { newVal = 100 }
-    $("#console-volume").val(newVal);
+    document.querySelector<HTMLInputElement>("#console-volume").value = newVal.toString();
     volumeSlider();
 }
 
@@ -2202,7 +1991,7 @@ function setVolume(level)
         level = 1;
     }
     // Set volume
-    $("#console-volume").val(Math.round(level * 100));
+    document.querySelector<HTMLInputElement>("#console-volume").value = Math.round(level * 100).toString();
     // Trigger update
     volumeSlider();
 }
@@ -2218,10 +2007,20 @@ function playSound(soundId) {
     if (sndSource)
     {
         var snd = new Audio();
-        snd.type = sndSource.getAttribute('type');
+        //snd.type = sndSource.getAttribute('type');
         snd.src = sndSource.getAttribute('src');
         snd.play();
     }
+}
+
+/**
+ * Set the volume of all sounds
+ * @param volume volume from 0 to 1
+ */
+function setSoundsVolume(volume: number) {
+    document.querySelectorAll<HTMLAudioElement>(".ui-audio").forEach((sound) => {
+        sound.volume = volume;
+    })
 }
 
 /**
@@ -2238,26 +2037,26 @@ function bonk() {
     console.debug("Updating radio sound parameters");
     radios.forEach(function(radio, idx) {
         // Ignore if audio not connected
-        if (radios[idx].audioSrc == null) {
-            console.debug(`  - Audio not connected for radio ${radios[idx].name}, skipping`);
+        if (radios[idx].audioSource == null) {
+            console.debug(`  - Audio not connected for radio ${radios[idx].cfg.name}, skipping`);
             return;
         }
         if (idx == selectedRadioIdx) {
-            console.debug(`  - Radio ${radios[idx].name} is selected. Setting gain to 1`);
-            radios[idx].audioSrc.gainNode.gain.setValueAtTime(1, audio.context.currentTime);
+            console.debug(`  - Radio ${radios[idx].cfg.name} is selected. Setting gain to 1`);
+            radios[idx].audioSource.gainNode.gain.setValueAtTime(1, audio.context.currentTime);
         } else {
-            console.debug(`  - Radio ${radios[idx].name} is unselected. Setting gain to ${config.Audio.UnselectedVol}`);
-            radios[idx].audioSrc.gainNode.gain.setValueAtTime(dbToGain(config.Audio.UnselectedVol), audio.context.currentTime);
+            console.debug(`  - Radio ${radios[idx].cfg.name} is unselected. Setting gain to ${config.audio.unselectedVolume}`);
+            radios[idx].audioSource.gainNode.gain.setValueAtTime(dbToGain(config.audio.unselectedVolume), audio.context.currentTime);
         }
         // Set AGC based on user setting
-        if (config.Audio.UseAGC) {
-            console.log(`  - Enabling AGC for radio ${radios[idx].name}`);
-            radios[idx].audioSrc.agcNode.threshold.setValueAtTime(audio.agcThreshold, audio.context.currentTime);
-            radios[idx].audioSrc.makeupNode.gain.setValueAtTime(audio.agcMakeup, audio.context.currentTime);
+        if (config.audio.useAGC) {
+            console.log(`  - Enabling AGC for radio ${radios[idx].cfg.name}`);
+            radios[idx].audioSource.agcNode.threshold.setValueAtTime(audio.outputChain.agc.threshold, audio.context.currentTime);
+            radios[idx].audioSource.makeupNode.gain.setValueAtTime(audio.outputChain.agc.makeup, audio.context.currentTime);
         } else {
-            console.log(`  - Byassing AGC for radio ${radios[idx].name}`);
-            radios[idx].audioSrc.agcNode.threshold.setValueAtTime(0, audio.context.currentTime);
-            radios[idx].audioSrc.makeupNode.gain.setValueAtTime(1.0, audio.context.currentTime);
+            console.log(`  - Byassing AGC for radio ${radios[idx].cfg.name}`);
+            radios[idx].audioSource.agcNode.threshold.setValueAtTime(0, audio.context.currentTime);
+            radios[idx].audioSource.makeupNode.gain.setValueAtTime(1.0, audio.context.currentTime);
         }
     });
 }
@@ -2270,24 +2069,38 @@ function bonk() {
 function muteRadio(idx, mute) {
     // Get radio
     const radio = radios[idx];
+    // Cancel any pending status-based mutes
+    clearPendingMute(radio);
+    // Handle mute/unmute
     if (mute) {
         console.info(`Muting radio ${radio.cfg.name}`);
         // Set audio node
-        radios[idx].audioSrc.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
+        radios[idx].audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
         // Set icon
-        $(`#radio${idx} .icon-mute`).addClass('muted');
-        $(`#radio${idx} .icon-mute`).prop('name', 'volume-mute-sharp');
+        radio.elements.card.querySelector(".icon-mute").classList.add("muted");
+        radio.elements.card.querySelector(".icon-mute").setAttribute("name", "volume-mute-sharp");
         // Set state
         radios[idx].cfg.muted = true;
     } else {
         console.info(`Unmuting radio ${idx}`);
         // Set audio node
-        radios[idx].audioSrc.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
+        radios[idx].audioSource.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
         // Set icon
-        $(`#radio${idx} .icon-mute`).removeClass('muted');
-        $(`#radio${idx} .icon-mute`).prop('name', 'volume-high-sharp');
+        radio.elements.card.querySelector(".icon-mute").classList.remove('muted');
+        radio.elements.card.querySelector(".icon-mute").setAttribute("name", "volume-high-sharp");
         // Set state
         radios[idx].cfg.muted = false;
+    }
+}
+
+/**
+ * Clear any pending status-based mute timeouts for the given radio
+ * @param radio the radio to clear mute timeouts on
+ */
+function clearPendingMute(radio: Radio) {
+    if (radio.pendingMuteTimeout) {
+        clearTimeout(radio.pendingMuteTimeout);
+        radio.pendingMuteTimeout = undefined;
     }
 }
 
@@ -2295,24 +2108,37 @@ function muteRadio(idx, mute) {
  * Various audio updates for the specified radio
  */
 function updateAudio(idx) {
-    console.debug(`[${radios[idx].name}]: Updating audio settings`);
+    const radio = radios[idx];
+    console.debug(`[${radio.cfg.name}]: Updating audio settings`);
+    
     // Do nothing if audio sources aren't connected
-    if (radios[idx].audioSrc == null) { 
+    if (radio.audioSource == null) { 
         console.debug(`  - Audio sources not connected, skipping`);
         return;
     }
-    // Mute if we're muted or not receiving, after the specified delay in rtc.rxLatency
-    if (radios[idx].mute || !(radios[idx].status.State === 'Receiving' || radios[idx].status.State === 'Encrypted')) {
-        setTimeout(function() {
-            console.debug(`  - Muting audio for radio ${radios[idx].name}`);
-            radios[idx].audioSrc.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
-        }, radios[idx].rtc.rxLatency);
-    // Unmute only if we're not forced muted by the client
-    } else if (!radios[idx].mute) {
-        setTimeout(function() {
-            console.debug(`  - Unmuting audio for radio ${radios[idx].name}`);
-            radios[idx].audioSrc.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
-        }, radios[idx].rtc.rxLatency);
+    
+    // Check if we're receiving
+    const receiving = radio.status?.state === RadioState.RECEIVING || radio.status?.state === RadioState.ENCRYPTED;
+
+    // If we're muted by the user, mute right away
+    if (radio.cfg.muted) {
+        clearPendingMute(radio);
+        console.debug(` - Force-muting radio ${radio.cfg.name}`);
+        radio.audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
+    } 
+    // If we're not receiving and the audio is not already muted, mute after an audio delay
+    else if (!receiving && radio.audioSource.muteNode.gain.value != 0) {
+        console.debug(`  - Scheduling mute for radio ${radio.cfg.name} in ${audio.rxMuteDelay} ms`);
+        radio.pendingMuteTimeout = setTimeout(() => {
+            radio.pendingMuteTimeout = undefined;
+            radio.audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
+        }, audio.rxMuteDelay);
+    }
+    // Unmute immediately otherwise
+    else {
+        clearPendingMute(radio);
+        console.debug(`  - Unmuting audio for radio ${radio.cfg.name}`);
+        radio.audioSource.muteNode.gain.setValueAtTime(1, audio.context.currentTime);
     }
 }
 
@@ -2321,12 +2147,12 @@ function updateAudio(idx) {
  * @param {event} event 
  * @param {object} obj 
  */
-function showPanMenu(event, obj) {
-    const radioCard = $(obj).closest(".radio-card");
-    if (radioCard.hasClass("disconnected")) {
+function showPanMenu(event: MouseEvent) {
+    const radioCard = (event.currentTarget as HTMLElement).closest(".radio-card");
+    if (radioCard.classList.contains("disconnected")) {
         console.debug("Radio disconnected, not showing pan menu");
     } else {
-        $(obj).closest(".radio-card").find(".panning-dropdown").toggleClass("closed");
+        radioCard.querySelector(".panning-dropdown").classList.toggle("closed");
     }
     event.stopPropagation();
 }
@@ -2336,21 +2162,27 @@ function showPanMenu(event, obj) {
  * @param {event} event 
  * @param {object} obj 
  */
- function showDTMFMenu(event, obj) {
-    const radioCard = $(obj).closest(".radio-card");
-    if (radioCard.hasClass("disconnected")) {
+ function showDTMFMenu(event: MouseEvent) {
+    const radioCard = (event.currentTarget as HTMLElement).closest(".radio-card");
+    if (radioCard.classList.contains("disconnected")) {
         console.debug("Radio disconnected, not showing dtmf menu");
     } else {
-        $(obj).closest(".radio-card").find(".dtmf-dropdown").toggleClass("closed");
-        $(obj).closest(".radio-card").find(".dtmf-dialpad").toggleClass("closed");
+        radioCard.querySelector(".dtmf-dropdown").classList.toggle("closed");
+        radioCard.querySelector(".dtmf-dialpad").classList.toggle("closed");
     }
     event.stopPropagation();
 }
 
 function closeAllDropdownMenus() {
-    $(".panning-dropdown").addClass("closed");
-    $(".dtmf-dropdown").addClass("closed");
-    $(".dtmf-dialpad").addClass("closed");
+    document.querySelectorAll(".panning-dropdown").forEach((elem) => {
+        elem.classList.add("closed");
+    });
+    document.querySelectorAll(".dtmf-dropdown").forEach((elem) => {
+        elem.classList.add("closed");
+    });
+    document.querySelectorAll(".dtmf-dialpad").forEach((elem) => {
+        elem.classList.add("closed");
+    });
 }
 
 /**
@@ -2358,21 +2190,24 @@ function closeAllDropdownMenus() {
  * @param {event} event the calling event
  * @param {object} obj the calling html object
  */
-function changePan(event, obj) {
+function changePan(event: MouseEvent) {
     // Prevent from selecting the card
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+    // Get target
+    const target = event.currentTarget as HTMLInputElement;
     // Get new value
-    const newPan = $(obj).val();
-    // Get radio ID and index
-    const radioId = $(obj).closest(".radio-card").attr('id');
-    const idx = getRadioIndex(radioId);
+    const newPan = Number(target.value);
+    // Get radio index
+    const idx = parseInt(target.closest('.radio-card').getAttribute("data-radio-idx"));
+    // Get radio
+    const radio = radios[idx];
     // Debug log
-    console.debug(`[${radios[idx].name}]: Setting new pan value ${newPan}`);
-    // Set pan
-    radios[idx].pan = newPan;
-    radios[idx].audioSrc.panNode.pan.setValueAtTime(newPan, audio.context.currentTime);
+    console.debug(`[${radio.cfg.name}]: Setting new pan value ${newPan}`);
+    // Set pan in config and on pan node
+    radio.cfg.pan = newPan;
+    radio.audioSource.panNode.pan.setValueAtTime(newPan, audio.context.currentTime);
 }
 
 /**
@@ -2380,16 +2215,23 @@ function changePan(event, obj) {
  * @param {event} event the calling button event 
  * @param {object} obj the calling html object
  */
-function centerPan(event, obj) {
+function centerPan(event: MouseEvent) {
+    // Prevent from selecting the card
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    // Get target
+    const target = event.currentTarget as HTMLInputElement;
     // Update slider value
-    $(obj).val(0);
+    target.value = "0";
     // Get radio index
-    const radioId = $(obj).closest(".radio-card").attr('id');
-    const idx = getRadioIndex(radioId);
+    const idx = parseInt(target.closest('.radio-card').getAttribute("data-radio-idx"));
+    // Get radio
+    const radio = radios[idx];
     // Update pan
-    console.debug(`[${radios[idx].name}]: Resetting pan value`);
-    // Set pan
-    radios[idx].audioSrc.panNode.pan.setValueAtTime(0, audio.context.currentTime);
+    console.debug(`[${radio.cfg.name}]: Resetting pan value`);
+    radio.cfg.pan = 0;
+    radio.audioSource?.panNode.pan.setValueAtTime(0, audio.context.currentTime);
 }
 
 function dtmfPressed(event, obj) {
@@ -2473,100 +2315,6 @@ function clearDTMFDialpad(radioId) {
 ***********************************************************************************/
 
 /**
- * Console alert tone generator class
- * @param {audioContext} context the audio context
- * @param {AlertToneMode} mode alert mode, "cont", "alt", or "pulse"
- * @param {int} freq1 primary frequency
- * @param {int} freq2 secondary frequency, not used unless in "alt" mode
- */
-function AlertTone(context: AudioContext, mode: AlertToneMode) {
-    this.context = context;
-    this.mode = mode;
-    // Used to cancel the tone period timeout callback
-    this.timeoutId = null;
-    // Used to get the current status of the generator
-    this.status = 0;
-}
-
-AlertTone.prototype.setup = function() {
-    // Create the audio nodes
-    this.osc = this.context.createOscillator();
-    this.gain = this.context.createGain();
-    this.filter = this.context.createBiquadFilter();
-    // Setup initial values
-    switch (this.mode) {
-        case AlertToneMode.CONTINUOUS:
-        case AlertToneMode.PULSED:
-            this.osc.frequency.value = 1000;
-            break;
-        case AlertToneMode.ALTERNATING:
-            this.osc.frequency.value = 1500;
-            break;
-    }
-    this.gain.gain.value = audio.tonesGain;
-    this.filter.type = 'lowpass';
-    this.filter.frequency = '4000';
-    // Connect
-    this.osc.connect(this.gain);
-    this.gain.connect(this.filter);
-    this.filter.connect(audio.outputGain);
-    this.filter.connect(audio.inputAnalyzer);
-}
-
-AlertTone.prototype.timerCallback = function() {
-    // behavior changes depending on mode
-    switch (this.mode) {
-        case AlertToneMode.CONTINUOUS:
-            // Do nothing
-            break;
-        case AlertToneMode.ALTERNATING:
-            // Get current osc frequency
-            const curFreq = this.osc.frequency.value;
-            // Change to the other one
-            if (curFreq == 1500) {
-                this.osc.frequency.value = 800;
-            } else {
-                this.osc.frequency.value = 1500;
-            }
-            break;
-        case AlertToneMode.PULSED:
-            // Get current gain
-            const curGain = this.gain.gain.value;
-            // Mute or unmute
-            if (curGain == 0) {
-                this.gain.gain.value = audio.tonesGain;
-            } else {
-                this.gain.gain.value = 0;
-            }
-            break;
-    }
-    // Set the timeout again
-    this.timeoutId = setTimeout(() => {
-        this.timerCallback();
-    }, Math.floor(audio.tonesPeriod / 2) );
-}
-
-AlertTone.prototype.start = function() {
-    this.setup();
-    this.osc.start(0);
-    this.status = 1;
-    this.gain.gain.value = audio.tonesGain;
-    // Start timer
-    this.timeoutId = setTimeout(() => {
-        this.timerCallback();
-    }, Math.floor(audio.tonesPeriod / 2) );
-}
-
-AlertTone.prototype.stop = function() {
-    this.osc.stop(0);
-    if (this.timeoutId) {
-        clearTimeout(this.timeoutId);
-    }
-    this.status = 0;
-    this.gain.gain.value = 0;
-}
-
-/**
  * Show/Hide the alert bar
  */
 function alertBar() {
@@ -2594,55 +2342,6 @@ function hideAlertBar() {
 ***********************************************************************************/
 
 /**
- * Dual Tone Generator Class for DTMF
- * @param {audioContext} context Audio context
- * @param {int} freq1 frequency 1
- * @param {int} freq2 frequency 2
- */
-function DualTone(context, freq1, freq2) {
-    this.context = context;
-    this.status = 0;
-    this.freq1 = freq1;
-    this.freq2 = freq2;
-}
-
-DualTone.prototype.setup = function() {
-    // Create the audio nodes
-    this.osc1 = this.context.createOscillator();
-    this.osc2 = this.context.createOscillator();
-    this.gainNode = this.context.createGain();
-    this.filter = this.context.createBiquadFilter();
-    // Setup initial values
-    this.osc1.frequency.value = this.freq1;
-    this.osc2.frequency.value = this.freq2;
-    this.gainNode.gain.value = audio.dtmfGain;
-    this.filter.type = 'lowpass';
-    this.filter.frequency = '4000';
-    // Connect everything
-    this.osc1.connect(this.gainNode);
-    this.osc2.connect(this.gainNode);
-    this.gainNode.connect(this.filter);
-    // Connect to both local speakers (for sidetone) and the mic destination/analyzer
-    this.filter.connect(audio.outputGain);
-    this.filter.connect(audio.inputAnalyzer);
-}
-
-DualTone.prototype.start = function() {
-    this.setup();
-    this.osc1.start(0);
-    this.osc2.start(0);
-    this.status = 1;
-    this.gainNode.gain.value = audio.dtmfGain;
-}
-
-DualTone.prototype.stop = function() {
-    this.osc1.stop(0);
-    this.osc2.stop(0);
-    this.status = 0;
-    this.gainNode.gain.value = 0;
-}
-
-/**
  * Starts the DTMF generator for the specified digit and duration
  * @param {char} digit digit to send (0-9, A-D, # or *)
  * @param {int} duration duration to play digit in ms
@@ -2650,7 +2349,7 @@ DualTone.prototype.stop = function() {
  */
 function sendDigit(digit, duration, delay) {
     const fPair = dtmfFrequencies[digit];
-    if (audio.dtmf.status == 0) {
+    if (!audio.dtmf.active) {
         setTimeout(() => {
             console.debug(`Starting digit ${digit}: ${fPair.f1}, ${fPair.f2}`);
             audio.dtmf.freq1 = fPair.f1;
@@ -2668,11 +2367,24 @@ function sendDigit(digit, duration, delay) {
     Websocket Client Functions
 ***********************************************************************************/
 
+let audioStartupPromise: Promise<void> | null = null;
+
+/**
+ * Ensure audio devices are started and ready
+ * @returns A promise that resolves once audio devices are ready
+ */
+function ensureAudioStarted() : Promise<void> {
+    if (!audioStartupPromise) {
+        audioStartupPromise = startAudioDevices();
+    }
+    return audioStartupPromise;
+}
+
 /**
  * Create websocket connection to radio and wait for it to connect
  * @param {int} idx index of radio in radios[]
  */
-function connectRadio(idx: number): void {
+async function connectRadio(idx: number): Promise<void> {
     // Get the radio
     const radio = radios[idx];
 
@@ -2684,10 +2396,8 @@ function connectRadio(idx: number): void {
     radio.elements.card.querySelector(".icon-connect").classList.add("connecting");
     radio.elements.card.querySelector(".icon-connect").parentElement.setAttribute("title", "Connecting to daemon");
     
-    // Create audio context if we haven't already
-    if (audio.context == null) {
-        startAudioDevices();
-    }
+    // Wait for audio context if it's not already set up
+    await ensureAudioStarted();
 
     // Set up the radio
     radio.requests = new RequestTracker();
@@ -2709,8 +2419,61 @@ function connectRadio(idx: number): void {
  */
 function disconnectRadio(idx: number) : void {
     console.info(`Disconnecting from ${radios[idx].cfg.name}`);
+    
     radios[idx].audioReceiver?.close();
     radios[idx].connection?.close();
+}
+
+/**
+ * Fires when the radio is fully connected
+ * @param idx radio index in list
+ */
+function radioConnected(idx) {
+    // Get elements
+    const radio = radios[idx];
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
+    // UI update
+    connectIcon.classList.remove("disconnected");
+    connectIcon.classList.remove("connecting");
+    connectIcon.classList.add("connected");
+    connectIcon.parentElement.setAttribute("title", "Connected to radio daemon");
+    // Update master connect/disconnect button if no more radios are connected
+    document.querySelector(`#navbar-connect`).classList.remove('disconnected');
+    document.querySelector(`#navbar-connect`).classList.add('connected');
+    // Open serial port, if configured
+    if (config.peripherals.serial.enabled && config.peripherals.serial.port)
+    {
+        window.electronAPI.openSerialPort(config.peripherals.serial.port);
+    }
+}
+
+/**
+ * Fires when the radio is fully disconnected
+ * @param idx radio index in list
+ */
+function radioDisconnected(idx) {
+    // Get elements
+    const radio = radios[idx];
+    const connectIcon = radio.elements.card.querySelector(".icon-connect");
+    // UI update
+    connectIcon.classList.remove("connecting");
+    connectIcon.classList.remove("connected");
+    connectIcon.classList.add("disconnected");
+    connectIcon.parentElement.setAttribute("title", "Disconnected");
+    // Update status to disconnected
+    radio.status.state = RadioState.DISCONNECTED;
+    // Remove selected if it's selected
+    if (selectedRadioIdx == idx) {
+        deselectRadios();
+    }
+    // If no more radios connected, set master connect button to disconnected and close serial port
+    if (!radios.some(e => e.connection != null)) {
+        // Set navbar icon to disconnected
+        document.querySelector("#navbar-connect").classList.remove("connected");
+        document.querySelector("#navbar-connect").classList.add("disconnected");
+        // Close serial port
+        window.electronAPI.closeSerialPort();
+    }
 }
 
 /**
@@ -2740,6 +2503,11 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
         } else {
             // We are handshook
             radio.handshakeComplete = true;
+            // If audio isn't set up, do that now
+            if (!radio.audioSource) createAudioSource(idx);
+            // Connect up the audio
+            radio.audioReceiver = new RadioAudioReceiver(audio.context, radio.cfg.name, AudioCodec.OPUS, result.rxSampleRateHz, 1);
+            radio.audioReceiver.node.connect(radio.audioSource.filterNode);
             // Radio is connected
             radioConnected(idx);
         }
@@ -2762,19 +2530,44 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
         updateRadioCard(idx);
         updateRadioControls();
         exUpdateRadio(idx);
+        // Update audio
+        updateAudio(idx);
     // ACK to a message
     } else if (env.control?.ack) {
         radio.requests.resolve(env.control.ack.requestId);
         // If it was an ACK to a button release, play the button sound if enabled
-        if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE && config.audio.buttonSounds) {
-            playSound('sound-click');
+        if (config.audio.buttonSounds) {
+            if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE ||
+                env.control.ack.inResponseTo == RadioCommandType.BUTTON_TOGGLE ||
+                env.control.ack.inResponseTo == RadioCommandType.CHAN_DOWN ||
+                env.control.ack.inResponseTo == RadioCommandType.CHAN_UP) {
+                    playSound('sound-click');
+                }
+            else if (env.control.ack.inResponseTo == RadioCommandType.START_TX) {
+                // Play PTT start tone
+                playSound('sound-ptt');
+                // Unmute mic after unmute delay
+                setTimeout( unmuteMic, audio.micUnmuteDelay);
+            }
+            else if (env.control.ack.inResponseTo == RadioCommandType.STOP_TX) {
+                playSound('sound-ptt-end');
+            }
         } 
     // NACK to a message
     } else if (env.control?.nack) {
         radio.requests.reject(env.control.nack.requestId, env.control.nack.reason);
+        // Print console error
+        console.error(`Got NACK for command ${env.control.nack.inResponseTo}: ${env.control.nack.reason}`);
+        // Play bonk
+        playSound('sound-error');
     // Respond to ping with a pong
     } else if (env.control?.ping) {
         sendEnvelope(idx, { control: { pong: { nonce: env.control.ping.nonce } } });
+    // Audio
+    } else if (env.audio) {
+        if (env.audio.source === AudioSource.SPEAKER) {
+            radio.audioReceiver?.handleFrame(env.audio);
+        }
     }
 }
 
@@ -2793,21 +2586,8 @@ function handleSocketClose(event: CloseEvent, idx: number) {
     if (event.reason) {console.warn(event.reason);}
 
     // UI update
-    const connectIcon = radio.elements.card.querySelector(".icon-connect");
-    connectIcon.classList.remove('connected');
-    connectIcon.classList.remove('connecting');
-    connectIcon.classList.add('disconnected');
-    connectIcon.parentElement.setAttribute("title", "Disconnected");
+    radioDisconnected(idx);
     updateRadioCard(idx);
-
-    // If no more radios connected, set master connect button to disconnected and close serial port
-    if (!radios.some(e => e.wsConn != null)) {
-        // Set navbar icon to disconnected
-        $(`#navbar-connect`).removeClass("connected");
-        $(`#navbar-connect`).addClass("disconnected");
-        // Close serial port
-        window.electronAPI.closeSerialPort();
-    }
 }
 
 /**
@@ -2815,7 +2595,7 @@ function handleSocketClose(event: CloseEvent, idx: number) {
  * @param {event} event 
  */
 function handleSocketError(event, idx) {
-    console.error(`[${radios[idx].name}]: Websocket connection error:`);
+    console.error(`[${radios[idx].cfg.name}]: Websocket connection error:`);
     console.error(event);
 }
 
@@ -2854,7 +2634,7 @@ function extensionConnect() {
         return;
     }
     // Prepare URL
-    const wsUrl = `ws://${config.Extension.address}:${config.Extension.port}`;
+    const wsUrl = `ws://${config.extension.address}:${config.extension.port}`;
     // Verify valid address
     try {
         const url = new URL(wsUrl);
@@ -2871,17 +2651,44 @@ function extensionConnect() {
     extensionWs.onmessage = function(event) { recvExtensionMessage(event) };
     extensionWs.onclose = function(event) { handleExtensionClose(event) };
     // Wait for active
-    waitForWebSockets([extensionWs], extensionConnected);
+    waitForWebsocketConnect(extensionWs, extensionConnected);
+}
+
+/**
+ * Wait for a websocket connection to be OPEN
+ * @param conn The connection to check status of
+ * @param callback the callback to fire once the websocket is connected
+ */
+function waitForWebsocketConnect(conn: WebSocket, callback: Function) {
+    if (conn.readyState != WebSocket.OPEN) {
+        setTimeout(() => waitForWebsocketConnect(conn, callback), 50);
+    } else {
+        callback();
+    }
 }
 
 function extensionConnected() {
-    $("#extension-status").removeClass("disconnected");
-    $("#extension-status").html("Connected");
-    $("#extension-status").addClass("connected");
-    $("#connect-extension").html("Disconnect");
-    // Navbar icon
-    $("#navbar-ext").removeClass("disconnected");
-    $("#navbar-ext").addClass("connected");
+    const extStatusSpan = document.querySelector<HTMLSpanElement>("#extension-status");
+    extStatusSpan.classList.remove("disconnected");
+    extStatusSpan.innerHTML = "Connected";
+    extStatusSpan.classList.add("connected");
+
+    document.querySelector("#connect-extension").innerHTML = "Disconnect";
+    document.querySelector("#navbar-ext").classList.remove("disconnected");
+    document.querySelector("#navbar-ext").classList.add("connected");
+}
+
+function handleExtensionClose(event) {
+    const extStatusSpan = document.querySelector<HTMLSpanElement>("#extension-status");
+    extStatusSpan.classList.remove("connected");
+    extStatusSpan.innerHTML = "Disconnected";
+    extStatusSpan.classList.add("disconnected");
+
+    document.querySelector("#connect-extension").innerHTML = "Connect";
+    document.querySelector("#navbar-ext").classList.remove("connected");
+    document.querySelector("#navbar-ext").classList.add("disconnected");
+    // Clear websocket
+    extensionWs = null;
 }
 
 function handleExtensionError(event) {
@@ -2889,7 +2696,7 @@ function handleExtensionError(event) {
 }
 
 function recvExtensionMessage(event) {
-    // Convert to JSON
+    // Convert to object from JSON
     var msgObj;
     try {
         msgObj = JSON.parse(event.data);
@@ -2906,14 +2713,14 @@ function recvExtensionMessage(event) {
         switch (key) {
             // Radio status update
             case "selRadio":
-                selectRadio(`radio${value}`);
+                selectRadio(value as number);
                 break;
             // Key radio
             case "keyRadio":
                 if (!pttActive) {
                     // Select the radio if it isn't
                     if (selectedRadioIdx != value) {
-                        selectRadio(`radio${value}`);
+                        selectRadio(value as number);
                     }
                     // Start PTT
                     startPtt(true);
@@ -2933,11 +2740,11 @@ function recvExtensionMessage(event) {
                 break;
             // Press softkey
             case "pressSoftkey":
-                pressSoftkey(parseInt(value)+1);
+                pressSoftkey((value as number)+1);
                 break;
             // Release softkey
             case "releaseSoftkey":
-                releaseSoftkey(parseInt(value)+1);
+                releaseSoftkey((value as number)+1);
                 break;
             // Channel command
             case "channel":
@@ -2974,21 +2781,10 @@ function recvExtensionMessage(event) {
     }
 }
 
-function handleExtensionClose(event) {
-    $("#extension-status").removeClass("connected");
-    $("#extension-status").html("Disconnected");
-    $("#extension-status").addClass("disconnected");
-    $("#connect-extension").html("Connect");
-    // Navbar icon
-    $("#navbar-ext").removeClass("connected");
-    $("#navbar-ext").addClass("disconnected");
-    extensionWs = null;
-}
-
 function exUpdateRadio(idx) {
     if (extensionWs) {
         if (extensionWs.readyState == WebSocket.OPEN) {
-            obj = {
+            const obj = {
                 radioIdx: idx,
                 status: radios[idx].status
             };
@@ -3000,7 +2796,7 @@ function exUpdateRadio(idx) {
 function exUpdateSelected() {
     if (extensionWs) {
         if (extensionWs.readyState == WebSocket.OPEN) {
-            obj = {
+            const obj = {
                 selRadioIdx: selectedRadioIdx
             }
             extensionWs.send(JSON.stringify(obj));
@@ -3015,7 +2811,7 @@ function exUpdateSelected() {
 function exUpdateSoftkeys(states) {
     if (extensionWs) {
         if (extensionWs.readyState == WebSocket.OPEN) {
-            obj = {
+            const obj = {
                 softkeys: states
             }
             extensionWs.send(JSON.stringify(obj));
@@ -3043,6 +2839,6 @@ function escapeRegExp(string) {
  * @param {float} db Gain in decibels
  * @returns gain as a factor relative to 1
  */
-function dbToGain(db) {
-    return Math.pow(10, db/20).toFixed(3);
+function dbToGain(db: number): number {
+    return parseFloat(Math.pow(10, db/20).toFixed(3));
 }

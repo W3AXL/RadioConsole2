@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron/main');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron/main');
 
 const path = require('path')
 const fs = require('fs');
@@ -7,6 +7,8 @@ const { SerialPort } = require('serialport');
 const midi = require('@julusian/midi');
 
 const configPath = path.resolve(app.getPath("userData") + '/config.json');
+
+const { defaultConfig } = require('./lib/DefaultConfig.js');
 
 // Global window objects
 var mainWindow = null;
@@ -36,7 +38,7 @@ async function readConfig() {
             return defaultConfig;
         }
         catch (e) {
-            alert(`Failed to write default config file ${configPath}: ${e}`);
+            dialog.showErrorBox(`Failed to write default config file ${configPath}: ${e}`);
             console.error(e);
         }
     // Read the file if it already exists
@@ -51,7 +53,7 @@ async function readConfig() {
             return config;
         }
         catch (e) {
-            alert(`Failed to parse config JSON ${configJson}: ${e}`);
+            dialog.showErrorBox(`Failed to parse config JSON ${configJson}: ${e}`);
             return null;
         }
     }
@@ -67,7 +69,7 @@ async function saveConfig(event, args) {
         return true;
     }
     catch (e) {
-        log.error("Got error saving config: " + e);
+        console.error("Got error saving config: " + e);
         return e;
     }
 }
@@ -204,6 +206,14 @@ function openMidiPort(port)
     }
 }
 
+function closeMidiPort()
+{
+    if (midiInput && midiInput.isPortOpen()) {
+        midiInput.closePort();
+        midiInput = null;
+    }
+}
+
 function midiMessageHandler(deltaTime, message)
 {
     // Decode
@@ -215,7 +225,7 @@ function midiMessageHandler(deltaTime, message)
         return;
     }
     // Package
-    msg = {
+    const msg = {
         type: msgType,
         chan: msgChan,
         num: message[1],
@@ -227,9 +237,9 @@ function midiMessageHandler(deltaTime, message)
         mainWindow.webContents.send('gotMidiMessage', msg);
     }
     // Send to midi config window (for learning)
-    if (midiWindow != null)
+    if (periphWindow != null)
     {
-        midiWindow.webContents.send('gotMidiMessage', msg);
+        periphWindow.webContents.send('gotMidiMessage', msg);
     }
 }
 
@@ -262,6 +272,8 @@ async function createMainWindow() {
 
     // Handle window closing
     mainWindow.on('closed', () => {
+        closeSerialPort();
+        closeMidiPort();
         mainWindow = null;
     })
 
@@ -295,43 +307,13 @@ async function createPeriphWindow(periphConfig)
 
     // Query available serial ports
     var serialPorts = await SerialPort.list();
+    // Query available midi ports
+    var midiPorts = getMidiPorts();
     
     await periphWindow.loadFile(path.join(__dirname, "dialogs/peripherals.html"))
-        .then(() => { periphWindow.webContents.send('gotPorts', serialPorts); })
+        .then(() => { periphWindow.webContents.send('gotSerialPorts', serialPorts); })
+        .then(() => { periphWindow.webContents.send('gotMidiPorts', midiPorts); })
         .then(() => { periphWindow.webContents.send('populatePeriphConfig', periphConfig); });
-}
-
-async function createMidiWindow(midiConfig)
-{
-    // Query available midi ports
-    const ports = getMidiPorts();
-
-    if (!ports)
-    {
-        alert("No midi devices found!");
-        return null;
-    }
-
-    midiWindow = new BrowserWindow({
-        width: 512,
-        height: 272,
-        icon: 'console-icon.png',
-        autoHideMenuBar: true,
-        webPreferences: {
-            preload: path.join(__dirname, "dialogs/midi-preload.js")
-        },
-        resizable: false,
-        parent: mainWindow,
-        modal: true,
-    });
-
-    midiWindow.on('closed', () => {
-        midiWindow = null;
-    });
-
-    await midiWindow.loadFile(path.join(__dirname, "dialogs/midi.html"))
-        .then(() => { midiWindow.webContents.send('gotPorts', ports); })
-        .then(() => { midiWindow.webContents.send('populateMidiConfig', midiConfig); });
 }
 
 async function createEditRadioWindow(radioConfig)
@@ -372,31 +354,10 @@ app.on('ready', async () => {
         await createPeriphWindow(periphConfig);
     });
 
-    ipcMain.handle('savePeriphConfig', (event, periphConfig) => {
+    ipcMain.on('savePeriphConfig', (event, periphConfig) => {
         // Send the data to our main window
+        console.debug("Sending new peripheral config to main window");
         mainWindow.webContents.send('savePeriphConfig', periphConfig);
-    });
-
-    // Handle creating & saving the midi config window
-    ipcMain.handle('showMidiConfig', async (event, midiConfig) => {
-        console.debug("Showing midi config window with initial data");
-        console.debug(midiConfig);
-        await createMidiWindow(midiConfig);
-    });
-
-    ipcMain.handle('saveMidiConfig', (event, midiConfig) => {
-        // Close current port
-        if (midiInput.isPortOpen())
-        {
-            midiInput.closePort()
-        }
-        // Open the new midi port if enabled
-        if (midiConfig.Midi.enabled)
-        {
-            openMidiPort(midiConfig.Midi.port);
-        }
-        // Send the data to our main window
-        mainWindow.webContents.send('saveMidiConfig', midiConfig);
     });
 
     ipcMain.handle('openMidiPort', (event, port) => {
