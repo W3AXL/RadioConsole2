@@ -1774,7 +1774,7 @@ async function queryDeviceType(type) {
 */
 async function startAudioDevices(): Promise<void> {
     // Create audio context
-    audio.context = new AudioContext();
+    audio.context = new AudioContext({ sampleRate: 48000 });
     console.log("Created audio context");
 
     // Load audio worklets
@@ -2128,11 +2128,15 @@ function updateAudio(idx) {
     } 
     // If we're not receiving and the audio is not already muted, mute after an audio delay
     else if (!receiving && radio.audioSource.muteNode.gain.value != 0) {
+        // Get the estimated sample delay
+        const estimatedDelay = (radio.audioReceiver?.getEstimatedAudioBufferMs() ?? audio.rxMuteDelay) + 25;
+        // Log
         console.debug(`  - Scheduling mute for radio ${radio.cfg.name} in ${audio.rxMuteDelay} ms`);
+        // Schedule the mute
         radio.pendingMuteTimeout = setTimeout(() => {
             radio.pendingMuteTimeout = undefined;
             radio.audioSource.muteNode.gain.setValueAtTime(0, audio.context.currentTime);
-        }, audio.rxMuteDelay);
+        }, estimatedDelay);
     }
     // Unmute immediately otherwise
     else {

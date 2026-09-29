@@ -3,9 +3,11 @@
 
 import { AudioFrame, AudioCodec, AudioSource } from "../generated/RC2Proto";
 
-const OPUS_FRAME_SAMPLES = 960; // 20ms @ 48kHz, must match the radio daemon's encoder config
-const MAX_BUFFER_SECONDS = 0.5; // hard ceiling before the playback ringbuffer starts dropping old audio
-const MAX_DECODE_QUEUE_DEPTH = 10; // Limit the decoder queue so we don't slowly drift more and more over time
+const OPUS_FRAME_SAMPLES = 960;     // 20ms @ 48kHz, must match the radio daemon's encoder config
+const OPUS_FRAME_DURATION_MS = 20;  // matches the frame sample count above
+const MAX_BUFFER_SECONDS = 0.5;     // hard ceiling before the playback ringbuffer starts dropping old audio
+const TARGET_BUFFER_SECONDS = 0.15; // Desired decoder buffer length, beyond this we try to start mitigating the delay
+const MAX_DECODE_QUEUE_DEPTH = 10;  // Limit the decoder queue so we don't slowly drift more and more over time
 
 // ---------------------------------------------------------------
 //
@@ -51,6 +53,15 @@ export class RadioAudioReceiver {
     }
 
     /**
+     * Estimates how much audio is currently "in flight" between the incoming frames and outgoing speaker audio
+     */
+    getEstimatedAudioBufferMs(): number {
+        const queueFrameMs = (this.decoder?.decodeQueueSize ?? 0) * OPUS_FRAME_DURATION_MS;
+        const ringBufferMs = TARGET_BUFFER_SECONDS * 1000;
+        return queueFrameMs - ringBufferMs;
+    }
+
+    /**
      * Feed a frame of audio from the daemon into the decoder and RX ring buffer
      * @param frame the audio frame received from the daemon
      */
@@ -67,7 +78,7 @@ export class RadioAudioReceiver {
                 // Create a new chunk to decode
                 const chunk = new EncodedAudioChunk({
                     type: "key", // Opus packets don't reference each other the way video keyframes/deltas do
-                    timestamp: (frame.sequence * OPUS_FRAME_SAMPLES * 1_000_000) / this.sampleRateHz,
+                    timestamp: frame.sequence * OPUS_FRAME_DURATION_MS * 1000,
                     data: frame.data,
                 });
                 this.decoder!.decode(chunk);
