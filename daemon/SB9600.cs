@@ -861,6 +861,25 @@ namespace moto_sb9600
             return sendSb9600(msg);
         }
 
+        /// <summary>
+        /// Waits for the give function to resolve to true, or until the timeout is reached
+        /// </summary>
+        /// <param name="condition">the function to probe for boolean condition</param>
+        /// <param name="timeoutMs">timeout before returning in ms</param>
+        /// <param name="pollMs">time to wait between polls</param>
+        /// <returns>result</returns>
+        private static bool waitForTrueTimeout(Func<bool> condition, int timeoutMs, int pollMs = 2)
+        {
+            DateTime start = DateTime.UtcNow;
+            while (!condition())
+            {
+                if ((DateTime.UtcNow - start).TotalMilliseconds > timeoutMs)
+                    return false;
+                Thread.Sleep(pollMs);
+            }
+            return true;
+        }
+
         private bool sendSb9600(SB9600Msg msg, int attempts = 3)
         {
             if (passiveMon)
@@ -869,10 +888,10 @@ namespace moto_sb9600
                 return false;
             }
             // Wait for busy to drop
-            while (getBusy())
+            if (!waitForTrueTimeout(() => !getBusy(), timeoutMs: 2000))
             {
-                Log.Debug("Waiting for BUSY to drop");
-                Thread.Sleep(2);
+                Log.Error("Timed out waiting for BUSY to drop before sending SB9600 message {msg}", msg.Encode());
+                return false;
             }
             // Grab busy
             setBusy(true);
@@ -890,7 +909,12 @@ namespace moto_sb9600
                 Port.Write(data, 0, data.Length);
                 attempts--;
                 // Wait for RX bytes to come back
-                while (Port.BytesToRead < data.Length) { Thread.Sleep(1); }
+                if (!waitForTrueTimeout(() => Port.BytesToRead >= data.Length, timeoutMs: 500, pollMs: 1))
+                {
+                    Log.Error("Timed out waiting for SB9600 echo of {sent}. ({Attempts} attempts left)", data, attempts);
+                    sent = false;
+                    continue;
+                }
                 // Verify sent
                 byte[] rx = new byte[data.Length];
                 Port.Read(rx, 0, rx.Length);
@@ -1725,9 +1749,9 @@ namespace moto_sb9600
                         // Decode the SBEP size
                         int sbepLength = SBEPMsg.CalcLength(sbepHeader.ToArray());
                         // Wait for the expected amount of additional bytes before we try and process
-                        while (Port.BytesToRead < (sbepLength - 4))
+                        if (!waitForTrueTimeout(() => Port.BytesToRead >= (sbepLength - 4), timeoutMs: 1000))
                         {
-                            Thread.Sleep(2);
+                            throw new Exception("Timed out waiting for SBEP message body");
                         }
                         // Create a buffer for the entire SBEP message and copy the read bytes to it
                         byte[] sbepMsg = new byte[sbepLength];
