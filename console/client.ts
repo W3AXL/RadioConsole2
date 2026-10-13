@@ -1443,12 +1443,13 @@ function connectAllButton() {
     const navbarConnect = document.querySelector("#navbar-connect");
     if (navbarConnect.classList.contains("disconnected")) {
         radios.forEach((radio, index) => {
-            // Start connecting to the radio
-            connectRadio(index);
+            // Start connecting to the radio, staggered 150ms each
+            setTimeout(() => connectRadio(index), index * 150);
         });
     } else if (navbarConnect.classList.contains("connected")) {
         radios.forEach((radio, index) => {
-            disconnectRadio(index);
+            // Disconnect from each radio, staggered 50ms each
+            setTimeout(() => disconnectRadio(index), index * 50);
         });
     }
     
@@ -2423,9 +2424,28 @@ async function connectRadio(idx: number): Promise<void> {
  */
 function disconnectRadio(idx: number) : void {
     console.info(`Disconnecting from ${radios[idx].cfg.name}`);
-    
-    radios[idx].audioReceiver?.close();
-    radios[idx].connection?.close();
+    // Set state
+    radios[idx].status.state = RadioState.DISCONNECTING;
+    // Close the connection
+    try {
+        radios[idx].connection?.close();
+    } catch (e) {
+        console.error(`[${radios[idx].cfg.name}] error closing websocket connection`, e);
+    }
+    // Close the audio receiver
+    try {
+        radios[idx].audioReceiver?.close();
+    } catch (e) {
+        console.error(`[${radios[idx].cfg.name}] error closing audio receiver`, e);
+    }
+    // Set state
+    radios[idx].status.state = RadioState.DISCONNECTED
+    // If there are no radios connected, set the top button to red
+    if (!radios.some((radio) => radio.status?.state != RadioState.DISCONNECTED)) {
+        const navbarConnect = document.querySelector("#navbar-connect");
+        navbarConnect.classList.remove("connected");
+        navbarConnect.classList.add("disconnected");
+    }
 }
 
 /**

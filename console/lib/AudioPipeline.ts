@@ -66,6 +66,12 @@ export class RadioAudioReceiver {
      * @param frame the audio frame received from the daemon
      */
     handleFrame(frame: AudioFrame): void {
+        // Check if we're still open, if not do nothing
+        if (!this.decoder || this.decoder.state === "closed") {
+            return;
+        }
+
+        // Fill any sequence gaps
         this._checkSequenceAndFillGaps(frame.sequence);
 
         switch (frame.codec) {
@@ -165,7 +171,9 @@ export class RadioAudioReceiver {
      * Called when the radio disconnects, closes the audio node
      */
     close(): void {
-        this.decoder?.close();
+        if (this.decoder && this.decoder.state !== "closed") {
+            this.decoder.close();
+        }
         this.node.disconnect();
     }
 }
