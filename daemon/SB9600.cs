@@ -1714,7 +1714,7 @@ namespace moto_sb9600
             bool busy = false;
 
             Log.Debug("SB9600 service running");
-            while (!token.IsCancellationRequested)
+            while (!token.IsCancellationRequested && Port.IsOpen)
             {
                 try
                 {
