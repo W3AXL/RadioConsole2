@@ -204,7 +204,9 @@ namespace netcore_cli
                         Config.Audio.SampleRate,
                         consoleSoftkeys,
                         Config.TextLookups.Zone,
-                        Config.TextLookups.Channel
+                        Config.TextLookups.Channel,
+                        Config.Daemon.AudioLatencyReports,
+                        Config.Daemon.RttReports
                     );
                 }
                 break;

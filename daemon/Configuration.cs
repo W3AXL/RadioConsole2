@@ -34,6 +34,14 @@ namespace daemon
         /// List of allowed networks which can connect to the daemon. Defaults to all (0.0.0.0/0)
         /// </summary>
         public List<IPNetwork> AllowedNetworks = new List<IPNetwork> { IPNetwork.Parse("0.0.0.0/0") };
+        /// <summary>
+        /// Whether to periodically report audio buffer latency stats
+        /// </summary>
+        public bool AudioLatencyReports = false;
+        /// <summary>
+        /// Whether to periorically report round trip time stats
+        /// </summary>
+        public bool RttReports = false;
     }
 
     /// <summary>

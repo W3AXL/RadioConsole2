@@ -74,8 +74,9 @@ namespace moto_sb9600
             MotoSb9600Config sb9600Config,
             int txAudioSampleRate,
             List<SoftkeyName> consoleSoftkeys,
-            List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null
-            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, consoleSoftkeys, zoneLookups, chanLookups, txAudioSampleRate)
+            List<TextLookup> zoneLookups = null, List<TextLookup> chanLookups = null,
+            bool reportLatency = false, bool reportRtt = false
+            ) : base(name, desc, rxOnly, listenAddress, listenPort, allowedNetworks, consoleSoftkeys, zoneLookups, chanLookups, txAudioSampleRate, reportLatency, reportRtt)
         {
             // Parse the softkey config dict into the correct SoftkeyName mappings
             foreach (KeyValuePair<ControlHeads.ButtonName, string> binding in sb9600Config.SoftkeyBindings)
