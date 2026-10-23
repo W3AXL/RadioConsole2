@@ -3,11 +3,22 @@
 
 import { AudioFrame, AudioCodec, AudioSource } from "../generated/RC2Proto";
 
-const OPUS_FRAME_SAMPLES = 960;     // 20ms @ 48kHz, must match the radio daemon's encoder config
-const OPUS_FRAME_DURATION_MS = 20;  // matches the frame sample count above
-const MAX_BUFFER_SECONDS = 0.5;     // hard ceiling before the playback ringbuffer starts dropping old audio
-const TARGET_BUFFER_SECONDS = 0.15; // Desired decoder buffer length, beyond this we try to start mitigating the delay
-const MAX_DECODE_QUEUE_DEPTH = 10;  // Limit the decoder queue so we don't slowly drift more and more over time
+const OPUS_FRAME_SAMPLES = 960;         // 20ms @ 48kHz, must match the radio daemon's encoder config
+const OPUS_FRAME_DURATION_MS = 20;      // matches the frame sample count above
+const MAX_BUFFER_SECONDS = 0.5;         // hard ceiling before the playback ringbuffer starts dropping old audio
+const TARGET_BUFFER_SECONDS = 0.15;     // Desired decoder buffer length, beyond this we try to start mitigating the delay
+const FORCE_TRIM_BUFFER_SECONDS = 0.35; // Buffer length above which we start hard-dropping new audio frames
+const MAX_DECODE_QUEUE_DEPTH = 10;      // Limit the decoder queue so we don't slowly drift more and more over time
+
+/** Snapshot of the playback ring buffer's live statistics, as reported by PlaybackProcessor.js */
+interface RingStats {
+    depthMs: number;            // current buffered audio (NaN until the first report arrives)
+    underruns: number;          // cumulative underrun events
+    trimmedQuietMs: number;     // cumulative audio skipped by silence fast-forwarding
+    trimmedForcedMs: number;    // cumulative audio discarded by the forced fallback
+    forcedEvents: number;       // cumulative forced-fallback discards
+    overflowDroppedMs: number;  // cumulative audio evicted by hitting the hard cap
+}
 
 // ---------------------------------------------------------------
 //
@@ -19,6 +30,26 @@ export class RadioAudioReceiver {
     readonly node: AudioWorkletNode;
     private decoder: AudioDecoder | null = null;
     private lastSequence: number | null = null;
+
+    // Current audio pipeline latency stats
+    private ring: RingStats = {
+        depthMs: NaN,
+        underruns: 0,
+        trimmedQuietMs: 0,
+        trimmedForcedMs: 0,
+        forcedEvents: 0,
+        overflowDroppedMs: 0
+    };
+
+    // Storage for the last ring report
+    private lastRingReport: RingStats = { ...this.ring };
+
+    // Additional counters for latency between console & daemon
+    private transportBaselineMs = Infinity;
+    private transportWindowMinMs = Infinity;
+    private transportWindowPeakMs = -Infinity;
+    private lastArrivalMs = NaN;
+    private maxArrivalGapMs = 0;
 
     /**
      * Create a new instance of a RadioAudioReceiver, which handles RX audio from a radio daemon
@@ -32,14 +63,40 @@ export class RadioAudioReceiver {
         // Create a new audio node for connecting to the rest of the console chain
         this.node = new AudioWorkletNode(ctx, "playback-processor", {
             outputChannelCount: [channels],
-            processorOptions: { channels, maxBufferSeconds: MAX_BUFFER_SECONDS },
+            processorOptions: { 
+                channels,
+                maxBufferSeconds: MAX_BUFFER_SECONDS,
+                targetBufferSeconds: TARGET_BUFFER_SECONDS,
+                forcedTrimBufferSeconds: FORCE_TRIM_BUFFER_SECONDS
+            },
         });
-        // Handle any underruns
+
+        // Handle messages from the worklet
         this.node.port.onmessage = (e) => {
-            if (e.data.type === "underrun") {
+            const msg = e.data;
+            // Underrun alert
+            if (msg.type === "underrun") {
                 console.warn(`[${radioName}]: audio playback underrun`);
             }
+            // Latency stats
+            else if (msg.type === "stats") {
+                const msPerSample = 1000 / msg.sampleRate;
+                // Store
+                this.ring = {
+                    depthMs: msg.available * msPerSample,
+                    underruns: msg.underruns,
+                    trimmedQuietMs: msg.trimmedQuiet * msPerSample,
+                    trimmedForcedMs: msg.trimmedForced * msPerSample,
+                    forcedEvents: msg.forcedEvents,
+                    overflowDroppedMs: msg.overflowDropped * msPerSample
+                };
+            }
+            // Fallback
+            else {
+                console.warn(`[${radioName}]: got unknown message from PlaybackProcessor: ${msg.type}`)
+            }
         };
+
         // Right now we only handle OPUS, but could handle others in the future
         if (codec === AudioCodec.OPUS) {
             // Crete an OPUS decoder
@@ -58,7 +115,75 @@ export class RadioAudioReceiver {
     getEstimatedAudioBufferMs(): number {
         const queueFrameMs = (this.decoder?.decodeQueueSize ?? 0) * OPUS_FRAME_DURATION_MS;
         const ringBufferMs = TARGET_BUFFER_SECONDS * 1000;
-        return queueFrameMs - ringBufferMs;
+        return queueFrameMs + ringBufferMs;
+    }
+
+    /**
+     * Record the arrival of an audio evenlope from the daemon
+     * 
+     * We use this to measure connection latency by detecting increasing/decreasing drift
+     * between the daemon's clock and our own
+     * 
+     * @param daemonTimestampUs the envelope's timestamp
+     */
+    recordEnvelopeArrival(daemonTimestampUs: bigint): void {
+        // Record wall clock time in ms
+        const dateNowMs = Date.now();
+        // Calculate the raw time difference between the two clocks
+        const rawMs = dateNowMs - Number(daemonTimestampUs) / 1000;
+        // Store the new difference if it's bigger than the last one
+        if (rawMs < this.transportBaselineMs) this.transportBaselineMs = rawMs;
+        if (rawMs < this.transportWindowMinMs) this.transportWindowMinMs = rawMs;
+        if (rawMs > this.transportWindowPeakMs) this.transportWindowPeakMs = rawMs;
+        // Get the console's raw timestamp for arrival calculations
+        const nowMs = performance.now();
+        // Track the gap between frames
+        if (Number.isFinite(this.lastArrivalMs)) {
+            this.maxArrivalGapMs = Math.max(this.maxArrivalGapMs, nowMs - this.lastArrivalMs);
+        }
+        this.lastArrivalMs = nowMs;
+    }
+
+    /**
+     * Returns a one-line string of the curent audio latency status between console and daemon
+     */
+    getLatencyReport(): string {
+        // Inline formatting functions to format ms and seconds
+        const ms = (v: number) => (Number.isFinite(v) ? `${Math.round(v)} ms` : "n/a");
+        const sec = (v: number) => `${(v / 1000).toFixed(1)} s`;
+ 
+        const decodeMs = (this.decoder?.decodeQueueSize ?? 0) * OPUS_FRAME_DURATION_MS;
+        const ctx = this.ctx as AudioContext & { outputLatency?: number };
+        const outputMs = ((ctx.outputLatency ?? 0) + (ctx.baseLatency ?? 0)) * 1000;
+ 
+        const haveTransport = Number.isFinite(this.transportWindowMinMs) && Number.isFinite(this.transportBaselineMs);
+        const transportMs = haveTransport ? Math.max(0, this.transportWindowMinMs - this.transportBaselineMs) : NaN;
+        const transportPeakMs = haveTransport ? Math.max(0, this.transportWindowPeakMs - this.transportBaselineMs) : NaN;
+ 
+        const r = this.ring;
+        const p = this.lastRingReport;
+        const total = (Number.isFinite(r.depthMs) ? r.depthMs : 0) + decodeMs + outputMs + (Number.isFinite(transportMs) ? transportMs : 0);
+ 
+        // Prepare the line
+        const line =
+            `RX latency (console side): ring ${ms(r.depthMs)} ` +
+            `[this window: quiet-trimmed ${sec(r.trimmedQuietMs - p.trimmedQuietMs)}, ` +
+            `forced-trimmed ${sec(r.trimmedForcedMs - p.trimmedForcedMs)} (${r.forcedEvents - p.forcedEvents}x), ` +
+            `cap-dropped ${sec(r.overflowDroppedMs - p.overflowDroppedMs)}, ` +
+            `underruns ${r.underruns - p.underruns}], ` +
+            `decode ${ms(decodeMs)}, ` +
+            `transport +${ms(transportMs)} (peak +${ms(transportPeakMs)}), ` +
+            `worst gap ${ms(this.maxArrivalGapMs)}, ` +
+            `output ${ms(outputMs)} => ~${ms(total)}`;
+ 
+        // Reset our transport tracking stats
+        this.lastRingReport = { ...r };
+        this.transportWindowMinMs = Infinity;
+        this.transportWindowPeakMs = -Infinity;
+        this.maxArrivalGapMs = 0;
+
+        // Return the string
+        return line;
     }
 
     /**
