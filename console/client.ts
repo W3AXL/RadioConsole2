@@ -17,6 +17,12 @@ import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 /***********************************************************************************
+    Global Constants
+***********************************************************************************/
+
+const RX_LATENCY_REPORT_INTERVAL_MS = 120_000;
+
+/***********************************************************************************
     Global Variables
 ***********************************************************************************/
 
@@ -1812,8 +1818,8 @@ async function startAudioDevices(): Promise<void> {
         // Connect input mic stream to gain, and gain to destination and analyzer
         audio.inputChain.micStream.connect(audio.inputChain.volume);
         audio.inputChain.volume.connect(audio.inputChain.analyzer);
-        // Set up mic capture manager and connect to mic volume output
-        audio.inputChain.micCaptureManager = new MicCaptureManager(audio.context, audio.inputChain.volume);
+        // Set up mic capture manager and connect to the mic analyzer (so we get both mic audio and tones)
+        audio.inputChain.micCaptureManager = new MicCaptureManager(audio.context, audio.inputChain.analyzer);
         // Setup DTMF generator once we have our input audio nodes
         audio.dtmf = new DtmfGenerator(audio.context);
         // Setup Alert Tone generator
@@ -1826,6 +1832,8 @@ async function startAudioDevices(): Promise<void> {
         audio.alert.connect(audio.inputChain.analyzer);
         // We are now running
         audio.running = true;
+        // Periodic log for latency reporting
+        setInterval(reportRxLatency, RX_LATENCY_REPORT_INTERVAL_MS);
     }
     catch (e) {
         alert("Error capturing microphone device");
@@ -1833,6 +1841,16 @@ async function startAudioDevices(): Promise<void> {
 
     // Enable volume slider
     document.querySelector("#console-volume").removeAttribute("disabled");
+}
+
+/**
+ * Query and report audio latency statistics for each connected radio
+ */
+function reportRxLatency(): void {
+    radios.forEach((radio) => {
+        if (!radio.audioReceiver || !radio.handshakeComplete) { return; }
+        console.debug(`[${radio.cfg.name}] ${radio.audioReceiver.getLatencyReport()}`);
+    });
 }
 
 function muteMic() {
@@ -2132,7 +2150,7 @@ function updateAudio(idx) {
         // Get the estimated sample delay
         const estimatedDelay = (radio.audioReceiver?.getEstimatedAudioBufferMs() ?? audio.rxMuteDelay) + 25;
         // Log
-        console.debug(`  - Scheduling mute for radio ${radio.cfg.name} in ${audio.rxMuteDelay} ms`);
+        console.debug(`  - Scheduling mute for radio ${radio.cfg.name} in ${Math.round(estimatedDelay)} ms`);
         // Schedule the mute
         radio.pendingMuteTimeout = setTimeout(() => {
             radio.pendingMuteTimeout = undefined;
@@ -2559,23 +2577,26 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
     // ACK to a message
     } else if (env.control?.ack) {
         radio.requests.resolve(env.control.ack.requestId);
+        const acked = env.control.ack.inResponseTo;
+        // If it was a TX ACK, unmute the mic and play sound
+        if (acked == RadioCommandType.START_TX) {
+            // Unmute mic if set
+            if (txUnmuteMic) {
+                setTimeout(unmuteMic, audio.micUnmuteDelay);
+                txUnmuteMic = false;
+            }
+            // Play sound
+            if (config.audio.buttonSounds) playSound('sound-ptt');
+        } else if (acked == RadioCommandType.STOP_TX) {
+            if (config.audio.buttonSounds) playSound('sound-ptt-end');
+        }
         // If it was an ACK to a button release, play the button sound if enabled
-        if (config.audio.buttonSounds) {
-            if (env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE ||
-                env.control.ack.inResponseTo == RadioCommandType.BUTTON_TOGGLE ||
-                env.control.ack.inResponseTo == RadioCommandType.CHAN_DOWN ||
-                env.control.ack.inResponseTo == RadioCommandType.CHAN_UP) {
-                    playSound('sound-click');
-                }
-            else if (env.control.ack.inResponseTo == RadioCommandType.START_TX) {
-                // Play PTT start tone
-                playSound('sound-ptt');
-                // Unmute mic after unmute delay
-                setTimeout( unmuteMic, audio.micUnmuteDelay);
-            }
-            else if (env.control.ack.inResponseTo == RadioCommandType.STOP_TX) {
-                playSound('sound-ptt-end');
-            }
+        else if (config.audio.buttonSounds &&
+            env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE ||
+            env.control.ack.inResponseTo == RadioCommandType.BUTTON_TOGGLE ||
+            env.control.ack.inResponseTo == RadioCommandType.CHAN_DOWN ||
+            env.control.ack.inResponseTo == RadioCommandType.CHAN_UP) {
+            playSound('sound-click');
         } 
     // NACK to a message
     } else if (env.control?.nack) {
@@ -2590,6 +2611,7 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
     // Audio
     } else if (env.audio) {
         if (env.audio.source === AudioSource.SPEAKER) {
+            radio.audioReceiver?.recordEnvelopeArrival(env.timestampUs);
             radio.audioReceiver?.handleFrame(env.audio);
         }
     }
