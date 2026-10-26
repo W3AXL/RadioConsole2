@@ -349,7 +349,7 @@ function bindStaticEvents() {
     document.querySelector("#alert2").addEventListener('mouseup', () => { stopAlert(); });
     document.querySelector("#alert3").addEventListener('mouseup', () => { stopAlert(); });
     // Popup buttons
-    document.querySelector(".btn-popup-close").addEventListener('click', (event) => {closePopup(event.currentTarget as HTMLElement); });
+    document.querySelectorAll(".btn-popup-close").forEach((closebtn) => { closebtn.addEventListener('click', (event) => {closePopup(event.currentTarget as HTMLElement); })});
     document.querySelector(".btn-save-config").addEventListener('click', saveConfig);
     // Dimmed background click event
     document.querySelector<HTMLDivElement>("#body-dimmer").addEventListener('click', () => { closePopup(null) });
@@ -707,30 +707,40 @@ function addRadioToEditTable(idx: number) {
     }
 
     // Create HTML content
-    const tableRowHtml = `
-        <td class="radio-table-name">${radio.cfg.name}</td>
-        <td class="radio-table-address">${radio.cfg.address}</td>
-        <td class="radio-table-port">${radio.cfg.port}</td>
-        <td class="radio-table-color">${radio.cfg.color}</td>
-        <td class="radio-table-pan">${panValue}</td>
-        <td class="radio-table-actions">
-            <a href="#" onclick="editRadio(this, '${radio.cfg.name}')" title="Edit"><ion-icon name="create-sharp"></ion-icon></a>
-            &nbsp;
-            <a href="#" onclick="deleteRadio(this, '${radio.cfg.name}')" title="Delete">
-                <ion-icon name='trash-bin-sharp'></ion-icon>
-            </a>
-        </td>
-    `
     const tableRow = document.createElement("tr");
-    tableRow.innerHTML = tableRowHtml;
+    tableRow.innerHTML = `
+        <td class="radio-table-name"></td>
+        <td class="radio-table-address"></td>
+        <td class="radio-table-port"></td>
+        <td class="radio-table-color"></td>
+        <td class="radio-table-pan"></td>
+        <td class="radio-table-actions">
+            <a href="#" class="radio-table-edit" title="Edit"><ion-icon name="create-sharp"></ion-icon></a>
+            &nbsp;
+            <a href="#" class="radio-table-delete" title="Delete"><ion-icon name="trash-bin-sharp"></ion-icon></a>
+        </td>
+    `;
+    tableRow.querySelector(".radio-table-name").textContent = radio.cfg.name;
+    tableRow.querySelector(".radio-table-address").textContent = radio.cfg.address;
+    tableRow.querySelector(".radio-table-port").textContent = String(radio.cfg.port);
+    tableRow.querySelector(".radio-table-color").textContent = radio.cfg.color;
+    tableRow.querySelector(".radio-table-pan").textContent = panValue;
+    tableRow.querySelector(".radio-table-edit").addEventListener("click", (event) => {
+        event.preventDefault();
+        editRadio(radio);
+    });
+    tableRow.querySelector(".radio-table-delete").addEventListener("click", (event) => {
+        event.preventDefault();
+        deleteRadio(radio);
+    });
 
     // Get the edit radios table
     const editRadiosTable : HTMLTableElement = <HTMLTableElement>document.querySelector("#edit-radios-table");
 
-    // If the index is smaller than the length of radios in the table right now, update the radio at that index
-    if (idx < editRadiosTable.rows.length) {
+    // If the index is smaller than the length of radios in the table right now (ignoring the header row), update the radio at that index
+    if (idx + 1 < editRadiosTable.rows.length) {
         console.debug(`Updating edit radio table entry at index ${idx}`)
-        editRadiosTable.rows[idx].replaceWith(tableRow);
+        editRadiosTable.rows[idx + 1].replaceWith(tableRow);
     }
     // Otherwise, add the new row to the end
     else {
@@ -759,7 +769,107 @@ window.electronAPI.cancelRadioConfig(() => {
 });
 
 /**
- * New handler for getting new radio configurations from the radio config window
+ * Open the radio dialog to edit an existing radio
+ * @param radio the radio to edit
+ */
+function editRadio(radio: Radio) {
+    const idx = radios.indexOf(radio);
+    if (idx < 0) {
+        alert(`Unable to edit radio ${radio.cfg.name}: could not find radio in list`);
+        return;
+    }
+    // Flag which radio we're editing, so the dialog's save handler knows to update it instead of adding a new one
+    editingRadioIdx = idx;
+    console.info(`Now editing radio ${radio.cfg.name}`);
+    console.debug(radio.cfg);
+    // Show the dialog, pre-populated with this radio's config
+    window.electronAPI.showRadioConfig(radio.cfg);
+}
+
+/**
+ * Delete a radio from the config and the console
+ * @param radio the radio to delete
+ */
+function deleteRadio(radio: Radio) {
+    const idx = radios.indexOf(radio);
+    if (idx < 0) {
+        alert(`Unable to delete radio ${radio.cfg.name}: could not find radio in list`);
+        return;
+    }
+    // Every radio card and websocket callback captures its radio's index in radios[], so removing one shifts all the
+    // ones after it. That's only safe to do while nothing is connected.
+    if (radios.some(isRadioConnectionAlive)) {
+        alert("Disconnect all radios before deleting one.");
+        return;
+    }
+    console.info(`Removing radio ${radio.cfg.name}`);
+    // Remove from the persisted config and from the live list (radios[i].cfg is the same object as config.radios[i])
+    config.radios.splice(idx, 1);
+    radios.splice(idx, 1);
+    // Rebuild the cards & table, since the indices changed
+    rebuildRadioCards();
+    // Save
+    saveConfig();
+}
+
+/**
+ * Clear and rebuild every radio card and edit-table row from radios[]
+ */
+function rebuildRadioCards() {
+    // Deselect first (stops PTT if running and resets the controls)
+    deselectRadios();
+    // Card and element ids are derived from the radio's index, so reassign them to keep them unique
+    radios.forEach((radio, idx) => { radio.elements.idBase = `radio${idx}`; });
+    // Clear the cards, and every row of the edit table except the header
+    document.querySelector("#main-layout").replaceChildren();
+    const editRadiosTable = document.querySelector<HTMLTableElement>("#edit-radios-table");
+    while (editRadiosTable.rows.length > 1) {
+        editRadiosTable.deleteRow(editRadiosTable.rows.length - 1);
+    }
+    // Rebuild
+    populateRadios();
+}
+
+/**
+ * Convert the raw strings from the dialog to the expected types for a radio configuration interface
+ * @param raw the config as sent by the dialog
+ * @param existing the radio's current config, if we're editing one
+ */
+function normalizeRadioConfig(raw: any, existing?: Cfg.Radio): Cfg.Radio {
+    return {
+        ...existing,
+        name: String(raw.name ?? "").trim(),
+        address: String(raw.address ?? "").trim(),
+        port: parseInt(raw.port, 10),
+        pan: Number(raw.pan) || 0,
+        color: Cfg.parseCardColor(String(raw.color ?? "")),
+        muted: existing?.muted ?? false,
+    };
+}
+
+/**
+ * Validate a radio config, checking for duplicate entries and valid config data
+ * @param cfg the config to check
+ * @param ignoreIdx index in radios[] to exclude from the duplicate checks (e.g. we're editing a radio)
+ * @returns an error message, or null if the config is valid
+ */
+function validateRadioConfig(cfg: Cfg.Radio, ignoreIdx: number = -1): string | null {
+    if (!cfg.name) return "Radio name can't be empty";
+    if (!cfg.address) return "Daemon address can't be empty";
+    if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) return `Invalid daemon port: ${cfg.port}`;
+    if (cfg.color === undefined) return "Invalid radio color selected";
+    if (radios.some((r, i) => i !== ignoreIdx && r.cfg.name === cfg.name)) {
+        return `Radio with name ${cfg.name} already exists!`;
+    }
+    // A radio is a duplicate only if ANOTHER radio has the same address AND the same port
+    if (radios.some((r, i) => i !== ignoreIdx && r.cfg.address === cfg.address && Number(r.cfg.port) === cfg.port)) {
+        return `Radio at destination ${cfg.address}:${cfg.port} already exists!`;
+    }
+    return null;
+}
+
+/**
+ * Handler for getting radio configurations from the radio config window
  */
 window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
     // Debug print
@@ -769,84 +879,84 @@ window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
     // Handle edit of an existing radio first
     if (editingRadioIdx >= 0)
     {
+        // Store index locally and clear the editing radio index flag
+        const idx = editingRadioIdx;
+        editingRadioIdx = -1;
+
+        // Get the radio object
+        const radio = radios[idx];
+
+        // Debug print
         console.info(`Updating radio at index ${editingRadioIdx}`);
         console.debug(radioConfig);
-        
-        // Store index
-        const idx = editingRadioIdx;
-        // Clear flag
-        editingRadioIdx = -1;
-        
-        // Update radio config at index
-        radios[idx].cfg = radioConfig;
 
-        // Disconnect radio if connected
-        if (radios[idx].status.state != RadioState.DISCONNECTED)
-        {
+        // Normalize and validate
+        const updatedCfg = normalizeRadioConfig(radioConfig, radio.cfg);
+        const error = validateRadioConfig(updatedCfg, idx);
+
+        // Check for validation errors
+        if (error) {
+            alert(error);
+            return;
+        }
+
+        // If the radio is connected, disconnect before applying changes
+        if (isRadioConnectionAlive(radio)) {
             disconnectRadio(idx);
         }
 
-        // Find the table row for this radio and get its index
-        const editTableRow = document.querySelector<HTMLTableRowElement>(`#edit-radios-table tr:contains('${radioConfig.name}')`)
-        const editTableIndex = editTableRow.rowIndex;
+        // Update radio config in-place
+        Object.assign(radio.cfg, updatedCfg);
 
-        // Update the row at the index
+        // Update edit table and card
         addRadioToEditTable(idx);
-
-        // Update card
         updateRadioCard(idx);
     }
     // Otherwise, we're adding a new radio
     else
     {
-        // Validate radio doesn't already exist
-        if (radios.some(radio => radio.cfg.name === radioConfig.name))
-        {
-            alert(`Radio with name ${radioConfig.name} already exists!`);
-            return;
-        }
-        if (radios.some(radio => radio.cfg.address === radioConfig.address) && radios.some(radio => radio.cfg.port === radioConfig.port))
-        {
-            alert(`Radio at destination ${radioConfig.address}:${radioConfig.port} already exists!`);
+        // Convert and validate
+        const newConfig = normalizeRadioConfig(radioConfig);
+        const error = validateRadioConfig(newConfig);
+        if (error) {
+            alert(error);
             return;
         }
 
         // Log
         console.log("Adding radio " + radioConfig.name);
+        console.debug(newConfig);
 
         // Get the index for this new radio (will be at the end of the list)
         const newRadioIdx = radios.length;
 
+        // Add to config object first
+        config.radios.push(newConfig);
+
         // Add radio to the list
         radios.push({
-            cfg: radioConfig,
+            cfg: newConfig,
             handshakeComplete: false,
             envSeq: 0,
             elements: {
                 idBase: `radio${newRadioIdx}`
             },
             // Initialize with the default status for now
-            status: initRadioStatus
+            status: { ...initRadioStatus }
         });
-
-        // Save config, which will copy the radio config to the main config object
-        saveConfig();
         
-        // Add the radio card
+        // Add the new radio card
         addRadioCard(newRadioIdx);
-        
-        // Populate its text
+
+        // Update card
         updateRadioCard(newRadioIdx);
-        
-        // Update edit list
+
+        // Update edit table
         addRadioToEditTable(newRadioIdx);
     }
-
-    // Save config, which will copy out the radios config objects to the master config
+    
+    // Finally, save the config to disk
     saveConfig();
-
-    // Clear form
-    newRadioClear();
 });
 
 function stopClick(event, obj) {
@@ -1362,6 +1472,14 @@ function stopAlert() {
 }
 
 /**
+ * Returns true if the radio is connecting, open, or closing
+ * @param radio the radio to query
+ */
+function isRadioConnectionAlive(radio: Radio): boolean {
+    return radio.connection != null && radio.connection.readyState !== WebSocket.CLOSED;
+}
+
+/**
  * Returns true if a radio is receiving clear or encrypted traffic
  * @param {int} idx radio index
  * @returns bool
@@ -1702,12 +1820,6 @@ async function saveConfig() {
     {
         alert("Failed to save config: " + result);
     }
-}
-
-function newRadioClear() {
-    document.querySelector<HTMLInputElement>('#new-radio-address').value = '';
-    document.querySelector<HTMLInputElement>('#new-radio-port').value = '';
-    document.querySelector<HTMLInputElement>('#new-radio-pan').value = '0';
 }
 
 /***********************************************************************************
@@ -2509,7 +2621,7 @@ function radioDisconnected(idx) {
         deselectRadios();
     }
     // If no more radios connected, set master connect button to disconnected and close serial port
-    if (!radios.some(e => e.connection != null)) {
+    if (!radios.some(isRadioConnectionAlive)) {
         // Set navbar icon to disconnected
         document.querySelector("#navbar-connect").classList.remove("connected");
         document.querySelector("#navbar-connect").classList.add("disconnected");
@@ -2592,10 +2704,10 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
         }
         // If it was an ACK to a button release, play the button sound if enabled
         else if (config.audio.buttonSounds &&
-            env.control.ack.inResponseTo == RadioCommandType.BUTTON_RELEASE ||
-            env.control.ack.inResponseTo == RadioCommandType.BUTTON_TOGGLE ||
-            env.control.ack.inResponseTo == RadioCommandType.CHAN_DOWN ||
-            env.control.ack.inResponseTo == RadioCommandType.CHAN_UP) {
+            acked == RadioCommandType.BUTTON_RELEASE ||
+            acked == RadioCommandType.BUTTON_TOGGLE ||
+            acked == RadioCommandType.CHAN_DOWN ||
+            acked == RadioCommandType.CHAN_UP) {
             playSound('sound-click');
         } 
     // NACK to a message
