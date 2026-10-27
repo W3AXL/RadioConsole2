@@ -7,7 +7,7 @@ const OPUS_FRAME_SAMPLES = 960;         // 20ms @ 48kHz, must match the radio da
 const OPUS_FRAME_DURATION_MS = 20;      // matches the frame sample count above
 const MAX_BUFFER_SECONDS = 0.5;         // hard ceiling before the playback ringbuffer starts dropping old audio
 const TARGET_BUFFER_SECONDS = 0.15;     // Desired decoder buffer length, beyond this we try to start mitigating the delay
-const FORCE_TRIM_BUFFER_SECONDS = 0.35; // Buffer length above which we start hard-dropping new audio frames
+const FORCE_TRIM_BUFFER_SECONDS = 0.35; // Buffer length above which we discard buffered audio straight down to the target, even if it isn't silent
 const MAX_DECODE_QUEUE_DEPTH = 10;      // Limit the decoder queue so we don't slowly drift more and more over time
 
 /** Snapshot of the playback ring buffer's live statistics, as reported by PlaybackProcessor.js */
@@ -67,7 +67,7 @@ export class RadioAudioReceiver {
                 channels,
                 maxBufferSeconds: MAX_BUFFER_SECONDS,
                 targetBufferSeconds: TARGET_BUFFER_SECONDS,
-                forcedTrimBufferSeconds: FORCE_TRIM_BUFFER_SECONDS
+                forceTrimBufferSeconds: FORCE_TRIM_BUFFER_SECONDS
             },
         });
 
@@ -77,6 +77,9 @@ export class RadioAudioReceiver {
             // Underrun alert
             if (msg.type === "underrun") {
                 console.warn(`[${radioName}]: audio playback underrun`);
+            }
+            else if (msg.type === "recovered") {
+                console.debug(`[${radioName}] audio playback recovered`);
             }
             // Latency stats
             else if (msg.type === "stats") {
@@ -114,7 +117,7 @@ export class RadioAudioReceiver {
      */
     getEstimatedAudioBufferMs(): number {
         const queueFrameMs = (this.decoder?.decodeQueueSize ?? 0) * OPUS_FRAME_DURATION_MS;
-        const ringBufferMs = TARGET_BUFFER_SECONDS * 1000;
+        const ringBufferMs = Number.isFinite(this.ring.depthMs) ? this.ring.depthMs : TARGET_BUFFER_SECONDS * 1000;
         return queueFrameMs + ringBufferMs;
     }
 
