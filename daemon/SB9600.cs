@@ -804,7 +804,12 @@ namespace moto_sb9600
             Log.Debug("Starting SB9600 service on serial port {SerialPortName}", Port.PortName);
             ts = new CancellationTokenSource();
             ct = ts.Token;
-            Task.Factory.StartNew(serialLoop, ct);
+            Task.Factory.StartNew(serialLoop, ct, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+                .ContinueWith(t =>
+                {
+                    Log.Error(t.Exception.GetBaseException(), "SB9600 service failed");
+                    radio.Stop();
+                }, TaskContinuationOptions.OnlyOnFaulted);
             Log.Verbose("Started!");
         }
 
@@ -1563,6 +1568,20 @@ namespace moto_sb9600
                                             else
                                                 radio.Status.Direct = false;
                                             break;
+                                        case SoftkeyName.SoftkeySec:
+                                            Log.Debug("Got new secure state from indicator {ind}", indicator.Name);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.Secure = true;
+                                            else
+                                                radio.Status.Secure = false;
+                                            break;
+                                        case SoftkeyName.SoftkeyMon:
+                                            Log.Debug("Got new monitor state from indicator {ind}", indicator.Name);
+                                            if (indicator.State == ControlHeads.IndicatorStates.ON)
+                                                radio.Status.Monitor = true;
+                                            else
+                                                radio.Status.Monitor = false;
+                                            break;
                                     }
                                 }
                             }
@@ -1773,16 +1792,20 @@ namespace moto_sb9600
                         {
                             Log.Verbose("Got at least 5 bytes for an SB9600, trying to parse");
                             // Get 5 bytes into our buffer so we can process them
-                            while (sb9600Buffer.Count < 5)
+                            while (sb9600Buffer.Count < 5 && Port.BytesToRead > 0)
                             {
                                 byte newByte = (byte)Port.ReadByte();
                                 // Ignore a trailing 0x50 ACK from previous SBEP message
                                 if (sb9600Buffer.Count == 0 && newByte == 0x50)
                                 {
                                     Log.Debug("Skipping 0x50 ACK byte from previous SBEP message sequence");
+                                    continue;
                                 }
                                 sb9600Buffer.Add(newByte);
                             }
+                            // If we skipped above, wait for more bytes
+                            if (sb9600Buffer.Count < 5)
+                                break;
                             // Process the message
                             if (!processSB9600(sb9600Buffer.ToArray()))
                             {

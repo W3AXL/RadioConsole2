@@ -12,12 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Concentus" Version="2.2.2" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2" />
-    <PackageReference Include="NAudio" Version="2.2.1" />
-    <PackageReference Include="newtonsoft.json" Version="13.0.5-beta1" />
     <PackageReference Include="Serilog" Version="4.3.1-dev-02406" />
-    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="serilog.sinks.file" Version="7.0.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.2" />
@@ -27,12 +22,9 @@
 
   <!-- RTAudio Native Binaries -->
   <ItemGroup>
-    <None Include="native/rtaudio-win-x64/rtaudio.dll" Condition="'$(RuntimeIdentifier)' == 'win-x64'"
-          CopyToOutputDirectory="PreserveNewest" Link="rtaudio.dll" />
-    <None Include="native/librtaudio-linux-x64/librtaudio.so" Condition="'$(RuntimeIdentifier)' == 'linux-x64'"
-          CopyToOutputDirectory="PreserveNewest" Link="librtaudio.so" />
-    <None Include="native/librtaudio-osx/librtaudio.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-x64'"
-          CopyToOutputDirectory="PreserveNewest" Link="librtaudio.dylib" />
+    <None Include="native/rtaudio-win-x64/rtaudio.dll" Condition="'$(RuntimeIdentifier)' == 'win-x64'" CopyToOutputDirectory="PreserveNewest" Link="rtaudio.dll" />
+    <None Include="native/librtaudio-linux-x64/librtaudio.so" Condition="'$(RuntimeIdentifier)' == 'linux-x64'" CopyToOutputDirectory="PreserveNewest" Link="librtaudio.so" />
+    <None Include="native/librtaudio-osx/librtaudio.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-x64'" CopyToOutputDirectory="PreserveNewest" Link="librtaudio.dylib" />
     <ProjectReference Include="rc2-core/rc2-core.csproj" />
   </ItemGroup>
 
