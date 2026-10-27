@@ -887,7 +887,7 @@ window.electronAPI.saveRadioConfig((event, radioConfig: Cfg.Radio) => {
         const radio = radios[idx];
 
         // Debug print
-        console.info(`Updating radio at index ${editingRadioIdx}`);
+        console.info(`Updating radio at index ${idx}`);
         console.debug(radioConfig);
 
         // Normalize and validate
@@ -2703,11 +2703,11 @@ function handleEnvelope(idx: number, event: MessageEvent): void {
             if (config.audio.buttonSounds) playSound('sound-ptt-end');
         }
         // If it was an ACK to a button release, play the button sound if enabled
-        else if (config.audio.buttonSounds &&
+        else if (config.audio.buttonSounds && (
             acked == RadioCommandType.BUTTON_RELEASE ||
             acked == RadioCommandType.BUTTON_TOGGLE ||
             acked == RadioCommandType.CHAN_DOWN ||
-            acked == RadioCommandType.CHAN_UP) {
+            acked == RadioCommandType.CHAN_UP)) {
             playSound('sound-click');
         } 
     // NACK to a message
