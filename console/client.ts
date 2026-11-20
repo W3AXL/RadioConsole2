@@ -638,13 +638,13 @@ function addRadioCard(idx: number) {
         connectButton(idx);
     });
     // Bind mute button
-    newCard.querySelector(".btn-restart").addEventListener('click', (event) => {
+    newCard.querySelector(".btn-mute").addEventListener('click', (event) => {
         event.stopPropagation();
         event.stopImmediatePropagation();
         muteButton(idx);
     });
     // Bind restart button
-    newCard.querySelector(".btn-mute").addEventListener('click', (event) => {
+    newCard.querySelector(".btn-restart").addEventListener('click', (event) => {
         event.stopPropagation();
         event.stopImmediatePropagation();
         restartButton(idx);
@@ -1203,7 +1203,7 @@ function startPtt(micActive) {
     } else if (!pttActive && selectedRadioIdx == null) {
         pttActive = true;
         console.log("No radio selected, ignoring PTT");
-    } else if (pttActive && alertTonesInProgress) {
+    } else if (pttActive && alertTonesInProgress && !alertPttOverride) {
         alertPttOverride = true;
         console.warn("PTT overriding alert tone PTT timeout");
     }
@@ -1351,6 +1351,11 @@ function toggleMute(idx) {
 }
 
 function muteButton(idx: number) {
+    // if the radio isn't connected, do nothing
+    if (!isRadioConnectionAlive(radios[idx])) {
+        console.debug(`Ignoring mute button for radio ${[radios[idx].cfg.name]}, not connected`);
+        return;
+    }
     // toggle mute
     toggleMute(idx);
 }
@@ -2763,6 +2768,11 @@ function handleSocketError(event, idx) {
  */
 function restartButton(idx: number) {
     const radio = radios[idx];
+    // Check if radio is connected
+    if (!isRadioConnectionAlive(radio)) {
+        console.debug(`Ignoring restart button for radio ${radio.cfg.name}, not connected`);
+        return;
+    }
     // Get raido index
     console.log(`Restarting radio ${radio.cfg.name}`);
     // Stop PTT if running

@@ -11,7 +11,7 @@ export class DtmfGenerator {
     private _freq2: number = 1336;
 
     // Default gain
-    private _gain: number = 0.4;
+    private _gain: number = 0.25;
 
     get freq1(): number {
         return this._freq1;
@@ -141,7 +141,7 @@ export class AlertToneGenerator {
         this._mode = value;
     }
 
-    private _gain: number = 0.4;
+    private _gain: number = 0.25;
 
     get gain(): number {
         return this._gain;
